@@ -36,7 +36,7 @@ Orchestrator sends insights            Eval runs the full suite on vN → evals/
         │                                         ▼
 Analyst writes evals/insights/vN.md  ◄──  Orchestrator merges results, logs, applies the gate
 ```
-Only Eval runs timed benchmarks, and only while no other thread is building or testing. The Orchestrator enforces this by never running two loop stages at once.
+Eval and Explorer run timed benchmarks, one at a time: each timed run holds the machine lock (`mkdir /tmp/builders-bench.lock`, retrying every 60 s; `rmdir` to release, including on failure). Builds that happen while someone holds the lock use `nice -n 19 cargo build --release -j 2`. The Orchestrator enforces this by never running two loop stages at once.
 
 ## Stderr phase-timing contract (Method must keep it)
 The pipeline prints cumulative phase marks to stderr: `[  1.234s] phase name (optional detail)`. Eval parses these. Method may rename, add or split phases, but must keep the format. **Nothing goes to stdout.**
