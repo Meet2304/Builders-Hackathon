@@ -41,6 +41,8 @@ A **summary** object (`S` below) is `{n, median, mean, min, max, p90, stdev, cv,
              "strict": {"total", "passed", "skipped", "failed": [{"seed", "focus", "tags", "robust_reasons",
                                                                   "error", "repro", "diff"?}]},
              "robust": { ...same... }, "by_focus": {"<focus>": {"total", "failed"}}, "failing_tags": {"<tag>": n}},
+    "debug_knobs": {"<SESSIONS_DEBUG variable=value>": {"status": "n/a|pass|fail|not_run",
+                    "dev"?: {"match", "hash"?, "rows"?, "error"?, "diff"?}, "fuzz"?: { ...same as fuzz... }}},
     "determinism": {"<dataset>": {"runs", "hashes": [...], "deterministic", "byte_identical_files"}},
     "row_counts": {"<dataset>": {"user_daily", "campaign_daily"}}
   },
@@ -54,18 +56,25 @@ A **summary** object (`S` below) is `{n, median, mean, min, max, p90, stdev, cv,
         "summary": {"wall_s": S, "user_s": S, "sys_s": S, "cpu_util": S, "max_rss_bytes": S,
                     "peak_footprint_bytes": S, "page_reclaims": S, "page_faults": S, "vcsw": S, "ivcsw": S,
                     "instructions": S, "cycles": S, "stdout_bytes": S, "last_mark_s": S,
-                    "phases": {"<phase key>": S, "(after last mark: exit/unmap + spawn)": S}},
+                    "instructions_per_row"?: S, "cycles_per_row"?: S, "ipc"?: S,
+                    "phases": {"<phase key>": { ...S, "cpu_s"?: S, "parallelism"?: S },
+                               "(after last mark: exit/unmap + spawn)": S}},
         "throughput": {"mb_per_s", "events_per_s", "ns_per_event"},
         "noisy": bool, "noisy_reasons": [...]
       }
     },
     "probe": {"dataset", "wall_s", "threads_max", "rss_sampled_max_bytes", "timeline": [[t_s, threads, rss_bytes]]},
-    "thread_scaling": {"dataset", "points": {"1"|"2"|"4"|"8": {"median_s", "stdev_s", "n", "speedup", "efficiency"}},
-                       "per_ncpu_detail": {"<n>": {"cpu_util": S, "phases": {"<key>": median}}}},
+    "thread_scaling": {"dataset", "points": {"1"|"2"|"4"|"5"|"8": {"median_s", "stdev_s", "n",
+                        "speedup", "efficiency", "p_core_equivalents"?, "hybrid_efficiency"?}},
+                       "per_ncpu_detail": {"<n>": {"cpu_util": S, "phases": {"<key>": median},
+                                                  "phase_speedup": {"<key>": wall speedup vs 1}}}},
     "size_scaling": {"points": {"<role>": {"events", "median_s", "ns_per_event"}},
                      "ratios": {"perf-20M/perf-1M": {"time_ratio", "events_ratio"}, ...}},
-    "container_overhead": {"dev_container_wall_s": S, "dev_native_median_s", "dev_overhead_s", "dev_ratio",
-                           "20m_container_wall_s"?: S, "20m_ratio"?}
+    "container_overhead": {"dev_container_wall_s": S, "dev_native_median_s", "dev_overhead_s", "dev_ratio"},
+    "linux_proxy": {"status": "ok|unavailable", "mem_gib", "dataset"?, "input_storage", "thp_policy",
+                    "reason"?, "attempts": [{"dataset", "error"}], "warmup"?: LINUX_RUN, "sample"?: LINUX_RUN},
+    "cold_cache": {"status": "ok|failed|unavailable", "dataset"?, "load_before"?, "reason"?,
+                   "warm_median_s"?, "run"?: RUN}
   },
 
   "constraints": {"stdout_bytes_max", "threads_max", "threads_probe", "readonly_container_ok",
@@ -73,19 +82,20 @@ A **summary** object (`S` below) is `{n, median, mean, min, max, p90, stdev, cv,
                   "repo": {"tracked_bytes", "tracked_files", "data_files", "largest": [{"path", "bytes"}]}},
 
   "baseline": null | {"kind": "submitted|submit-ready", "version", "sha", "wall_s": S,
-                      "ab_wall_s"?: S, "ab_candidate_wall_s"?: S},
-  "calibration": {"ratio_scorer_over_local", "points", "estimated_scorer_20m_s"},
+                      "board_time_s"?, "ab_load_before"?, "ab_wall_s"?: S, "ab_candidate_wall_s"?: S},
+  "calibration": {"method": "linear|ratio"|null, "points", "intercept"?, "slope"?, "local_range_s"?,
+                  "reason"?, "estimated_scorer_20m_s", "extrapolated", "board_target_s", "beats_board_target"},
 
   "gates": {"A" | "B" | "C": {"status": "pass|fail|incomplete",
                               "checks": [{"name", "status": "pass|fail|not_run", "detail"}],
-                              "warnings"?: [...]}},       // C also has baseline, gain, pooled_sd_s
+                              "warnings"?: [...]}},       // C also has baseline, gain, pooled_sd_s, metric
   "verdict": {"verdict": "REJECT|HOLD|SUBMIT-READY", "final": bool, "reasons": [...], "warnings": [...]},
   "notes": [...], "errors": [{"stage", "error", "trace"}]
 }
 ```
 
 **RUN** (one execution, `lib/measure.run_once`):
-`{returncode, wall_s, ncpu, stdout_bytes, stderr_bytes, phases: [{key, label, at_s, dur_s}], time_real_s, user_s,
+`{returncode, wall_s, ncpu, stdout_bytes, stderr_bytes, phases: [{key, label, at_s, dur_s, cpu_s?, parallelism?}], time_real_s, user_s,
 sys_s, cpu_util, max_rss_bytes, peak_footprint_bytes, page_reclaims, page_faults, vcsw, ivcsw, instructions, cycles,
 block_in, block_out, canonical_hash?, rows?, files_sha?, stderr_tail?}`.
 
@@ -93,8 +103,13 @@ block_in, block_out, canonical_hash?, rows?, files_sha?, stderr_tail?}`.
 - `cpu_util` = (user + sys) / (wall × NCPU).
 - `phases`: parsed from stderr marks `[  1.234s] name (detail)`. The key drops the parenthesised detail and numbers
   (`lookups (3.6M linked ids)` → `lookups`); a repeated key gets ` #2`, ` #3`. New or renamed phases become new keys.
+  CPU time uses the difference between consecutive cumulative marks with CPU values, and parallelism is CPU / wall.
 - `canonical_hash`: sha256 over both tables after sorting all rows by all columns (layout- and order-insensitive).
   `files_sha` hashes the raw output files (byte identity, informational).
+
+**LINUX_RUN** uses GNU time for `process_wall_s`, `minor_faults`, `major_faults`, and `max_rss_bytes`.
+The host measures `container_wall_s` including container setup. The sample also records `phases`,
+`thp_mode`, and `page_bytes`.
 
 **Verdict:** `REJECT` if any Gate A or B check fails; otherwise `HOLD` if Gate C fails or anything is `not_run`
 (then `final: false`, i.e. provisional, e.g. the quick profile); otherwise `SUBMIT-READY`.

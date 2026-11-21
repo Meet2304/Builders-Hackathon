@@ -54,9 +54,10 @@ def probe_linux(image: dict, docker: dict, candidates: list[tuple[str, int]]) ->
         mount = f"type=volume,src={token},dst=/data"
         try:
             call("volume", "create", token, check=True)
-            call("create", "--platform", image["platform"], "--name", stage, "--mount", mount, tag, check=True)
-            call("cp", str(DATA / dataset) + "/.", f"{stage}:/data", timeout=300, check=True)
-            call("rm", stage, check=True)
+            incoming = f"type=bind,src={(DATA / dataset).resolve()},dst=/incoming,readonly"
+            call("run", "--rm", "--platform", image["platform"], "--name", stage, "--network", "none",
+                 "--mount", mount, "--mount", incoming, "--entrypoint", "/bin/cp", tag,
+                 "-r", "/incoming/.", "/data/", timeout=300, check=True)
             flags = ["run", "--rm", "--name", container, "--platform", image["platform"], "--network", "none",
                      "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
                      "--pids-limit", "4096", "--cpus", "8", "--memory", f"{budget_gib}g",
