@@ -15,6 +15,19 @@
 //!      (dedup is skipped: copies are identical, so they can't change credit or assists)
 //!   6. per person bucket: sort, sessionize, credit/assist with a sliding 7-day window
 //!   7. write Parquet
+//!
+//! Debug knobs for the Eval fuzz suite. Each is read once at startup; unset means the
+//! production default. Any setting must leave the output byte-identical (only slower).
+//!   SESSIONS_DEBUG_HASH_BITS=N  keep only the low N bits (0..=64) of every engine hash
+//!                               (event_id and person hashes), forcing collisions so the
+//!                               byte-equality fallbacks run constantly. The std HashMaps
+//!                               (products, campaigns, links) key on full bytes and are not
+//!                               masked: their collision handling is hashbrown's, not ours.
+//!   SESSIONS_DEBUG_CHUNK=BYTES  parse chunk size (default 4 MiB; e.g. 97 to put chunk
+//!                               boundaries everywhere)
+//!   SESSIONS_DEBUG_PARTS=N      partition (bucket) count, 1..=4096 (default 256)
+//!   SESSIONS_DEBUG_NO_FAST=1    reserved: switches off fast paths (SIMD scan, packed IDs)
+//!                               once they exist. No-op today: there are none.
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -38,13 +51,46 @@ type HashMap<K, V> = std::collections::HashMap<K, V, foldhash::fast::RandomState
 const DAY_MS: i64 = 86_400_000;
 const GAP_MS: i64 = 1_800_000;
 const WEEK_MS: i64 = 7 * DAY_MS;
-const NB_BITS: u32 = 8;
-const NB: usize = 1 << NB_BITS;
-const CHUNK: usize = 4 << 20;
+const DEFAULT_NB: usize = 256;
+const DEFAULT_CHUNK: usize = 4 << 20;
+const MAX_NB: usize = 4096;
 
+/// Partition of hash `h` among `nb` buckets: the high bits of h * nb. For nb = 2^k this
+/// equals h >> (64 - k); it also works for nb = 1 and for any nb that isn't a power of 2.
 #[inline]
-fn bucket(h: u64) -> usize {
-    (h >> (64 - NB_BITS)) as usize
+fn bucket(h: u64, nb: usize) -> usize {
+    ((h as u128 * nb as u128) >> 64) as usize
+}
+
+/// Debug knobs (see the module docs). Defaults are the production values.
+struct Knobs {
+    hmask: u64,
+    chunk: usize,
+    nb: usize,
+}
+
+impl Knobs {
+    fn from_env() -> Knobs {
+        let num = |k: &str| -> Option<u64> {
+            let v = env::var(k).ok()?;
+            Some(v.trim().parse().unwrap_or_else(|_| panic!("{k}={v}: not a number")))
+        };
+        let hmask = match num("SESSIONS_DEBUG_HASH_BITS") {
+            None | Some(64..) => u64::MAX,
+            Some(n) => (1u64 << n) - 1,
+        };
+        let chunk = num("SESSIONS_DEBUG_CHUNK").map_or(DEFAULT_CHUNK, |n| n.max(1) as usize);
+        let nb = match num("SESSIONS_DEBUG_PARTS") {
+            None => DEFAULT_NB,
+            Some(n @ 1..=4096) => n as usize,
+            Some(n) => panic!("SESSIONS_DEBUG_PARTS={n}: must be 1..={MAX_NB}"),
+        };
+        let k = Knobs { hmask, chunk, nb };
+        if k.hmask != u64::MAX || k.chunk != DEFAULT_CHUNK || k.nb != DEFAULT_NB || env::var_os("SESSIONS_DEBUG_NO_FAST").is_some() {
+            eprintln!("debug knobs: hash_mask={:#x} chunk={} parts={}", k.hmask, k.chunk, k.nb);
+        }
+        k
+    }
 }
 
 fn new_map<K, V>(cap: usize) -> HashMap<K, V> {
@@ -149,14 +195,14 @@ impl Input {
     }
 
     /// (file index, start, end) chunks covering every data line (headers skipped).
-    fn chunks(&self) -> Vec<(usize, usize, usize)> {
+    fn chunks(&self, chunk: usize) -> Vec<(usize, usize, usize)> {
         let mut out = Vec::new();
         for (fi, m) in self.maps.iter().enumerate() {
             let buf: &[u8] = m;
             let Some(h) = memchr::memchr(b'\n', buf) else { continue };
             let mut pos = h + 1;
             while pos < buf.len() {
-                let mut end = (pos + CHUNK).min(buf.len());
+                let mut end = (pos + chunk).min(buf.len());
                 if end < buf.len() {
                     end = memchr::memchr(b'\n', &buf[end..]).map_or(buf.len(), |i| end + i + 1);
                 }
@@ -285,9 +331,16 @@ struct Lookups<'a> {
     channels: Vec<&'a [u8]>,
     link_idx: HashMap<&'a [u8], u32>, // linked ID -> index into names
     names: Vec<&'a [u8]>,             // index -> person name
+    hmask: u64,                       // SESSIONS_DEBUG_HASH_BITS (all ones by default)
 }
 
 impl<'a> Lookups<'a> {
+    /// Engine hash of an ID (event_id or person name), masked by the debug knob.
+    #[inline]
+    fn hash(&self, b: &[u8]) -> u64 {
+        xxh3_64(b) & self.hmask
+    }
+
     #[inline]
     fn person(&self, user: &'a [u8]) -> &'a [u8] {
         match self.link_idx.get(user) {
@@ -348,9 +401,9 @@ fn find(parent: &mut [u32], mut x: u32) -> u32 {
     r
 }
 
-fn load_links<'a>(input: &'a Input) -> (HashMap<&'a [u8], u32>, Vec<&'a [u8]>) {
+fn load_links<'a>(input: &'a Input, chunk: usize) -> (HashMap<&'a [u8], u32>, Vec<&'a [u8]>) {
     let pairs: Vec<Vec<(&'a [u8], &'a [u8])>> = input
-        .chunks()
+        .chunks(chunk)
         .par_iter()
         .map(|&(fi, s, e)| {
             let buf: &'a [u8] = &input.maps[fi];
@@ -443,7 +496,7 @@ fn parse_event<'a>(line: &'a [u8], lk: &Lookups<'a>, w: &Win) -> Option<Ev<'a>> 
         return None;
     }
     let ingest = parse_ts(f[3]).unwrap_or(i64::MAX);
-    let mut ev = Ev { h: xxh3_64(f[0]), ingest, eid: f[0], name: &[], ph: 0, ts: 0, price: 0, cat: 0, valid: false };
+    let mut ev = Ev { h: lk.hash(f[0]), ingest, eid: f[0], name: &[], ph: 0, ts: 0, price: 0, cat: 0, valid: false };
     let (user, product, etype) = (f[1], f[5], f[4]);
     if user.is_empty() || product.is_empty() {
         return Some(ev);
@@ -465,7 +518,7 @@ fn parse_event<'a>(line: &'a [u8], lk: &Lookups<'a>, w: &Win) -> Option<Ev<'a>> 
     }
     let name = lk.person(user);
     ev.name = name;
-    ev.ph = xxh3_64(name);
+    ev.ph = lk.hash(name);
     ev.ts = ts;
     ev.price = price;
     ev.cat = lk.products.get(product).copied().unwrap_or(lk.unknown_cat);
@@ -485,27 +538,39 @@ fn parse_click<'a>(line: &'a [u8], lk: &Lookups<'a>, w: &Win) -> Option<PCk<'a>>
         return None;
     }
     let name = lk.person(f[1]);
-    Some(PCk { ph: xxh3_64(name), name, ts, cid: f[0], camp })
+    Some(PCk { ph: lk.hash(name), name, ts, cid: f[0], camp })
 }
 
 #[inline]
 fn keep<'a>(e: &Ev<'a>, out: &mut [Vec<PEv<'a>>]) {
     if e.valid {
-        out[bucket(e.ph)].push(PEv { ph: e.ph, name: e.name, ts: e.ts, price: e.price, cat: e.cat });
+        out[bucket(e.ph, out.len())].push(PEv { ph: e.ph, name: e.name, ts: e.ts, price: e.price, cat: e.cat });
     }
 }
 
+/// Gather bucket b from every part. A part may be empty (no buckets at all) when its
+/// producer had no input.
 fn scatter<T: Copy + Send + Sync>(parts: &[Vec<Vec<T>>], b: usize) -> Vec<T> {
-    let n: usize = parts.iter().map(|p| p[b].len()).sum();
+    let n: usize = parts.iter().map(|p| p.get(b).map_or(0, |x| x.len())).sum();
     let mut v = Vec::with_capacity(n);
     for p in parts {
-        v.extend_from_slice(&p[b]);
+        if let Some(x) = p.get(b) {
+            v.extend_from_slice(x);
+        }
     }
     v
 }
 
-fn empty_buckets<T>() -> Vec<Vec<T>> {
-    (0..NB).map(|_| Vec::new()).collect()
+fn empty_buckets<T>(nb: usize) -> Vec<Vec<T>> {
+    (0..nb).map(|_| Vec::new()).collect()
+}
+
+/// Group consecutive chunks into rayon tasks. One chunk per task by default (as many as
+/// 4096 tasks at 256 buckets); only a tiny debug chunk size or a huge bucket count groups
+/// more, to bound the tasks x buckets Vec headers.
+fn task_group(nchunks: usize, nb: usize) -> usize {
+    let max_tasks = ((1usize << 20) / nb).max(64);
+    nchunks.div_ceil(max_tasks).max(1)
 }
 
 // ------------------------------------------------------------------ sessions
@@ -808,6 +873,8 @@ fn main() {
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()));
     rayon::ThreadPoolBuilder::new().num_threads(ncpu).build_global().ok();
     let lap = |what: &str| eprintln!("[{:>7.3}s] {what}", t0.elapsed().as_secs_f64());
+    let knobs = Knobs::from_env();
+    let nb = knobs.nb;
 
     let manifest: serde_json::Value =
         serde_json::from_slice(&read_small(&data.join("manifest.json"))).expect("parse manifest.json");
@@ -830,51 +897,69 @@ fn main() {
         cat_rank[c as usize] = r as u32;
     }
     let (campaigns, camp_ids, channels) = load_campaigns(&campaigns_buf);
-    let (link_idx, names) = load_links(&links_in);
-    let lk = Lookups { products, cat_names, cat_rank, unknown_cat, campaigns, camp_ids, channels, link_idx, names };
+    let (link_idx, names) = load_links(&links_in, knobs.chunk);
+    let lk = Lookups {
+        products,
+        cat_names,
+        cat_rank,
+        unknown_cat,
+        campaigns,
+        camp_ids,
+        channels,
+        link_idx,
+        names,
+        hmask: knobs.hmask,
+    };
     lap(&format!("lookups ({} linked ids)", lk.names.len()));
 
     // events: parse + scatter by event_id
-    let ev_parts: Vec<Vec<Vec<Ev>>> = events_in
-        .chunks()
-        .par_iter()
-        .map(|&(fi, s, e)| {
-            let buf: &[u8] = &events_in.maps[fi];
-            let mut b: Vec<Vec<Ev>> = empty_buckets();
-            for_each_line(buf, s, e, |line| {
-                if let Some(ev) = parse_event(line, &lk, &win) {
-                    b[bucket(ev.h)].push(ev);
-                }
-            });
+    let ev_chunks = events_in.chunks(knobs.chunk);
+    let ev_parts: Vec<Vec<Vec<Ev>>> = ev_chunks
+        .par_chunks(task_group(ev_chunks.len(), nb))
+        .map(|task| {
+            let mut b: Vec<Vec<Ev>> = empty_buckets(nb);
+            for &(fi, s, e) in task {
+                let buf: &[u8] = &events_in.maps[fi];
+                for_each_line(buf, s, e, |line| {
+                    if let Some(ev) = parse_event(line, &lk, &win) {
+                        b[bucket(ev.h, nb)].push(ev);
+                    }
+                });
+            }
             b
         })
         .collect();
     lap("events parsed");
 
     // clicks: parse + validate + scatter by person
-    let ck_parts: Vec<Vec<Vec<PCk>>> = clicks_in
-        .chunks()
-        .par_iter()
-        .map(|&(fi, s, e)| {
-            let buf: &[u8] = &clicks_in.maps[fi];
-            let mut b: Vec<Vec<PCk>> = empty_buckets();
-            for_each_line(buf, s, e, |line| {
-                if let Some(c) = parse_click(line, &lk, &win) {
-                    b[bucket(c.ph)].push(c);
-                }
-            });
+    let ck_chunks = clicks_in.chunks(knobs.chunk);
+    let ck_parts: Vec<Vec<Vec<PCk>>> = ck_chunks
+        .par_chunks(task_group(ck_chunks.len(), nb))
+        .map(|task| {
+            let mut b: Vec<Vec<PCk>> = empty_buckets(nb);
+            for &(fi, s, e) in task {
+                let buf: &[u8] = &clicks_in.maps[fi];
+                for_each_line(buf, s, e, |line| {
+                    if let Some(c) = parse_click(line, &lk, &win) {
+                        b[bucket(c.ph, nb)].push(c);
+                    }
+                });
+            }
             b
         })
         .collect();
     lap("clicks parsed");
 
     // dedup per event bucket, then scatter survivors by person
-    let pe_parts: Vec<Vec<Vec<PEv>>> = (0..NB)
+    let pe_parts: Vec<Vec<Vec<PEv>>> = (0..nb)
         .into_par_iter()
         .map(|b| {
             let mut v = scatter(&ev_parts, b);
+            if v.is_empty() {
+                return Vec::new(); // scatter reads a missing bucket as empty
+            }
             v.sort_unstable_by(|x, y| x.h.cmp(&y.h).then(x.ingest.cmp(&y.ingest)));
-            let mut out: Vec<Vec<PEv>> = empty_buckets();
+            let mut out: Vec<Vec<PEv>> = empty_buckets(nb);
             let mut i = 0;
             let mut seen: Vec<&[u8]> = Vec::new();
             while i < v.len() {
@@ -884,6 +969,17 @@ fn main() {
                 }
                 if j - i == 1 {
                     keep(&v[i], &mut out);
+                } else if j - i > 16 {
+                    // Many IDs share this hash (only under SESSIONS_DEBUG_HASH_BITS, in
+                    // practice): sort the group by (event_id, ingest), keep the first of
+                    // each event_id. Same result as below, without the quadratic scan.
+                    let g = &mut v[i..j];
+                    g.sort_unstable_by(|x, y| x.eid.cmp(y.eid).then(x.ingest.cmp(&y.ingest)));
+                    for k in 0..g.len() {
+                        if k == 0 || g[k].eid != g[k - 1].eid {
+                            keep(&g[k], &mut out);
+                        }
+                    }
                 } else {
                     // sorted by ingest: the first copy of each distinct event_id wins
                     seen.clear();
@@ -908,7 +1004,7 @@ fn main() {
     let ctx = Ctx { lk: &lk, first_day, ndays, ncamp };
     let ncat = lk.cat_names.len();
 
-    let accs: Vec<Acc> = (0..NB)
+    let accs: Vec<Acc> = (0..nb)
         .into_par_iter()
         .fold(
             || (Acc { users: Vec::new(), camp: vec![[0i64; 4]; (ncamp + 1) * ndays] }, ActiveSet::new(ncamp), vec![0i64; ncat]),
