@@ -20,11 +20,16 @@ def refresh_ledger(model, estimates):
             columns = {name: j for j, name in enumerate(cells)}
             if "Board 20M (est.)" not in columns:
                 return
-        if not columns or len(cells) != len(columns) or not cells[columns["20M"]].endswith("s"):
+        if not columns or len(cells) != len(columns):
             continue
         key = tuple(cells[columns[name]] for name in ("Date", "Version", "Commit"))
-        local = float(cells[columns["20M"]].removesuffix("s"))
-        cells[columns["Board 20M (est.)"]] = fmt_s(estimates.get(key, estimate(model, local)))
+        if key in estimates:
+            board = estimates[key]
+        elif (wall := cells[columns["20M"]]).endswith("s"):
+            board = estimate(model, float(wall.removesuffix("s")))
+        else:
+            continue
+        cells[columns["Board 20M (est.)"]] = fmt_s(board)
         lines[i] = "| " + " | ".join(cells) + " |"
     path.write_text("\n".join(lines) + "\n")
 

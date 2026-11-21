@@ -116,6 +116,16 @@ def gate_b(r: dict) -> dict:
                      "fixtures+dev in --read-only containers" if ro else ""))
     img = k.get("clean_image_build_ok")
     out.append(check("image builds from clean", _status(img), k.get("clean_image_build_detail", "")))
+    out.append(check("amd64 cascadelake builds from clean", _status(k.get("cascadelake_build_ok"))))
+    memory = r.get("perf", {}).get("linux_60m_memory", {})
+    peak = memory.get("sample", {}).get("cgroup_peak_bytes")
+    mem_ok = None
+    if memory.get("status") == "ok" and peak is not None:
+        mem_ok = 0 < peak <= 22 * 2**30 and not memory["sample"].get("oom_kills")
+    elif any(a.get("oom_kills") or a.get("returncode") == 137 for a in memory.get("attempts", [])):
+        mem_ok = False
+    out.append(check("60M Linux runs within 22 GiB cgroup", _status(mem_ok),
+                     f"cgroup peak {peak / 2**30:.2f} GiB" if peak else memory.get("reason", "")))
     repo = k.get("repo", {})
     if repo:
         ok = repo["tracked_bytes"] < LIMITS["repo_bytes"] and not repo["data_files"]
@@ -172,7 +182,7 @@ def perf_20m(res: dict) -> dict | None:
     return None
 
 
-def gate_c(r: dict) -> dict:
+def native_gate_c(r: dict) -> dict:
     cand = perf_20m(r)
     base = r.get("baseline")
     if not cand or not cand.get("n"):
@@ -224,7 +234,10 @@ def linux_signal(r: dict) -> dict:
     timing = r["perf"]["linux_timing"]
     b = timing.get("baseline_summary", {}).get("process_wall_s", {})
     c = timing.get("summary", {}).get("process_wall_s", {})
-    if min(b.get("n", 0), c.get("n", 0)) < 5 or timing.get("baseline_sha") != (r.get("baseline") or {}).get("sha"):
+    minimum = max((r.get("baseline") or {}).get("ab_required_pairs", 5),
+                  FAST_RUNS if is_fast(b) or is_fast(c) else 5)
+    if (min(b.get("n", 0), c.get("n", 0)) < minimum or timing.get("warmup", {}).get("thp_mode") != "madvise"
+            or timing.get("baseline_sha") != (r.get("baseline") or {}).get("sha")):
         return {"status": "unavailable", "detail": "no comparable paired Linux samples"}
     delta = b["median"] - c["median"]
     gain = delta / b["median"]
@@ -233,6 +246,22 @@ def linux_signal(r: dict) -> dict:
     status = ("supports" if delta > 0 else "regression") if significant else "inconclusive"
     return {"status": status, "gain": round(gain, 4), "pooled_sd_s": round(sd, 6), "pairs": b["n"],
             "detail": f"{c['median']:.4f}s vs {b['median']:.4f}s ({gain:+.1%}, {b['n']} pairs)"}
+
+
+def gate_c(r: dict) -> dict:
+    native = native_gate_c(r)
+    if "linux_timing" not in r["perf"]:
+        return native
+    linux = linux_signal(r)
+    result = {**native, "linux_ab": linux}
+    if linux["status"] == "supports":
+        result["status"] = "pass"
+        result["checks"] = [check("Linux 20M gain >= 5% and > 2x pooled stdev", "pass", linux["detail"])]
+        result["native"] = native
+        result["metric"] = "linux arm64"
+        result["gain"] = linux["gain"]
+        result["pooled_sd_s"] = linux["pooled_sd_s"]
+    return result
 
 
 def verdict(r: dict) -> dict:

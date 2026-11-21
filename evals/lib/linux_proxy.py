@@ -5,27 +5,64 @@ import re
 import subprocess
 import time
 import uuid
+from contextlib import contextmanager
 
 from .bench_lock import benchmark_lock
 from .common import DATA, log
 from .gates import FAST_RUNS, is_fast
-from .measure import parse_phases, summarize
+from .measure import ContaminatedSample, parse_phases, sample_load, summarize
 
 GIB = 2**30
-TIMING = re.compile(r"^eval_time ([0-9.]+) (\d+) (\d+) (\d+)$", re.MULTILINE)
+TIMING = re.compile(r"^eval_time ([0-9.]+) (\d+) (\d+) (\d+) ([0-9.]+) ([0-9.]+)$", re.MULTILINE)
 WALL_NS = re.compile(r"^eval_wall_ns (\d+)$", re.MULTILINE)
-PROBE_SCRIPT = """\
+THP_PATH = "/sys/kernel/mm/transparent_hugepage/enabled"
+THP_MODE = re.compile(r"\[(always|madvise|never)\]")
+PROBE_SCRIPT = r"""
 if [ -r /sys/kernel/mm/transparent_hugepage/enabled ]; then
     printf 'eval_thp '
     cat /sys/kernel/mm/transparent_hugepage/enabled
 fi
 printf 'eval_page_bytes '
 getconf PAGESIZE
+vmstat() {
+    awk '$1 == "thp_fault_alloc" || $1 == "thp_fault_fallback" {print "'"$1"'", $1, $2}' /proc/vmstat
+}
+vmstat eval_vm_before
+pid_file=/scratch/eval_pid
+peak_file=/scratch/eval_peak
+# Use a wrapper that reports its own PID before exec, so smaps is sampled for the candidate.
 start=$(date +%s%N)
-/usr/bin/time -f 'eval_time %e %R %F %M' /app/sessions
+/usr/bin/time -f 'eval_time %e %R %F %M %U %S' /bin/sh -c 'echo "$$" > "$1"; exec /app/sessions' sh "$pid_file" &
+timer=$!
+(
+    while [ ! -s "$pid_file" ] && kill -0 "$timer" 2>/dev/null; do sleep 0.01; done
+    [ -s "$pid_file" ] || exit 0
+    read -r pid < "$pid_file"
+    anon=0; huge=0
+    while kill -0 "$pid" 2>/dev/null && [ -r "/proc/$pid/smaps_rollup" ]; do
+        values=$(awk '/^Anonymous:/ {a=$2; found=1} /^AnonHugePages:/ {h=$2}
+                     END {if (found) print a+0, h+0}' "/proc/$pid/smaps_rollup" 2>/dev/null) || break
+        [ -n "$values" ] || break
+        set -- $values
+        [ "$1" -le "$anon" ] || anon=$1
+        [ "$2" -le "$huge" ] || huge=$2
+        printf 'eval_smaps %s %s\n' "$anon" "$huge" > "$peak_file"
+        sleep 0.1
+    done
+) &
+sampler=$!
+wait "$timer"
 status=$?
 end=$(date +%s%N)
+wait "$sampler"
 printf 'eval_wall_ns %s\n' "$((end - start))" >&2
+[ ! -s "$peak_file" ] || cat "$peak_file"
+vmstat eval_vm_after
+if [ -r /sys/fs/cgroup/memory.peak ]; then
+    printf 'eval_cgroup_peak '
+    cat /sys/fs/cgroup/memory.peak
+    awk '$1 == "oom_kill" {print "eval_oom_kills", $2}' /sys/fs/cgroup/memory.events
+fi
 exit "$status"
 """
 COLD_PREP = r"""
@@ -39,16 +76,43 @@ printf '%s\n' "$resident" | awk '{bytes += $1} END {printf "%.0f\n", bytes}'
 """
 
 
+@contextmanager
+def thp_madvise(call, platform, tag, result):
+    prefix = ("run", "--rm", "--platform", platform, "--privileged", "--network", "none",
+              "--entrypoint", "/bin/sh", tag, "-c")
+
+    def control(mode=None):
+        script = 'if [ "$#" -gt 1 ]; then printf "%s\n" "$2" > "$1" || exit; fi; cat "$1"'
+        p = call(*prefix, script, "sh", THP_PATH, *([mode] if mode else []), timeout=30, check=True)
+        match = THP_MODE.search(p.stdout)
+        if not match or (mode and match.group(1) != mode):
+            raise RuntimeError(f"could not verify Docker VM THP mode {mode or ''}")
+        return match.group(1)
+
+    previous = control()
+    result["thp_previous"] = previous
+    try:
+        control("madvise")
+        result["thp_policy"] = "madvise"
+        yield
+    finally:
+        try:
+            result["thp_restored"] = control(previous)
+        except (OSError, RuntimeError, subprocess.SubprocessError):
+            log(f"ERROR: Docker VM THP restoration to {previous} failed")
+            raise
+
+
 @benchmark_lock()
 def probe_linux(image: dict, docker: dict, candidates: list[tuple[str, int]], *, cold: bool = False,
                 timed_runs: int | None = None, event_lines: int = 0, baseline_image: dict | None = None,
-                before_timing=None) -> dict:
+                before_timing=None, memory_check: bool = False) -> dict:
     """Try candidate datasets in descending size, falling back when the VM cannot run one."""
     vm_budget_gib = min(24, docker["mem_bytes"] // GIB - 1)
-    budget_gib = 24 if timed_runs else vm_budget_gib
+    budget_gib = 22 if memory_check else (24 if timed_runs else vm_budget_gib)
     result = {"status": "unavailable", "mem_gib": budget_gib, "attempts": [],
               "input_storage": "Docker named volume", "thp_policy": "VM default"}
-    if vm_budget_gib < 2 or not candidates:
+    if vm_budget_gib < (22 if memory_check else 2) or not candidates:
         result["reason"] = "insufficient Docker VM memory or no datasets"
         return result
 
@@ -99,25 +163,46 @@ def probe_linux(image: dict, docker: dict, candidates: list[tuple[str, int]], *,
                      "--entrypoint", "/bin/sh"]
 
             def sample(run_tag):
+                load = sample_load()
                 start = time.perf_counter()
                 run = call(*flags, run_tag, "-c", PROBE_SCRIPT, timeout=120)
                 wall = time.perf_counter() - start
                 match = TIMING.search(run.stderr)
+                cgroup = re.search(r"^eval_cgroup_peak (\d+)$", run.stdout, re.MULTILINE)
+                oom = re.search(r"^eval_oom_kills (\d+)$", run.stdout, re.MULTILINE)
                 if run.returncode or not match:
-                    return {"error": f"exit {run.returncode}: {run.stderr[-600:]}"}
-                elapsed, minor, major, rss = match.groups()
+                    return {"error": f"exit {run.returncode}: {run.stderr[-600:]}", "returncode": run.returncode,
+                            "oom_kills": int(oom.group(1)) if oom else None, "load_before": load}
+                elapsed, minor, major, rss, user, sys = match.groups()
                 ns = WALL_NS.search(run.stderr)
                 if timed_runs and not ns:
                     return {"error": "missing inside-container wall clock"}
                 thp = re.search(r"^eval_thp (.+)$", run.stdout, re.MULTILINE)
-                active = re.search(r"\[([^]]+)\]", thp.group(1)) if thp else None
+                active = THP_MODE.search(thp.group(1)) if thp else None
+                if not active or active.group(1) != "madvise":
+                    return {"error": "sample did not run under THP madvise"}
                 page = re.search(r"^eval_page_bytes (\d+)$", run.stdout, re.MULTILINE)
-                return {"process_wall_s": int(ns.group(1)) / 1e9 if ns else float(elapsed),
+                smaps = re.search(r"^eval_smaps (\d+) (\d+)$", run.stdout, re.MULTILINE)
+                vmstat = {(step, name): int(value) for step, name, value in re.findall(
+                    r"^eval_vm_(before|after) (thp_fault_\w+) (\d+)$", run.stdout, re.MULTILINE)}
+                phases = parse_phases(run.stderr)
+                process_s = int(ns.group(1)) / 1e9 if ns else float(elapsed)
+                return {"process_wall_s": process_s, "load_before": load, "user_s": float(user), "sys_s": float(sys),
                         "container_wall_s": round(wall, 4),
                         "minor_faults": int(minor), "major_faults": int(major), "max_rss_bytes": int(rss) * 1024,
-                        "thp_mode": active.group(1) if active else None,
-                        "page_bytes": int(page.group(1)) if page else None, "phases": parse_phases(run.stderr)}
+                        "thp_mode": active.group(1), "cgroup_peak_bytes": int(cgroup.group(1)) if cgroup else None,
+                        "peak_anon_bytes": int(smaps.group(1)) * 1024 if smaps else None,
+                        "peak_anon_huge_bytes": int(smaps.group(2)) * 1024 if smaps else None,
+                        "oom_kills": int(oom.group(1)) if oom else None,
+                        "exit_tail_s": max(process_s - phases[-1]["at_s"], 0) if phases else None,
+                        **{key: vmstat["after", key] - vmstat["before", key]
+                           for key in ("thp_fault_alloc", "thp_fault_fallback")
+                           if ("before", key) in vmstat and ("after", key) in vmstat},
+                        "page_bytes": int(page.group(1)) if page else None, "phases": phases}
 
+            if memory_check:
+                run = sample(tag)
+                return run if "error" in run else {"sample": run}
             if cold:
                 # The staging files belong to root. Run fincore as their owner to get real residency.
                 prep = call("run", "--rm", "--platform", image["platform"], "--name", stage, "--network", "none",
@@ -138,7 +223,7 @@ def probe_linux(image: dict, docker: dict, candidates: list[tuple[str, int]], *,
             return timed_samples(sample, tag, baseline_tag, warmup, timed_runs, event_lines, load)
         except subprocess.CalledProcessError as e:
             return {"error": (e.stderr or str(e))[-800:]}
-        except (OSError, subprocess.TimeoutExpired) as e:
+        except (OSError, subprocess.TimeoutExpired, ContaminatedSample) as e:
             return {"error": str(e)}
         finally:
             # Also remove containers left running by a timed-out Docker client.
@@ -148,16 +233,22 @@ def probe_linux(image: dict, docker: dict, candidates: list[tuple[str, int]], *,
                 except (OSError, subprocess.TimeoutExpired) as e:
                     log(f"Linux proxy cleanup for {token}: {e}")
 
-    for dataset, footprint in candidates:
-        if footprint + GIB > vm_budget_gib * GIB:
-            result["attempts"].append({"dataset": dataset, "error": "native footprint leaves <1 GiB headroom"})
-            continue
-        log(f"Linux proxy: staging {dataset} in a named volume (memory limit {budget_gib} GiB)")
-        attempt = stage_and_run(dataset)
-        if "sample" in attempt or "runs" in attempt:
-            result.update(status="ok", dataset=dataset, **attempt)
-            break
-        result["attempts"].append({"dataset": dataset, **attempt})
+    try:
+        with thp_madvise(call, image["platform"], tag, result):
+            for dataset, footprint in candidates:
+                if footprint + GIB > vm_budget_gib * GIB:
+                    result["attempts"].append({"dataset": dataset, "error": "native footprint leaves <1 GiB headroom"})
+                    continue
+                log(f"Linux proxy: staging {dataset} in a named volume (memory limit {budget_gib} GiB)")
+                attempt = stage_and_run(dataset)
+                if "sample" in attempt or "runs" in attempt:
+                    result.update(status="ok", dataset=dataset, **attempt)
+                    break
+                result["attempts"].append({"dataset": dataset, **attempt})
+    except (OSError, RuntimeError, subprocess.SubprocessError) as e:
+        if result.get("thp_previous") and not result.get("thp_restored"):
+            raise RuntimeError(f"could not restore Docker VM THP mode to {result['thp_previous']}") from e
+        result.update(status="unavailable", reason=str(e))
     return result
 
 
@@ -193,8 +284,9 @@ def timed_samples(sample, candidate, baseline, warmup, runs, event_lines, load):
             target = max(runs, FAST_RUNS)
 
     def summary(series):
-        keys = ("process_wall_s", "container_wall_s", "minor_faults", "major_faults",
-                "minor_faults_per_row", "major_faults_per_row")
+        keys = ("process_wall_s", "container_wall_s", "minor_faults", "major_faults", "sys_s", "exit_tail_s",
+                "minor_faults_per_row", "major_faults_per_row", "thp_fault_alloc", "thp_fault_fallback",
+                "peak_anon_bytes", "peak_anon_huge_bytes", "cgroup_peak_bytes")
         return {key: summarize([sample[key] for sample in series if key in sample]) for key in keys}
 
     result.update(runs=samples[candidate], summary=summary(samples[candidate]))

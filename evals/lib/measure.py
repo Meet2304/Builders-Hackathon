@@ -103,6 +103,42 @@ def clean_dir(d: Path):
     d.mkdir(parents=True, exist_ok=True)
 
 
+class ContaminatedSample(RuntimeError):
+    pass
+
+
+def sample_load(max_wait_s: float = 60) -> dict:
+    """Wait for a sample boundary without a foreign process over 20% of a CPU."""
+    begin = time.monotonic()
+    logged = False
+    while True:
+        p = subprocess.run(["ps", "-Ao", "pid=,ppid=,pcpu=,comm="], check=True, capture_output=True, text=True,
+                           env=dict(os.environ, LC_ALL="C"))
+        processes = [line.split(None, 3) for line in p.stdout.splitlines() if line.strip()]
+        owned = {os.getpid()}
+        while True:
+            children = {int(pid) for pid, ppid, _, _ in processes if int(ppid) in owned}
+            if children <= owned:
+                break
+            owned.update(children)
+        foreign = [{"pid": int(pid), "pcpu": float(cpu), "comm": comm} for pid, _, cpu, comm in processes
+                   if int(pid) not in owned and float(cpu) > 20]
+        waited = time.monotonic() - begin
+        if not foreign:
+            l1, l5, l15 = os.getloadavg()
+            return {"load1": round(l1, 2), "load5": round(l5, 2), "load15": round(l15, 2),
+                    "contamination_wait_s": round(waited, 3)}
+        culprit = max(foreign, key=lambda p: p["pcpu"])
+        message = f"{culprit['comm']} pid={culprit['pid']} at {culprit['pcpu']:g}% CPU"
+        if waited >= max_wait_s:
+            raise ContaminatedSample(f"postponed sample for {waited:.1f}s: {message}")
+        if not logged:
+            from .common import log
+            log(f"postponing sample: {message}")
+            logged = True
+        time.sleep(min(2, max_wait_s - waited))
+
+
 def run_once(binary: Path, data: Path, out: Path, scratch: Path, ncpu: int, timeout: float = 600,
              probe: bool = False, extra_env: dict | None = None) -> dict:
     """One run of the binary with the scorer's env vars. Output and scratch dirs are emptied first."""
@@ -116,6 +152,7 @@ def run_once(binary: Path, data: Path, out: Path, scratch: Path, ncpu: int, time
     stdout_path = scratch.parent / f".{scratch.name}.stdout"
     cmd = [str(binary)] if probe else ["/usr/bin/time", "-l", str(binary)]
     samples = []
+    load = sample_load()
     with open(stdout_path, "wb") as so:
         t0 = time.perf_counter()
         p = subprocess.Popen(cmd, env=env, stdout=so, stderr=subprocess.PIPE, cwd=str(scratch),
@@ -166,6 +203,7 @@ def run_once(binary: Path, data: Path, out: Path, scratch: Path, ncpu: int, time
     stderr = b"".join(err_chunks).decode("utf-8", "replace")
     prog_err, time_err = _split_time_output(stderr) if not probe else (stderr, "")
     res = {"returncode": rc, "wall_s": round(wall, 4), "ncpu": ncpu,
+           "load_before": load,
            "stdout_bytes": stdout_path.stat().st_size, "stderr_bytes": len(prog_err.encode()),
            "phases": parse_phases(prog_err)}
     stdout_path.unlink(missing_ok=True)

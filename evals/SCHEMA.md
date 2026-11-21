@@ -123,8 +123,16 @@ New Linux timing runs use an inside-container wall clock around GNU time for `pr
 Timed samples include `minor_faults_per_row` and `major_faults_per_row` using physical event rows as
 the denominator. **LINUX_STATS** maps both wall times, both fault counts and both fault rates to summary objects.
 
-**Gate C secondary signal** is `gates.C.linux_secondary` with `status` (`supports|regression|inconclusive|unavailable`),
-`detail`, and, when comparable, `gain`, `pooled_sd_s`, and `pairs`. The signal is informational.
+**Gate C Linux A/B** is `gates.C.linux_ab`, with `status` (`supports|regression|inconclusive|unavailable`),
+`detail`, and, when comparable, `gain`, `pooled_sd_s`, and `pairs`. A qualifying Linux improvement can pass Gate C
+and retains the native result under `gates.C.native`.
+
+New timed samples record `load_before` (host load averages and contamination wait duration).
+Linux samples also include `user_s`, `sys_s`, `exit_tail_s`, `peak_anon_bytes`, `peak_anon_huge_bytes`,
+`cgroup_peak_bytes`, `oom_kills`, and VM-wide `thp_fault_alloc` and `thp_fault_fallback` deltas when accessible.
+The Linux results record `thp_previous`, `thp_policy`, and `thp_restored`. The 60M cap check is stored in
+`perf.linux_60m_memory` with the same single-sample shape as the Linux fault probe. The clean scorer-target build
+is recorded in `build.images.amd64-cascadelake` and checked via `constraints.cascadelake_build_ok`.
 
 **Verdict:** `REJECT` if any Gate A or B check fails; otherwise `HOLD` if Gate C fails or anything is `not_run`
 (then `final: false`, i.e. provisional, e.g. the quick profile); otherwise `SUBMIT-READY`.

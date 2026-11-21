@@ -116,6 +116,8 @@ def build_image(sha: str, arch: str, no_cache: bool = False, x86_cpu: str = "x86
     """docker buildx build of the candidate's own Dockerfile. arch: arm64 | amd64."""
     src = source_tree(sha)
     tag = image_tag(sha, arch)
+    if arch == "amd64" and x86_cpu != "x86-64-v2":
+        tag += f"-{x86_cpu}"
     cmd = ["docker", "buildx", "build", "--platform", f"linux/{arch}", "--build-arg", f"X86_CPU={x86_cpu}",
            "--load", "-t", tag, str(src)]
     if no_cache:

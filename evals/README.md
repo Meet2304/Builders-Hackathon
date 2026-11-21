@@ -22,8 +22,10 @@ Outputs: `results/NAME.json` (machine-readable), `results/NAME.md` (summary), on
 [ledger.md](ledger.md). Progress is logged to stderr. Re-running a version name overwrites its result files
 and appends a new ledger row.
 
-**Only run timed evals on a quiet machine.** Timing blocks record the instantaneous CPU-busy % and load average
-before they start. Native dataset blocks are flagged `noisy` when the machine was > 12 % busy or the CV is > 5 %.
+**Only run timed evals on a quiet machine.** Each sample records host load and waits if a process outside
+the evaluator's process tree uses more than 20% of one CPU. A block postponed for 60 seconds stops sampling
+and records the blocker. Blocks with wall-time CV over 3% are marked noisy in the ledger, with raw values
+available in the result files. Native blocks also flag the host's existing 12% aggregate pre-block threshold.
 
 ## Shared benchmark lock
 
@@ -67,6 +69,7 @@ as `eval-selftest` do not acquire the benchmark lock. The orchestration protocol
 | interleaved A/B vs the Gate C baseline on 20M | 11 pairs if fast | 5 pairs, or 11 if fast |
 | arm64 image clean build (`--no-cache`, timed), fixtures + dev in the container, container overhead | | ✓ |
 | amd64 image (emulated, `X86_CPU=x86-64-v2`), fixtures + dev in the container | | ✓ |
+| clean amd64 `cascadelake` build and 60M Linux memory cap check | | ✓ |
 | Linux named-volume 20M timing, or informational fallback probe | | ✓ |
 | cold-cache run | | ✓ (where available) |
 
@@ -123,12 +126,15 @@ constraints and amd64 correctness gates, so its verdict is provisional when the 
   interleaved with the Gate C baseline when available. It extends to 11 pairs for sub-0.5 s medians, and
   `--ab-runs` can request more pairs. The report puts these medians and minima next to the native data.
   GNU time measures minor and major faults. Both are divided by physical event data lines, including dirty rows.
+  Under the benchmark lock a privileged setup container switches the VM to THP `madvise` and verifies restoration
+  of the previous policy in cleanup. Candidate containers retain the usual read-only, network-disabled limits.
+  Samples include VM-wide THP fault-allocation and fallback deltas, anonymous and anonymous-huge-page peaks
+  sampled every 100 ms from `smaps_rollup`, system CPU, and the wall time after the last phase mark.
+  The full profile runs 60M once with a 22 GiB limit and checks cgroup peak memory, including file cache.
 - The Linux probe stages input in a temporary Docker named volume and uses GNU time for process wall time,
   minor and major faults, and RSS. The proxy tries 20M with VM memory headroom and falls back to dev (1M).
   It reports one warm-up and one measured run. Each process still incurs first-touch faults with warm input.
-  The auxiliary image installs GNU time during setup. The runtime uses the VM's THP policy and records its active
-  mode and page size. Changing THP for a second measurement requires a separately configured VM because
-  the setting is shared by containers.
+  The auxiliary image installs GNU time during setup. The report records verified THP mode and page size.
 - The cold-cache probe attempts macOS `purge` without sudo and records one informational 20M run if successful.
   Permission errors are recorded as unavailable. For a Linux follow-up, `probe_linux(..., cold=True)` evicts
   each input file from the named-volume page cache and checks zero resident input bytes with `fincore` before
@@ -203,7 +209,8 @@ invariants.
   Supported debug knobs must also match on dev and strict fuzz.
   The 60M consistency check is reported, but it isn't part of Gate A's oracle list.
 - **B, constraints:** 60M peak footprint ≤ 16 GB; 60M median ≤ 30 s; stdout < 1 MB; threads < 1000; the
-  read-only container runs succeed; the arm64 image builds with `--no-cache`; tracked repo < 50 MB with no `data/`.
+  read-only container runs succeed; arm64 and scorer-target amd64 `cascadelake` build with `--no-cache`;
+  the 60M Linux run completes within 22 GiB; tracked repo < 50 MB with no `data/`.
 - **C, worth a submission:** the 20M median (≥ 5 runs) is ≥ 5 % faster than the baseline **and** the gap is
   > 2 × the pooled stdev. The baseline is the best version in `submissions.json`. If nothing has been submitted,
   it is the best SUBMIT-READY result in `results/`. Submitted versions are ranked by board time when available
@@ -212,9 +219,8 @@ invariants.
   the same conditions. If either median is below 0.5 s, Gate C needs 11 successful interleaved pairs, and a
   candidate below 0.5 s needs 11 primary timed samples.
   Use `--ab-runs 11` with `evals/run.py --profile full` or `--profile linux` to require 11 pairs at slower times.
-  The paired Linux comparison is a secondary signal on the same baseline. A gain or regression of at least 5%
-  and more than twice the pooled standard deviation is flagged in the corresponding direction. Smaller
-  differences are inconclusive. The existing native or calibrated comparison determines Gate C's verdict.
+  Paired Linux A/B under THP `madvise` uses the same baseline, gain threshold, and pooled deviation test.
+  Gate C passes when either the native or Linux comparison passes. The ledger includes a separate Linux 20M column.
 - **Verdict:** REJECT (A or B fails) / HOLD (C fails, or something wasn't run: provisional) / SUBMIT-READY.
 
 **Calibration:** after a submission, add `{version, board_s}` to `calibration.json` and run
@@ -223,6 +229,7 @@ invariants.
 and the ledger, with extrapolation flagged. Gate C uses estimated scorer seconds when both estimates are
 positive and scales the pooled deviation by the slope. Without usable estimates it uses local seconds.
 The calibration command refreshes estimates on existing results and ledger rows while preserving recorded verdicts.
+Record the actual practice board time after submission. Until then, reports flag missing calibration data.
 
 ## Files
 
