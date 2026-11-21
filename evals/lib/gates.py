@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .common import EVALS, read_json
+from .calibration import estimate
 from .measure import pooled_sd
 
 GB = 10**9
@@ -178,17 +179,26 @@ def gate_c(r: dict) -> dict:
     # prefer an interleaved A/B measurement of the baseline taken in this same eval
     b = base.get("ab_wall_s") or base["wall_s"]
     c_ = base.get("ab_candidate_wall_s") or cand
-    gain = (b["median"] - c_["median"]) / b["median"]
+    b_med, c_med = b["median"], c_["median"]
     sd = pooled_sd(b, c_)
+    cal = r.get("calibration", {})
+    b_est, c_est = estimate(cal, b_med), estimate(cal, c_med)
+    metric = "local"
+    if b_est is not None and c_est is not None:
+        b_med, c_med = b_est, c_est
+        sd *= cal["slope"]
+        metric = "estimated scorer"
+    delta = b_med - c_med
+    gain = delta / b_med
     ok_gain = gain >= GATE_C_MIN_GAIN
-    ok_sig = (b["median"] - c_["median"]) > GATE_C_SIGMAS * sd
+    ok_sig = delta > GATE_C_SIGMAS * sd
     src = "interleaved A/B in this eval" if base.get("ab_wall_s") else "baseline's own result JSON"
     return {"status": "pass" if ok_gain and ok_sig else "fail", "baseline": base,
-            "gain": round(gain, 4), "pooled_sd_s": round(sd, 5),
+            "gain": round(gain, 4), "pooled_sd_s": round(sd, 5), "metric": metric,
             "checks": [check(f">= 5% faster than {base['version']} ({base['kind']})", _status(ok_gain),
-                             f"{c_['median']:.3f}s vs {b['median']:.3f}s = {gain * 100:+.1f}% ({src})"),
+                             f"{c_med:.3f}s vs {b_med:.3f}s = {gain * 100:+.1f}% ({metric}, {src})"),
                        check("> 2x pooled stdev", _status(ok_sig),
-                             f"delta {b['median'] - c_['median']:.4f}s vs 2sd {2 * sd:.4f}s")]}
+                             f"delta {delta:.4f}s vs 2sd {2 * sd:.4f}s")]}
 
 
 def verdict(r: dict) -> dict:

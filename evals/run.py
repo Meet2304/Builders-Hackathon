@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cache_reference import cached_ok  # noqa: E402
 from lib import gates  # noqa: E402
 from lib.build import build_image, build_native, docker_info, repo_size, resolve  # noqa: E402
+from lib.calibration import report as calibration_report  # noqa: E402
 from lib.common import (CONSISTENCY, DATA, EVALS, EXPECTED, REPO, WORK, canonical_hash, dataset_stats,  # noqa: E402
                         diff_outputs, invariants, log, read_json, reference_sha, sha256_file, write_json)
 from lib.correct import check_output, fuzz_gen_sha, run_fixtures, run_fuzz, runner_cmd  # noqa: E402
@@ -491,11 +492,8 @@ class Eval:
 
     def calibration(self):
         cal = read_json(EVALS / "calibration.json", {})
-        ratio = cal.get("ratio")
-        s = gates.perf_20m(self.r)
-        self.r["calibration"] = {"ratio_scorer_over_local": ratio, "points": len(cal.get("points", [])),
-                                 "estimated_scorer_20m_s": round(s["median"] * ratio, 3) if ratio and s and s.get(
-                                     "n") else None}
+        stats = gates.perf_20m(self.r) or {}
+        self.r["calibration"] = calibration_report(cal, stats.get("median"))
 
     def finish(self):
         r = self.r
@@ -673,8 +671,13 @@ def render_md(r: dict) -> str:
     base = r.get("baseline")
     if base:
         L += ["", f"Baseline for Gate C: {base['version']} ({base['kind']}), 20M median {fmt_s(base['wall_s']['median'])}"]
-    if r.get("calibration", {}).get("estimated_scorer_20m_s"):
-        L.append(f"Estimated scorer 20M: {r['calibration']['estimated_scorer_20m_s']} s")
+    cal = r.get("calibration", {})
+    if (estimate := cal.get("estimated_scorer_20m_s")) is not None:
+        L.append(f"Estimated scorer 20M: {estimate:.3f} s"
+                 + (" (extrapolated)" if cal.get("extrapolated") else ""))
+        if cal.get("board_target_s"):
+            L.append(f"Practice target {cal['board_target_s']:.2f} s: "
+                     + ("beaten in estimate" if cal["beats_board_target"] else "above or at target"))
     if r["notes"]:
         L += ["", "## Notes", ""] + [f"- {n}" for n in r["notes"]]
     if r["errors"]:
@@ -683,7 +686,7 @@ def render_md(r: dict) -> str:
 
 
 LEDGER_HEADER = ("| Date | Version | Commit | Profile | Fixtures n/arm/amd | dev | Diff | Fuzz | Det | 1M | 20M | 60M "
-                 "| Footprint 60M | Verdict |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n")
+                 "| Footprint 60M | Verdict | Board 20M (est.) |\n" + "| --- " * 15 + "|\n")
 
 
 def append_ledger(r: dict):
@@ -707,13 +710,14 @@ def append_ledger(r: dict):
     det = c["determinism"]
     rss = p.get("perf-60M", {}).get("summary", {}).get("peak_footprint_bytes", {}).get("max")
     dev = c.get("dev_answer_native", {}).get("match")
+    estimate = r.get("calibration", {}).get("estimated_scorer_20m_s")
     row = (f"| {r['started'][:16]} | {r['version']} | {r['sha'][:8]} | {r['profile']} | "
            f"{fx('fixtures_native')}/{fx('fixtures_arm64')}/{fx('fixtures_amd64')} | "
            f"{'MATCH' if dev else ('DIFFER' if dev is False else '-')} | {nd}/{len(diffs)} | {fzs} | "
            f"{'yes' if det and all(v['deterministic'] for v in det.values()) else ('NO' if det else '-')} | "
            f"{med('perf-1M')} | {med('perf-20M')} | {med('perf-60M')} | "
            f"{f'{rss / 1e9:.1f} GB' if rss else '-'} | {r['verdict']['verdict']}"
-           f"{'' if r['verdict']['final'] else ' (prov.)'} |\n")
+           f"{'' if r['verdict']['final'] else ' (prov.)'} | {fmt_s(estimate)} |\n")
     with open(path, "a") as f:
         f.write(row)
 
