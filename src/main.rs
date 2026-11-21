@@ -33,9 +33,11 @@
 //!                               exact; probing gets quadratic, so use it on small inputs.
 //!   SESSIONS_DEBUG_CHUNK=BYTES  parse chunk size, 1..=8 MiB (default 4 MiB; e.g. 97)
 //!   SESSIONS_DEBUG_PARTS=N      partition count, 1..=4096 (default 256)
-//!   SESSIONS_DEBUG_NO_FAST=1    every ID takes the interned fallback path (no packing)
-//!   SESSIONS_DEBUG_NO_FAST=2    half the IDs (by hash parity) take the fallback, to mix
-//!                               packed and interned keys
+//!   SESSIONS_DEBUG_NO_FAST=1    every fast path off: scalar line split (v1's memchr +
+//!                               split_fields), every ID interned, no direct indexes
+//!   SESSIONS_DEBUG_NO_FAST=2    half the IDs (by hash parity) take the interned fallback,
+//!                               to mix packed and interned keys
+//!   SESSIONS_DEBUG_NO_FAST=3    the portable SWAR classifier instead of NEON/SSE2
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -117,8 +119,8 @@ impl Knobs {
         };
         let no_fast = match num("SESSIONS_DEBUG_NO_FAST") {
             None | Some(0) => 0,
-            Some(n @ 1..=2) => n as u8,
-            Some(n) => panic!("SESSIONS_DEBUG_NO_FAST={n}: must be 0, 1 or 2"),
+            Some(n @ 1..=3) => n as u8,
+            Some(n) => panic!("SESSIONS_DEBUG_NO_FAST={n}: must be 0..=3"),
         };
         let k = Knobs { hmask, chunk, nb, no_fast };
         if k.hmask != u64::MAX || k.chunk != DEFAULT_CHUNK || k.nb != DEFAULT_NB || k.no_fast != 0 {
@@ -218,9 +220,9 @@ impl<'a> Ids<'a> {
     #[inline]
     fn key(&self, b: &'a [u8]) -> u64 {
         let try_pack = match self.no_fast {
-            0 => true,
             1 => false,
-            _ => xxh3_64(b) & 1 == 0,
+            2 => xxh3_64(b) & 1 == 0,
+            _ => true,
         };
         if try_pack && let Some(k) = pack(b) {
             return k;
@@ -440,6 +442,152 @@ fn for_each_line<'a>(buf: &'a [u8], start: usize, end: usize, mut f: impl FnMut(
         let nl = memchr::memchr(b'\n', &buf[p..end]).map_or(end, |i| p + i);
         f(&buf[p..nl]);
         p = nl + 1;
+    }
+}
+
+/// How lines are split into fields.
+#[derive(Clone, Copy, PartialEq)]
+enum Scan {
+    Simd,   // 64-byte classifier: NEON on aarch64, SSE2 on x86_64, SWAR elsewhere
+    Swar,   // the portable u64 classifier everywhere (SESSIONS_DEBUG_NO_FAST=3)
+    Scalar, // v1: memchr per line + split_fields (SESSIONS_DEBUG_NO_FAST=1)
+}
+
+/// SWAR: bit i set iff byte i of `w` equals `c` (exact, no false positives).
+#[inline(always)]
+fn swar_eq8(w: u64, c: u8) -> u64 {
+    const LO7: u64 = 0x7f7f_7f7f_7f7f_7f7f;
+    let x = w ^ (c as u64 * 0x0101_0101_0101_0101);
+    // high bit of each byte set iff that byte of x is zero
+    let z = !(((x & LO7) + LO7) | x | LO7);
+    // gather the 8 high bits (bits 7, 15, ..., 63) into one byte
+    ((z >> 7).wrapping_mul(0x0102_0408_1020_4080) >> 56) & 0xff
+}
+
+#[inline(always)]
+fn classify_swar(p: &[u8; 64]) -> [u64; 3] {
+    let mut m = [0u64; 3];
+    for i in 0..8 {
+        let w = u64::from_le_bytes(p[i * 8..i * 8 + 8].try_into().unwrap());
+        m[0] |= swar_eq8(w, b'\n') << (i * 8);
+        m[1] |= swar_eq8(w, b',') << (i * 8);
+        m[2] |= swar_eq8(w, b'"') << (i * 8);
+    }
+    m
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+fn classify_simd(p: &[u8; 64]) -> [u64; 3] {
+    use std::arch::aarch64::*;
+    unsafe {
+        let v = [vld1q_u8(p.as_ptr()), vld1q_u8(p.as_ptr().add(16)), vld1q_u8(p.as_ptr().add(32)), vld1q_u8(p.as_ptr().add(48))];
+        const W: [u8; 16] = [1, 2, 4, 8, 16, 32, 64, 128, 1, 2, 4, 8, 16, 32, 64, 128];
+        let w = vld1q_u8(W.as_ptr());
+        let mask = |c: u8| -> u64 {
+            let cv = vdupq_n_u8(c);
+            let t: [uint8x16_t; 4] = std::array::from_fn(|i| vandq_u8(vceqq_u8(v[i], cv), w));
+            let s0 = vpaddq_u8(t[0], t[1]);
+            let s1 = vpaddq_u8(t[2], t[3]);
+            let s = vpaddq_u8(s0, s1);
+            let s = vpaddq_u8(s, s);
+            vgetq_lane_u64(vreinterpretq_u64_u8(s), 0)
+        };
+        [mask(b'\n'), mask(b','), mask(b'"')]
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+fn classify_simd(p: &[u8; 64]) -> [u64; 3] {
+    // SSE2 is in every x86_64 CPU, so this path is the one the scorer runs AND the one
+    // local x86-64-v2 emulation and Rosetta exercise.
+    use std::arch::x86_64::*;
+    unsafe {
+        let v: [__m128i; 4] = std::array::from_fn(|i| _mm_loadu_si128(p.as_ptr().add(16 * i) as *const __m128i));
+        let mask = |c: u8| -> u64 {
+            let cv = _mm_set1_epi8(c as i8);
+            let mut m = 0u64;
+            for (i, x) in v.iter().enumerate() {
+                m |= (_mm_movemask_epi8(_mm_cmpeq_epi8(*x, cv)) as u32 as u64) << (16 * i);
+            }
+            m
+        };
+        [mask(b'\n'), mask(b','), mask(b'"')]
+    }
+}
+
+#[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+#[inline(always)]
+fn classify_simd(p: &[u8; 64]) -> [u64; 3] {
+    classify_swar(p)
+}
+
+/// Call `f` with the N fields of every well-formed line of buf[start..end] (`end` is
+/// buf.len() or just past a '\n'). Exactly what for_each_line + split_fields accept:
+/// a line with no '"' and exactly N-1 commas is sliced from the classifier's bitmasks;
+/// every other line goes through split_fields.
+#[inline]
+fn for_each_record<'a, const N: usize>(buf: &'a [u8], start: usize, end: usize, scan: Scan, mut f: impl FnMut(&[&'a [u8]; N])) {
+    let mut out = [&[][..]; N];
+    if scan == Scan::Scalar {
+        for_each_line(buf, start, end, |line| {
+            if split_fields(line, &mut out) {
+                f(&out);
+            }
+        });
+        return;
+    }
+    let mut commas = [0usize; N];
+    let mut ncomma = 0usize;
+    let mut quoted = false;
+    let mut ls = start;
+    let mut emit = |ls: usize, le: usize, commas: &[usize; N], ncomma: usize, quoted: bool| {
+        if !quoted && ncomma == N - 1 {
+            let mut s = ls;
+            for i in 0..N - 1 {
+                out[i] = &buf[s..commas[i]];
+                s = commas[i] + 1;
+            }
+            out[N - 1] = &buf[s..le];
+            f(&out);
+        } else if split_fields(&buf[ls..le], &mut out) {
+            f(&out);
+        }
+    };
+    let mut base = start;
+    while base < end {
+        let m = if base + 64 <= end {
+            let blk: &[u8; 64] = buf[base..base + 64].try_into().unwrap();
+            if scan == Scan::Simd { classify_simd(blk) } else { classify_swar(blk) }
+        } else {
+            let mut blk = [0u8; 64]; // zero bytes match nothing
+            blk[..end - base].copy_from_slice(&buf[base..end]);
+            if scan == Scan::Simd { classify_simd(&blk) } else { classify_swar(&blk) }
+        };
+        let mut bits = m[0] | m[1] | m[2];
+        while bits != 0 {
+            let b = bits.trailing_zeros();
+            bits &= bits - 1;
+            let pos = base + b as usize;
+            if m[1] >> b & 1 != 0 {
+                if ncomma < N {
+                    commas[ncomma] = pos;
+                }
+                ncomma += 1;
+            } else if m[0] >> b & 1 != 0 {
+                emit(ls, pos, &commas, ncomma, quoted);
+                ls = pos + 1;
+                ncomma = 0;
+                quoted = false;
+            } else {
+                quoted = true;
+            }
+        }
+        base += 64;
+    }
+    if ls < end {
+        emit(ls, end, &commas, ncomma, quoted);
     }
 }
 
@@ -701,16 +849,15 @@ impl<'a> Lookups<'a> {
     }
 }
 
-fn load_links<'a>(input: &'a Input, chunk: usize, ids: &Ids<'a>, hmask: u64) -> (LinkTable, usize) {
+fn load_links<'a>(input: &'a Input, chunk: usize, scan: Scan, ids: &Ids<'a>, hmask: u64) -> (LinkTable, usize) {
     let pairs: Vec<Vec<(u64, u64)>> = input
         .chunks(chunk)
         .par_iter()
         .map(|&(fi, s, e)| {
             let buf: &'a [u8] = &input.maps[fi];
             let mut v = Vec::new();
-            for_each_line(buf, s, e, |line| {
-                let mut f = [&[][..]; 2];
-                if split_fields(line, &mut f) && !f[0].is_empty() && !f[1].is_empty() {
+            for_each_record(buf, s, e, scan, |f: &[&'a [u8]; 2]| {
+                if !f[0].is_empty() && !f[1].is_empty() {
                     v.push((ids.key(f[0]), ids.key(f[1])));
                 }
             });
@@ -858,14 +1005,13 @@ fn validate<'a>(f: &[&'a [u8]; 7], ingest: i64, w: &Win) -> Option<(&'a [u8], i6
 }
 
 #[inline]
-fn parse_event<'a>(line: &'a [u8], lk: &Lookups<'a>, w: &Win, o: &mut EvOut) {
-    let mut f = [&[][..]; 7];
-    if !split_fields(line, &mut f) || f[0].is_empty() {
+fn parse_event<'a>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &mut EvOut) {
+    if f[0].is_empty() {
         return;
     }
     let eid = lk.ids.key(f[0]);
     let ingest = parse_ts(f[3]).unwrap_or(i64::MAX);
-    match validate(&f, ingest, w) {
+    match validate(f, ingest, w) {
         Some((user, ts, price)) => {
             let user = lk.ids.key(user);
             let slot = lk.links.slot(user);
@@ -885,9 +1031,8 @@ fn parse_event<'a>(line: &'a [u8], lk: &Lookups<'a>, w: &Win, o: &mut EvOut) {
 
 /// A valid click; `person` holds the user key until the batched lookup resolves it.
 #[inline]
-fn parse_click<'a>(line: &'a [u8], lk: &Lookups<'a>, w: &Win) -> Option<(Ck, usize)> {
-    let mut f = [&[][..]; 4];
-    if !split_fields(line, &mut f) || f[0].is_empty() || f[1].is_empty() {
+fn parse_click<'a>(f: &[&'a [u8]; 4], lk: &Lookups<'a>, w: &Win) -> Option<(Ck, usize)> {
+    if f[0].is_empty() || f[1].is_empty() {
         return None;
     }
     let camp = lk.campaign(f[2])?;
@@ -1411,7 +1556,7 @@ fn main() {
     let events_in = Input::open(&data.join("events"));
     let clicks_in = Input::open(&data.join("clicks"));
 
-    let (products, mut cat_names) = load_products(&products_buf, knobs.no_fast == 0);
+    let (products, mut cat_names) = load_products(&products_buf, knobs.no_fast != 1);
     let unknown_cat = cat_names.len() as u32;
     cat_names.push(b"unknown".to_vec());
     let mut order: Vec<u32> = (0..cat_names.len() as u32).collect();
@@ -1420,9 +1565,14 @@ fn main() {
     for (r, &c) in order.iter().enumerate() {
         cat_rank[c as usize] = r as u32;
     }
-    let (campaigns, camp_ids, channels) = load_campaigns(&campaigns_buf, knobs.no_fast == 0);
+    let (campaigns, camp_ids, channels) = load_campaigns(&campaigns_buf, knobs.no_fast != 1);
     let ids = Ids::new(knobs.no_fast);
-    let (links, nlinked) = load_links(&links_in, knobs.chunk, &ids, hmask);
+    let scan = match knobs.no_fast {
+        1 => Scan::Scalar,
+        3 => Scan::Swar,
+        _ => Scan::Simd,
+    };
+    let (links, nlinked) = load_links(&links_in, knobs.chunk, scan, &ids, hmask);
     let lk = Lookups { products, cat_names, cat_rank, unknown_cat, campaigns, camp_ids, channels, ids, links, hmask };
     lap(&format!("lookups ({nlinked} linked ids)"));
 
@@ -1435,7 +1585,7 @@ fn main() {
             let mut o = EvOut::new(nb, bytes);
             for &(fi, s, e) in task {
                 let buf: &[u8] = &events_in.maps[fi];
-                for_each_line(buf, s, e, |line| parse_event(line, &lk, &win, &mut o));
+                for_each_record(buf, s, e, scan, |f| parse_event(f, &lk, &win, &mut o));
             }
             o.flush(&lk);
             o
@@ -1453,8 +1603,8 @@ fn main() {
             let mut pend = Vec::with_capacity(BATCH);
             for &(fi, s, e) in task {
                 let buf: &[u8] = &clicks_in.maps[fi];
-                for_each_line(buf, s, e, |line| {
-                    if let Some(c) = parse_click(line, &lk, &win) {
+                for_each_record(buf, s, e, scan, |f| {
+                    if let Some(c) = parse_click(f, &lk, &win) {
                         pend.push(c);
                         if pend.len() == BATCH {
                             flush_clicks(&mut pend, &lk, &mut b);
@@ -1616,5 +1766,60 @@ mod tests {
         assert_eq!(ix.get(b"p8"), None);
         assert_eq!(ix.get(b"p"), None);
         assert_eq!(ix.get(b"p4194304"), None); // 2^22: beyond the array
+    }
+
+    #[test]
+    fn classifiers_are_exact() {
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        for _ in 0..20_000 {
+            let mut blk = [0u8; 64];
+            for b in blk.iter_mut() {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                // bias towards the interesting bytes and their neighbours
+                *b = match x % 8 {
+                    0 => b'\n',
+                    1 => b',',
+                    2 => b'"',
+                    3 => [b'\n' ^ 1, b',' + 1, b'"' - 1, 0x80 | b',', 0xff, 0][(x >> 8) as usize % 6],
+                    _ => (x >> 16) as u8,
+                };
+            }
+            let want: [u64; 3] = std::array::from_fn(|k| {
+                let c = [b'\n', b',', b'"'][k];
+                (0..64).filter(|&i| blk[i] == c).fold(0u64, |m, i| m | 1 << i)
+            });
+            assert_eq!(classify_swar(&blk), want);
+            assert_eq!(classify_simd(&blk), want);
+        }
+    }
+
+    #[test]
+    fn record_scan_matches_split_fields() {
+        let mut x = 0x1234_5678_9abc_def1u64;
+        let pieces: [&[u8]; 9] = [b"ab", b",", b",", b"\"q\"", b"\"", b"\n", b"\n", b"x\r", b""];
+        for _ in 0..3000 {
+            let mut buf = Vec::new();
+            let len = (x % 400) as usize;
+            while buf.len() < len {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                buf.extend_from_slice(pieces[(x % 9) as usize]);
+            }
+            let mut want: Vec<Vec<Vec<u8>>> = Vec::new();
+            for_each_line(&buf, 0, buf.len(), |line| {
+                let mut o = [&[][..]; 3];
+                if split_fields(line, &mut o) {
+                    want.push(o.iter().map(|f| f.to_vec()).collect());
+                }
+            });
+            for scan in [Scan::Simd, Scan::Swar, Scan::Scalar] {
+                let mut got: Vec<Vec<Vec<u8>>> = Vec::new();
+                for_each_record(&buf, 0, buf.len(), scan, |o: &[&[u8]; 3]| got.push(o.iter().map(|f| f.to_vec()).collect()));
+                assert_eq!(got, want, "{:?}", String::from_utf8_lossy(&buf));
+            }
+        }
     }
 }
