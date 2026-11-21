@@ -1,0 +1,409 @@
+<meta name="dash-one-writer">
+<style>
+  /* Plain, single column; chart + phases side by side on wide screens. Colors and type from the dashboard's tokens. */
+  .ss { display: grid; gap: var(--cds-gap-xl); max-width: 1120px; font-variant-numeric: tabular-nums; }
+  .ss h1 { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); margin: 0; text-wrap: balance; }
+  .ss h2 { font-size: var(--cds-font-size-heading); font-weight: var(--cds-font-weight-medium); margin: 0; text-wrap: balance; }
+  .ss section { display: grid; gap: var(--cds-gap-sm); min-width: 0; }
+  .ss p { margin: 0; }
+  .ss-lede { max-width: 72ch; line-height: 1.5; }
+  .ss-muted { color: var(--color-fg-muted); font-size: var(--cds-font-size-caption); }
+  .ss-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--cds-gap-md); }
+  .ss-tile { background: var(--color-panel); border: 1px solid var(--color-border-line); border-radius: var(--cds-radius);
+    padding: var(--cds-pad-lg); display: grid; gap: var(--cds-gap-xs); align-content: start; min-width: 0; }
+  .ss-lab { font-size: var(--cds-font-size-caption); color: var(--color-fg-muted); letter-spacing: 0.02em; }
+  .ss-big { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); line-height: 1.1; }
+  .ss-pill { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor;
+    font-size: var(--cds-font-size-caption); font-weight: var(--cds-font-weight-medium); white-space: nowrap; }
+  .ss-ok { color: var(--color-ok); } .ss-warn { color: var(--color-warn); } .ss-bad { color: var(--color-bad); }
+  .ss-two { display: grid; gap: var(--cds-gap-xl); grid-template-columns: 1fr; }
+  @media (min-width: 880px) { .ss-two { grid-template-columns: 1fr 1fr; } }
+  .ss-wrap { overflow-x: auto; }
+  .ss-t { border-collapse: collapse; width: 100%; font-size: var(--cds-font-size-caption); }
+  .ss-t th, .ss-t td { padding: 6px 10px; border-bottom: 1px solid var(--color-border-line); text-align: left; vertical-align: top; }
+  .ss-t th { color: var(--color-fg-muted); font-weight: var(--cds-font-weight-medium); white-space: nowrap; }
+  .ss-t td { white-space: nowrap; }
+  .ss-t td.ss-wraptext { white-space: normal; min-width: 16ch; }
+  .ss-t .ss-n { text-align: right; }
+  .ss-chart { position: relative; min-height: 240px; }
+  .ss-chart svg text { fill: var(--cds-text-secondary); font-size: var(--cds-font-size-caption); }
+  .ss-chart svg text.ss-vl { fill: var(--color-fg); }
+  .ss-tip { position: absolute; pointer-events: none; background: var(--cds-surface-popover); border: 1px solid var(--cds-border);
+    box-shadow: var(--cds-shadow-popover); border-radius: var(--cds-radius); padding: 6px 10px; font-size: var(--cds-font-size-caption);
+    white-space: nowrap; z-index: 2; }
+  .ss-ph { display: grid; gap: 6px; min-height: 200px; align-content: start; }
+  .ss-phr { display: grid; grid-template-columns: minmax(9ch, 13rem) 1fr auto; gap: var(--cds-gap-sm); align-items: center; font-size: var(--cds-font-size-caption); }
+  .ss-track { height: 12px; background: color-mix(in srgb, var(--color-border-line) 50%, transparent); border-radius: 3px; overflow: hidden; }
+  .ss-fill { height: 100%; border-radius: 3px; }
+  .ss-log { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--cds-gap-md); }
+  .ss-log li { display: grid; gap: 2px; max-width: 90ch; line-height: 1.45; }
+  .ss-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--cds-font-size-caption); }
+  .ss-list { margin: 0; padding-left: 1.1em; display: grid; gap: 2px; font-size: var(--cds-font-size-caption); }
+  .ss details summary { cursor: pointer; font-weight: var(--cds-font-weight-medium); }
+  .ss details[open] summary { margin-bottom: var(--cds-gap-sm); }
+</style>
+
+<div class="ss">
+  <header id="top" style="display:grid;gap:var(--cds-gap-sm)">
+    <h1>Shopping Sessions progress</h1>
+    <p class="ss-lede">
+      Best version <b data-draw="val" data-source="headline" data-field="best_version" data-row="0">—</b>:
+      <b data-draw="val" data-source="headline" data-field="best_median_20m_s" data-row="0" data-fmt="s3">—</b> on 20M
+      (<span data-draw="val" data-source="headline" data-field="basis" data-row="0">—</span>), that is
+      <b data-draw="val" data-source="headline" data-field="gap_x" data-row="0" data-fmt="x2">—</b> the
+      <span data-draw="val" data-source="headline" data-field="target_s" data-row="0" data-fmt="s2">—</span> board target.
+    </p>
+    <p class="ss-muted">Synced <span data-draw="val" data-source="headline" data-field="synced_at" data-row="0" data-fmt="time">—</span>
+      · main at <span class="ss-code" data-draw="val" data-source="headline" data-field="main_head" data-row="0">—</span>
+      · latest version <span data-draw="val" data-source="headline" data-field="latest_version" data-row="0">—</span></p>
+    <p class="ss-muted" id="ss-empty" hidden>No snapshot has been pushed yet. Run the sync in docs/orchestration/dashboard/SYNC.md.</p>
+  </header>
+
+  <section id="headline" aria-label="Headline">
+    <div class="ss-tiles">
+      <div class="ss-tile">
+        <span class="ss-lab">Best version</span>
+        <span class="ss-big" data-draw="val" data-source="headline" data-field="best_version" data-row="0">—</span>
+        <span data-draw="pill" data-source="headline" data-field="best_verdict" data-row="0">—</span>
+      </div>
+      <div class="ss-tile">
+        <span class="ss-lab">20M median</span>
+        <span class="ss-big" data-draw="val" data-source="headline" data-field="best_median_20m_s" data-row="0" data-fmt="s3">—</span>
+        <span class="ss-muted" data-draw="val" data-source="headline" data-field="basis" data-row="0">—</span>
+      </div>
+      <div class="ss-tile">
+        <span class="ss-lab">Gap to board target</span>
+        <span class="ss-big" data-draw="val" data-source="headline" data-field="gap_s" data-row="0" data-fmt="gap">—</span>
+        <span class="ss-muted">target <span data-draw="val" data-source="headline" data-field="target_s" data-row="0" data-fmt="s2">—</span>
+          on the 20M practice board</span>
+      </div>
+      <div class="ss-tile">
+        <span class="ss-lab">Submitted</span>
+        <span class="ss-big" data-draw="val" data-source="headline" data-field="submitted" data-row="0" data-fmt="int">—</span>
+        <span class="ss-muted">best board time <span data-draw="val" data-source="headline" data-field="best_board_s" data-row="0" data-fmt="s3">—</span></span>
+      </div>
+    </div>
+  </section>
+
+  <div class="ss-two">
+    <section id="chart-20m">
+      <h2>20M median per version</h2>
+      <p class="ss-muted">Local wall time, NCPU=8, median of at least 5 runs. The dashed line is the board target.</p>
+      <div class="ss-chart" data-draw="chart20" data-source="versions headline"></div>
+    </section>
+    <section id="phases-section">
+      <h2>Where the time goes</h2>
+      <p class="ss-muted">Phase medians at 20M for <span data-draw="val" data-source="phases" data-field="version" data-row="0">—</span>, from the stderr phase marks.</p>
+      <div class="ss-ph" data-draw="phases" data-source="phases"></div>
+    </section>
+  </div>
+
+  <section id="versions-section">
+    <h2>Versions</h2>
+    <div class="ss-wrap">
+      <table class="ss-t" data-source="versions" data-row-key="version">
+        <thead><tr>
+          <th data-field="version">Version</th>
+          <th data-field="verdict">Verdict</th>
+          <th data-field="sha">Commit</th>
+          <th data-field="fixtures_native">Fixtures native</th>
+          <th data-field="fixtures_arm64">arm64</th>
+          <th data-field="fixtures_amd64">amd64</th>
+          <th data-field="dev">dev</th>
+          <th data-field="diff">Diff</th>
+          <th data-field="fuzz">Fuzz</th>
+          <th class="ss-n" data-field="median_1m_s">1M</th>
+          <th class="ss-n" data-field="median_20m_s">20M</th>
+          <th class="ss-n" data-field="median_60m_s">60M</th>
+          <th class="ss-n" data-field="peak_mem_60m_gb">Peak mem 60M</th>
+          <th class="ss-n" data-field="cpu_util_20m">CPU util 20M</th>
+          <th data-field="submitted">Submitted</th>
+          <th class="ss-n" data-field="board_time_s">Board time</th>
+        </tr></thead>
+        <tbody data-draw="versions-body"></tbody>
+      </table>
+    </div>
+    <p class="ss-muted">Peak memory is the anonymous footprint, which Gate B checks (16 GB limit). CPU utilization is (user + sys) / (wall × 8).</p>
+  </section>
+
+  <section id="insights-section">
+    <h2>Latest insights</h2>
+    <p><b data-draw="val" data-source="insights" data-field="title" data-row="0">—</b></p>
+    <p class="ss-lede" data-draw="val" data-source="insights" data-field="headline" data-row="0">—</p>
+    <p class="ss-lede ss-muted" data-draw="val" data-source="insights" data-field="summary" data-row="0">—</p>
+    <p class="ss-muted ss-code" data-draw="val" data-source="insights" data-field="file" data-row="0">—</p>
+  </section>
+
+  <section id="threads-section">
+    <h2>Threads</h2>
+    <div class="ss-wrap">
+      <table class="ss-t" data-source="threads" data-row-key="thread">
+        <thead><tr>
+          <th data-field="thread">Thread</th>
+          <th data-field="role">Role</th>
+          <th data-field="branch">Branch / worktree</th>
+          <th data-field="status">Status</th>
+        </tr></thead>
+        <tbody data-draw="threads-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="log-section">
+    <h2>Recent log</h2>
+    <p class="ss-muted">Newest first, from docs/orchestration/LOG.md.</p>
+    <ol class="ss-log" data-draw="log" data-source="log"></ol>
+  </section>
+
+  <section id="git-section">
+    <details>
+      <summary>Git: main and branches</summary>
+      <div class="ss-two">
+        <div style="display:grid;gap:var(--cds-gap-xs);min-width:0">
+          <span class="ss-lab">git log --oneline -15 main</span>
+          <ul class="ss-list ss-code" data-draw="lines" data-source="git" data-field="commits"></ul>
+        </div>
+        <div style="display:grid;gap:var(--cds-gap-xs);min-width:0">
+          <span class="ss-lab">Local branches, newest first</span>
+          <ul class="ss-list ss-code" data-draw="lines" data-source="git" data-field="branches"></ul>
+        </div>
+      </div>
+    </details>
+  </section>
+</div>
+
+<script>
+  // Every section reads one store collection (data/board/rows); each calc picks one kind of document.
+  dash.calc('headline', { inputs: ['board'], title: 'Headline',
+    description: 'The headline document: best version, its 20M median, the board target and the gap.',
+    fn: (board) => board.filter((r) => r.kind === 'headline') });
+  dash.calc('versions', { inputs: ['board'], title: 'Versions',
+    description: 'One row per evaluated version, oldest first.',
+    fn: (board) => board.filter((r) => r.kind === 'version').sort((a, b) => Number(a.order) - Number(b.order)) });
+  dash.calc('phases', { inputs: ['board'], title: 'Phase breakdown',
+    description: 'Phase medians at 20M for the newest version that has them, in pipeline order.',
+    fn: (board) => board.filter((r) => r.kind === 'phase').sort((a, b) => Number(a.order) - Number(b.order)) });
+  dash.calc('threads', { inputs: ['board'], title: 'Threads',
+    description: 'The thread registry from LOG.md.',
+    fn: (board) => board.filter((r) => r.kind === 'thread').sort((a, b) => Number(a.order) - Number(b.order)) });
+  dash.calc('log', { inputs: ['board'], title: 'Recent log',
+    description: 'The last log entries from LOG.md, newest first.',
+    fn: (board) => board.filter((r) => r.kind === 'log').sort((a, b) => Number(b.index) - Number(a.index)) });
+  dash.calc('insights', { inputs: ['board'], title: 'Latest insights',
+    description: 'Title and headline of the newest file in evals/insights.',
+    fn: (board) => board.filter((r) => r.kind === 'insights') });
+  dash.calc('git', { inputs: ['board'], title: 'Git',
+    description: 'git log --oneline -15 main and the local branches at sync time.',
+    fn: (board) => board.filter((r) => r.kind === 'git') });
+
+  const isNum = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
+  window.ssFmt = (v, fmt) => {
+    if (v === null || v === undefined || v === '') return '—';
+    switch (fmt) {
+      case 's3': return isNum(v) ? Number(v).toFixed(3) + ' s' : '—';
+      case 's2': return isNum(v) ? Number(v).toFixed(2) + ' s' : '—';
+      case 'x2': return isNum(v) ? Number(v).toFixed(2) + '×' : '—';
+      case 'gap': return isNum(v) ? (Number(v) > 0 ? '+' : Number(v) < 0 ? '−' : '') + Math.abs(Number(v)).toFixed(3) + ' s' : '—';
+      case 'gb': return isNum(v) ? Number(v).toFixed(2) + ' GB' : '—';
+      case 'pct': return isNum(v) ? Math.round(Number(v) * 100) + '%' : '—';
+      case 'int': return isNum(v) ? String(Math.round(Number(v))) : '—';
+      case 'time': {
+        const d = new Date(v);
+        return isNaN(d) ? String(v) : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      }
+      default: return String(v);
+    }
+  };
+  window.ssVerdictClass = (v) => {
+    const s = String(v || '');
+    return s.startsWith('SUBMIT-READY') ? 'ss-ok' : s.startsWith('HOLD') ? 'ss-warn' : s.startsWith('REJECT') ? 'ss-bad' : '';
+  };
+  window.ssFailed = (d) => d.status === 'error' || d.status === 'missing';
+
+  // Empty-store notice (outside a drawing: only toggles `hidden`).
+  dash.onData(() => {
+    const h = dash.data('headline');
+    const empty = h.status === 'ok' && Array.isArray(h.data) && h.data.length === 0;
+    document.querySelectorAll('#ss-empty').forEach((p) => { p.hidden = !empty; });
+  });
+
+  // One value from one row of a calc.
+  dash.draw('val', (el) => {
+    const d = dash.data(el.dataset.source);
+    if (d.status !== 'ok') { el.textContent = ssFailed(d) ? 'n/a' : '—'; return; }
+    const row = (d.data || [])[Number(el.dataset.row || 0)];
+    const v = row ? row[el.dataset.field] : undefined;
+    const text = ssFmt(v, el.dataset.fmt);
+    if (el.dataset.fmt === 'gap' && isNum(v)) {
+      const s = document.createElement('span');
+      s.className = Number(v) > 0 ? 'ss-bad' : 'ss-ok';
+      s.textContent = text;
+      el.replaceChildren(s);
+    } else {
+      el.textContent = text;
+    }
+  });
+
+  // A verdict as a colored pill.
+  dash.draw('pill', (el) => {
+    const d = dash.data(el.dataset.source);
+    const row = d.status === 'ok' ? (d.data || [])[Number(el.dataset.row || 0)] : null;
+    const v = row ? row[el.dataset.field] : null;
+    if (!v) { el.textContent = '—'; return; }
+    const s = document.createElement('span');
+    s.className = 'ss-pill ' + ssVerdictClass(v);
+    s.textContent = v;
+    el.replaceChildren(s);
+  });
+
+  // Multi-line text field -> list items (git log, branches).
+  dash.draw('lines', (el) => {
+    const d = dash.data(el.dataset.source);
+    const row = d.status === 'ok' ? (d.data || [])[0] : null;
+    const lines = row && row[el.dataset.field] ? String(row[el.dataset.field]).split('\n').filter(Boolean) : [];
+    el.replaceChildren(...(lines.length ? lines : [ssFailed(d) ? "Didn't load." : '—']).map((t) => {
+      const li = document.createElement('li'); li.textContent = t; return li;
+    }));
+  });
+</script>
+
+<script>
+  function ssBody(tbody, d, cols, keyField, emptyText) {
+    const msg = (t) => {
+      const tr = document.createElement('tr'); const td = document.createElement('td');
+      td.colSpan = cols.length; td.className = 'ss-muted'; td.textContent = t; tr.append(td); return tr;
+    };
+    if (d.status !== 'ok') { tbody.replaceChildren(msg(ssFailed(d) ? "This table didn't load." : 'Loading…')); return; }
+    if (!d.data.length) { tbody.replaceChildren(msg(emptyText)); return; }
+    tbody.replaceChildren(...d.data.map((r) => {
+      const tr = document.createElement('tr');
+      tr.dataset.key = r[keyField];
+      cols.forEach((c) => {
+        const td = document.createElement('td');
+        if (c.n) td.className = 'ss-n';
+        if (c.wrap) td.className = 'ss-wraptext';
+        const v = r[c.f];
+        if (c.pill && v) {
+          const s = document.createElement('span'); s.className = 'ss-pill ' + ssVerdictClass(v); s.textContent = v; td.append(s);
+        } else {
+          td.textContent = ssFmt(v, c.fmt);
+        }
+        tr.append(td);
+      });
+      return tr;
+    }));
+  }
+
+  dash.draw('versions-body', (tbody) => ssBody(tbody, dash.data('versions'), [
+    { f: 'version' }, { f: 'verdict', pill: true }, { f: 'sha' },
+    { f: 'fixtures_native' }, { f: 'fixtures_arm64' }, { f: 'fixtures_amd64' },
+    { f: 'dev' }, { f: 'diff' }, { f: 'fuzz' },
+    { f: 'median_1m_s', fmt: 's3', n: 1 }, { f: 'median_20m_s', fmt: 's3', n: 1 }, { f: 'median_60m_s', fmt: 's3', n: 1 },
+    { f: 'peak_mem_60m_gb', fmt: 'gb', n: 1 }, { f: 'cpu_util_20m', fmt: 'pct', n: 1 },
+    { f: 'submitted' }, { f: 'board_time_s', fmt: 's3', n: 1 },
+  ], 'version', 'No versions evaluated yet.'));
+
+  dash.draw('threads-body', (tbody) => ssBody(tbody, dash.data('threads'), [
+    { f: 'thread' }, { f: 'role' }, { f: 'branch', wrap: 1 }, { f: 'status', wrap: 1 },
+  ], 'thread', 'No threads registered.'));
+
+  dash.draw('log', (ol) => {
+    const d = dash.data('log');
+    if (d.status !== 'ok' || !d.data.length) {
+      const li = document.createElement('li'); li.className = 'ss-muted';
+      li.textContent = d.status === 'ok' ? 'No log entries yet.' : ssFailed(d) ? "The log didn't load." : 'Loading…';
+      ol.replaceChildren(li); return;
+    }
+    ol.replaceChildren(...d.data.map((r) => {
+      const li = document.createElement('li');
+      const meta = document.createElement('span'); meta.className = 'ss-muted';
+      meta.textContent = [r.day, r.who].filter(Boolean).join(' · ');
+      const body = document.createElement('span'); body.textContent = r.text || '';
+      li.append(meta, body); return li;
+    }));
+  });
+
+  dash.draw('phases', (el) => {
+    const d = dash.data('phases');
+    if (d.status !== 'ok' || !d.data.length) {
+      el.textContent = d.status === 'ok' ? 'No phase timings yet.' : ssFailed(d) ? "The phase breakdown didn't load." : '—';
+      return;
+    }
+    const max = d3.max(d.data, (r) => Number(r.median_s)) || 1;
+    el.replaceChildren(...d.data.map((r, i) => {
+      const row = document.createElement('div'); row.className = 'ss-phr';
+      const lab = document.createElement('span'); lab.textContent = r.phase;
+      const track = document.createElement('div'); track.className = 'ss-track';
+      const fill = document.createElement('div'); fill.className = 'ss-fill';
+      fill.style.width = (100 * Number(r.median_s) / max).toFixed(1) + '%';
+      fill.style.background = String(r.phase).startsWith('exit') ? 'var(--cds-chart-muted)' : dash.colors[0];
+      track.append(fill);
+      const val = document.createElement('span');
+      const s = document.createElement('span');
+      s.dataset.source = 'phases'; s.dataset.field = 'median_s'; s.dataset.row = String(i);
+      s.textContent = ssFmt(r.median_s, 's3');
+      const sh = document.createElement('span'); sh.className = 'ss-muted';
+      sh.dataset.source = 'phases'; sh.dataset.field = 'share'; sh.dataset.row = String(i);
+      sh.textContent = ssFmt(r.share, 'pct');
+      val.append(s, document.createTextNode(' '), sh);
+      row.append(lab, track, val); return row;
+    }));
+  });
+
+  dash.draw('chart20', (el) => {
+    const v = dash.data('versions'), h = dash.data('headline');
+    if (v.status !== 'ok' || h.status !== 'ok') {
+      el.textContent = ssFailed(v) || ssFailed(h) ? "The chart didn't load." : '—'; return;
+    }
+    const rows = v.data.filter((r) => isFinite(Number(r.median_20m_s)) && r.median_20m_s !== null && r.median_20m_s !== undefined);
+    const target = h.data[0] ? Number(h.data[0].target_s) : NaN;
+    if (!rows.length) { el.textContent = 'No 20M medians yet.'; return; }
+    const W = Math.max(280, el.clientWidth || 560), H = 250;
+    const m = { t: 22, r: 12, b: 28, l: 48 };
+    const top = d3.max([...rows.map((r) => Number(r.median_20m_s)), isFinite(target) ? target : 0]) * 1.15;
+    const y = d3.scaleLinear().domain([0, top]).nice().range([H - m.b, m.t]);
+    const bandW = Math.min(W - m.l - m.r, rows.length * 110);
+    const x = d3.scaleBand().domain(rows.map((r) => r.version)).range([m.l, m.l + bandW]).padding(0.3);
+    const svg = d3.create('svg').attr('width', '100%').attr('viewBox', `0 0 ${W} ${H}`).attr('role', 'img')
+      .attr('aria-label', `20M median per version: ${rows.map((r) => `${r.version} ${ssFmt(r.median_20m_s, 's3')}`).join(', ')}; target ${ssFmt(target, 's2')}`);
+    const ticks = y.ticks(4);
+    svg.append('g').selectAll('line').data(ticks).join('line')
+      .attr('x1', m.l).attr('x2', W - m.r).attr('y1', (t) => y(t)).attr('y2', (t) => y(t))
+      .style('stroke', 'var(--cds-chart-grid)').style('fill', 'none');
+    svg.append('g').selectAll('text').data(ticks).join('text')
+      .attr('x', m.l - 6).attr('y', (t) => y(t)).attr('dy', '0.32em').attr('text-anchor', 'end').text((t) => `${t} s`);
+    svg.append('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', H - m.b).attr('y2', H - m.b)
+      .style('stroke', 'var(--cds-chart-axis)');
+    const g = svg.append('g');
+    const bars = g.selectAll('rect').data(rows).join('rect')
+      .attr('x', (r) => x(r.version)).attr('width', x.bandwidth())
+      .attr('y', (r) => y(Number(r.median_20m_s))).attr('height', (r) => y(0) - y(Number(r.median_20m_s)))
+      .attr('rx', 2).style('fill', dash.colors[0]);
+    g.selectAll('text.ss-vl').data(rows).join('text').attr('class', 'ss-vl')
+      .attr('x', (r) => x(r.version) + x.bandwidth() / 2).attr('y', (r) => y(Number(r.median_20m_s)) - 6)
+      .attr('text-anchor', 'middle').text((r) => ssFmt(r.median_20m_s, 's3'));
+    g.selectAll('text.ss-xl').data(rows).join('text').attr('class', 'ss-xl')
+      .attr('x', (r) => x(r.version) + x.bandwidth() / 2).attr('y', H - m.b + 17)
+      .attr('text-anchor', 'middle').text((r) => r.version);
+    if (isFinite(target)) {
+      svg.append('line').attr('x1', m.l).attr('x2', W - m.r).attr('y1', y(target)).attr('y2', y(target))
+        .style('stroke', 'var(--color-bad)').style('stroke-width', 1.5).style('stroke-dasharray', '5 4');
+      svg.append('text').attr('x', W - m.r).attr('y', y(target) - 6).attr('text-anchor', 'end')
+        .text(`target ${ssFmt(target, 's2')}`);
+    }
+    const tip = document.createElement('div'); tip.className = 'ss-tip'; tip.hidden = true;
+    bars.on('pointerenter pointermove', (event, r) => {
+      tip.replaceChildren();
+      const b = document.createElement('b'); b.textContent = r.version;
+      const l1 = document.createElement('div'); l1.textContent = `20M median ${ssFmt(r.median_20m_s, 's3')}` + (isNum(r.sd_20m_s) ? ` (sd ${ssFmt(r.sd_20m_s, 's3')})` : '');
+      const l2 = document.createElement('div'); l2.textContent = `${r.verdict || 'no verdict'} · ${isFinite(target) ? (Number(r.median_20m_s) / target).toFixed(2) + '× target' : ''}`;
+      tip.append(b, l1, l2); tip.hidden = false;
+      const box = el.getBoundingClientRect();
+      const px = event.clientX - box.left, py = event.clientY - box.top;
+      const tw = tip.offsetWidth || 180;
+      tip.style.left = Math.max(0, Math.min(px + 12, box.width - tw)) + 'px';
+      tip.style.top = Math.max(0, py - 48) + 'px';
+    }).on('pointerleave', () => { tip.hidden = true; });
+    el.replaceChildren(svg.node(), tip);
+  });
+</script>
