@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Evaluate one candidate version of the pipeline.
 
-    .venv/bin/python evals/run.py --version v2 --rev method/v2 [--profile quick|full]
+    .venv/bin/python evals/run.py --version v2 --rev method/v2 [--profile quick|full|linux]
 
 Builds the candidate from REV in an isolated dir (git archive; never touches a
 worktree), measures correctness, performance and constraints, applies Gates
@@ -28,6 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cache_reference import cached_ok  # noqa: E402
 from lib import gates  # noqa: E402
+from lib.bench_lock import benchmark_lock  # noqa: E402
 from lib.build import build_image, build_native, docker_info, repo_size, resolve  # noqa: E402
 from lib.calibration import report as calibration_report  # noqa: E402
 from lib.common import (CONSISTENCY, DATA, EVALS, EXPECTED, FIXTURES, REPO, WORK, canonical_hash, dataset_stats,  # noqa: E402
@@ -48,6 +49,8 @@ PROFILES = {
     "full": {"runs": {"perf-1M": 5, "perf-20M": 5, "perf-60M": 3}, "warmup": {"perf-1M": 1, "perf-20M": 1,
                                                                             "perf-60M": 1},
              "fuzz_seeds": 1000, "thread_scaling": True, "docker": True, "probe": "perf-60M", "ab": True},
+    "linux": {"runs": {"perf-20M": 5}, "warmup": {"perf-20M": 1}, "fuzz_seeds": 150,
+              "thread_scaling": False, "docker": False, "probe": None, "ab": True},
 }
 SCALING_NCPU = [1, 2, 4, 5, 8]
 SCALING_RUNS = 3
@@ -385,7 +388,7 @@ class Eval:
 
     def perf(self):
         p = self.r["perf"]["datasets"]
-        for role in ("perf-1M", "perf-20M", "perf-60M"):
+        for role in self.prof["runs"]:
             b = self.step(f"perf {role}", self.perf_block, role)
             if b:
                 p[role] = b
@@ -473,7 +476,9 @@ class Eval:
             c["dev_answer_arm64"] = self.container_dev(run, "arm64")
             ro_ok &= c["fixtures_arm64"]["passed"] == c["fixtures_arm64"]["total"] and c["dev_answer_arm64"]["match"]
             self.container_overhead(run)
-            self.step("Linux proxy", self.linux_proxy, arm, info)
+            self.step("Linux timing", self.linux_timing, arm, info, self.r.get("baseline"))
+            if self.r["perf"].get("linux_timing", {}).get("status") != "ok":
+                self.step("Linux proxy", self.linux_proxy, arm, info)
         amd = build_image(self.sha, "amd64")
         imgs["amd64"] = amd
         if amd["ok"]:
@@ -530,6 +535,41 @@ class Eval:
                 footprint = perf["datasets"].get(role, {}).get("summary", {}).get("peak_footprint_bytes", {})
                 datasets.append((name, footprint.get("max", 0)))
         perf["linux_proxy"] = probe_linux(image, info, datasets)
+
+    def linux_profile(self):
+        try:
+            info = docker_info()
+        except FileNotFoundError:
+            info = {"available": False}
+        self.r["build"]["docker"] = info
+        if not info.get("available"):
+            self.r["perf"]["linux_timing"] = {"status": "unavailable", "reason": "Docker unavailable"}
+            return
+        arm = build_image(self.sha, "arm64")
+        self.r["build"]["images"] = {"arm64": arm}
+        self.linux_timing(arm, info, gates.best_baseline(self.a.version))
+
+    def linux_timing(self, image, info, baseline):
+        perf = self.r["perf"]
+        name = self.role("perf-20M")
+        if not name or not image["ok"]:
+            perf["linux_timing"] = {"status": "unavailable", "reason": "20M dataset or arm64 image unavailable"}
+            return
+        base_image = None
+        if baseline and baseline["sha"] and baseline["sha"] != self.sha:
+            built = build_image(baseline["sha"], "arm64")
+            if built["ok"]:
+                base_image = built
+            else:
+                self.note(f"Linux timing: arm64 baseline image failed for {baseline['version']}")
+        footprint = perf["datasets"].get("perf-20M", {}).get("summary", {}).get("peak_footprint_bytes", {})
+        result = probe_linux(image, info, [(name, footprint.get("max", 0))],
+                             timed_runs=self.a.ab_runs or AB_RUNS, event_lines=dataset_stats(DATA / name)["events_lines"],
+                             baseline_image=base_image, before_timing=self.wait_quiet)
+        if baseline:
+            result["baseline_version"] = baseline["version"]
+            result["baseline_sha"] = baseline["sha"]
+        perf["linux_timing"] = result
 
     def cold_cache(self):
         perf = self.r["perf"]
@@ -629,6 +669,8 @@ class Eval:
         r["_suite_oracle_missing"] = [n for n, d in self.suite.items() if d["kind"] == "oracle"
                                       and n not in r["correctness"]["differential"]]
         r["gates"] = {"A": gates.gate_a(r), "B": gates.gate_b(r), "C": gates.gate_c(r)}
+        if "linux_timing" in r["perf"]:
+            r["gates"]["C"]["linux_secondary"] = gates.linux_signal(r)
         r.pop("_suite_oracle_missing", None)
         r["verdict"] = gates.verdict(r)
         if r["errors"]:
@@ -660,6 +702,7 @@ class Eval:
             + "; ".join(r["verdict"]["reasons"][:6]))
         log(f"wrote evals/results/{r['version']}.json and .md in {r['duration_s']:.0f}s")
 
+    @benchmark_lock()
     def main(self):
         log(f"eval {self.a.version}: rev {self.a.rev} = {self.sha[:12]}, profile {self.a.profile}")
         self.step("build", self.build)
@@ -672,8 +715,11 @@ class Eval:
         self.step("correctness", self.correctness_untimed)
         self.step("fuzz", self.fuzz)
         self.step("debug knobs", self.debug_knobs)
+        if self.a.profile == "linux":
+            self.step("Linux timing", self.linux_profile)
         self.perf()
-        self.step("probe", self.probe)
+        if self.prof["probe"]:
+            self.step("probe", self.probe)
         if self.prof["thread_scaling"]:
             self.step("thread scaling", self.thread_scaling)
         self.step("size scaling", self.size_scaling)
@@ -709,6 +755,8 @@ def render_md(r: dict) -> str:
     for g, gate in r["gates"].items():
         for x in gate["checks"]:
             L.append(f"| {g} | {x['name']} | {x['status'].upper()} | {x['detail']} |")
+        if linux := gate.get("linux_secondary"):
+            L.append(f"| {g} | Linux 20M secondary signal | {linux['status'].upper()} | {linux['detail']} |")
     L += ["", "## Correctness", ""]
     for k in ("fixtures_native", "fixtures_arm64", "fixtures_amd64"):
         if c.get(k):
@@ -784,6 +832,32 @@ def render_md(r: dict) -> str:
         counters = [("instructions/row", "instructions_per_row"), ("cycles/row", "cycles_per_row"), ("IPC", "ipc")]
         L.append("Hardware counters (median): " + ", ".join(
             f"{label} {fmt_number(b['summary'].get(key, {}).get('median'))}" for label, key in counters))
+    if timing := p.get("linux_timing"):
+        L += ["", "## Linux and native 20M timing", ""]
+        if timing["status"] == "ok":
+            L += ["| Runtime | Version | Runs | Median | Min | Minor faults / row | Major faults / row |",
+                  "| --- | --- | --- | --- | --- | --- | --- |"]
+            base = r.get("baseline") or {}
+            for label, stats, version in (
+                ("Linux arm64", timing["summary"], r["version"]),
+                ("Linux arm64", timing.get("baseline_summary", {}), timing.get("baseline_version")),
+                ("Native", {"process_wall_s": base.get("ab_candidate_wall_s") or gates.perf_20m(r)}, r["version"]),
+                ("Native", {"process_wall_s": base.get("ab_wall_s")}, base.get("version")),
+            ):
+                if not (wall := stats.get("process_wall_s")) or not wall.get("n"):
+                    continue
+                faults = [stats.get(f"{kind}_faults_per_row", {}).get("median") for kind in ("minor", "major")]
+                minor, major = ("n/a" if fault is None else f"{fault:.6f}" for fault in faults)
+                L.append(f"| {label} | {version} | {wall['n']} | {fmt_s(wall['median'])} | {fmt_s(wall['min'])} "
+                         f"| {minor} | {major} |")
+            first = timing["warmup"]
+            L += ["", f"Named volume, 8 CPUs, {timing['mem_gib']} GiB cgroup limit, "
+                       f"THP {first['thp_mode'] or 'unknown'}, page size {first['page_bytes'] or 'unknown'} B."]
+            if timing.get("baseline_error"):
+                L.append("Linux baseline timing unavailable. See the result JSON for details.")
+        else:
+            detail = timing.get("reason") or "; ".join(a.get("error", "") for a in timing.get("attempts", []))
+            L.append("Unavailable. " + detail.strip().replace("\n", " "))
     ts = p.get("thread_scaling")
     if ts:
         L += ["", f"## Thread scaling ({ts['dataset']})", "",
@@ -913,13 +987,15 @@ def main():
     ap.add_argument("--rev", required=True, help="git ref to build (tag, branch, sha)")
     ap.add_argument("--profile", choices=list(PROFILES), default="quick")
     ap.add_argument("--fuzz-seeds", type=int, default=None, help="override the number of fuzz seeds")
-    ap.add_argument("--ab-runs", type=int, help="minimum interleaved A/B pairs in the full profile")
+    ap.add_argument("--ab-runs", type=int, help="minimum interleaved A/B pairs in the full or linux profile")
     ap.add_argument("--no-docker", action="store_true", help="skip container gates even in the full profile")
     ap.add_argument("--no-ledger", action="store_true", help="don't append to evals/ledger.md")
     ap.add_argument("--rebuild", action="store_true", help="rebuild the native binary even if cached")
     a = ap.parse_args()
-    if a.ab_runs is not None and (a.profile != "full" or a.ab_runs < AB_RUNS):
-        ap.error(f"--ab-runs requires the full profile and at least {AB_RUNS} pairs")
+    if a.ab_runs is not None and (a.profile == "quick" or a.ab_runs < AB_RUNS):
+        ap.error(f"--ab-runs requires the full or linux profile and at least {AB_RUNS} pairs")
+    if a.profile == "linux" and a.no_docker:
+        ap.error("the linux profile requires Docker")
     Eval(a).main()
 
 

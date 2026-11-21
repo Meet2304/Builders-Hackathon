@@ -8,7 +8,7 @@ A **summary** object (`S` below) is `{n, median, mean, min, max, p90, stdev, cv,
 ```jsonc
 {
   "schema_version": 1,
-  "version": "v1", "rev": "v1", "sha": "<full commit sha>", "profile": "quick|full",
+  "version": "v1", "rev": "v1", "sha": "<full commit sha>", "profile": "quick|full|linux",
   "started": "ISO-8601", "finished": "ISO-8601", "duration_s": 612.3,
   "host": {"machine", "ncpu", "perf_cores", "eff_cores", "mem_bytes", "os", "python", "polars"},
   "evaluator": {"eval_sha": "<eval worktree HEAD>[+dirty]", "reference_sha": "<sha256[:16] of reference.py>",
@@ -77,6 +77,11 @@ A **summary** object (`S` below) is `{n, median, mean, min, max, p90, stdev, cv,
                     "reason"?, "attempts": [{"dataset", "error"}], "warmup"?: LINUX_RUN, "sample"?: LINUX_RUN,
                     "cold"?: {"status", "dataset"?, "sample"?: LINUX_RUN, "resident_input_bytes_before"?,
                               "attempts": [{"dataset", "error"}]}},
+    "linux_timing": {"status": "ok|unavailable", "dataset"?, "mem_gib"?, "thp_policy"?, "input_storage"?,
+                     "load_before"?, "event_lines"?, "warmup"?: LINUX_RUN, "runs"?: [LINUX_RUN],
+                     "baseline_version"?, "baseline_sha"?, "baseline_warmup"?: LINUX_RUN,
+                     "baseline_runs"?: [LINUX_RUN], "summary"?: LINUX_STATS, "baseline_summary"?: LINUX_STATS,
+                     "reason"?, "baseline_error"?, "attempts"?: [{"dataset", "error"}]},
     "cold_cache": {"status": "ok|failed|unavailable", "dataset"?, "load_before"?, "reason"?,
                    "warm_median_s"?, "run"?: RUN}
   },
@@ -114,6 +119,12 @@ block_in, block_out, canonical_hash?, rows?, files_sha?, stderr_tail?}`.
 **LINUX_RUN** uses GNU time for `process_wall_s`, `minor_faults`, `major_faults`, and `max_rss_bytes`.
 The host measures `container_wall_s` including container setup. The sample also records `phases`,
 `thp_mode`, and `page_bytes`.
+New Linux timing runs use an inside-container wall clock around GNU time for `process_wall_s`.
+Timed samples include `minor_faults_per_row` and `major_faults_per_row` using physical event rows as
+the denominator. **LINUX_STATS** maps both wall times, both fault counts and both fault rates to summary objects.
+
+**Gate C secondary signal** is `gates.C.linux_secondary` with `status` (`supports|regression|inconclusive|unavailable`),
+`detail`, and, when comparable, `gain`, `pooled_sd_s`, and `pairs`. The signal is informational.
 
 **Verdict:** `REJECT` if any Gate A or B check fails; otherwise `HOLD` if Gate C fails or anything is `not_run`
 (then `final: false`, i.e. provisional, e.g. the quick profile); otherwise `SUBMIT-READY`.

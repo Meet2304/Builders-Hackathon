@@ -7,10 +7,12 @@ import math
 import os
 import re
 import shutil
+import signal
 import statistics
 import subprocess
 import threading
 import time
+from contextlib import suppress
 from pathlib import Path
 
 PHASE_RE = re.compile(r"^\[\s*([0-9]+(?:\.[0-9]+)?)s\]\s+(.*?)\s*$")
@@ -116,7 +118,8 @@ def run_once(binary: Path, data: Path, out: Path, scratch: Path, ncpu: int, time
     samples = []
     with open(stdout_path, "wb") as so:
         t0 = time.perf_counter()
-        p = subprocess.Popen(cmd, env=env, stdout=so, stderr=subprocess.PIPE, cwd=str(scratch))
+        p = subprocess.Popen(cmd, env=env, stdout=so, stderr=subprocess.PIPE, cwd=str(scratch),
+                             start_new_session=True)
         stop = threading.Event()
         err_chunks = []
 
@@ -144,16 +147,22 @@ def run_once(binary: Path, data: Path, out: Path, scratch: Path, ncpu: int, time
             sampler = threading.Thread(target=sample, daemon=True)
             sampler.start()
         try:
-            rc = p.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            p.kill()
-            rc = p.wait()
-            rc = -9 if rc == 0 else rc
-        wall = time.perf_counter() - t0
-        stop.set()
-        drainer.join()
-        if sampler:
-            sampler.join()
+            try:
+                rc = p.wait(timeout=timeout)
+            except BaseException as exc:
+                # The time wrapper and candidate share this group. Reap the run before unlocking.
+                with suppress(ProcessLookupError):
+                    os.killpg(p.pid, signal.SIGKILL)
+                p.wait()
+                if not isinstance(exc, subprocess.TimeoutExpired):
+                    raise
+                rc = -signal.SIGKILL
+            wall = time.perf_counter() - t0
+        finally:
+            stop.set()
+            drainer.join()
+            if sampler:
+                sampler.join()
     stderr = b"".join(err_chunks).decode("utf-8", "replace")
     prog_err, time_err = _split_time_output(stderr) if not probe else (stderr, "")
     res = {"returncode": rc, "wall_s": round(wall, 4), "ncpu": ncpu,

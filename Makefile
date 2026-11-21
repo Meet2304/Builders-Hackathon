@@ -109,7 +109,7 @@ VERSION ?=
 REV     ?= HEAD
 PROFILE ?= quick
 .PHONY: eval eval-compare eval-cache-ref eval-selftest eval-calibrate
-eval:            ## Evaluate a candidate: make eval VERSION=v2 REV=method/v2 PROFILE=quick|full
+eval:            ## Evaluate a candidate: make eval VERSION=v2 REV=method/v2 PROFILE=quick|full|linux
 	@test -n "$(VERSION)" || (echo "VERSION=... is required" && exit 2)
 	$(PY) evals/run.py --version $(VERSION) --rev $(REV) --profile $(PROFILE)
 
