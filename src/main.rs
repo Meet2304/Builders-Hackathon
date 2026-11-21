@@ -34,7 +34,8 @@
 //!   SESSIONS_DEBUG_CHUNK=BYTES  parse chunk size, 1..=8 MiB (default 4 MiB; e.g. 97)
 //!   SESSIONS_DEBUG_PARTS=N      partition count, 1..=4096 (default 256)
 //!   SESSIONS_DEBUG_NO_FAST=1    every fast path off: scalar line split (v1's memchr +
-//!                               split_fields), every ID interned, no direct indexes
+//!                               split_fields), every ID interned, no direct indexes,
+//!                               v1's timestamp parser only
 //!   SESSIONS_DEBUG_NO_FAST=2    half the IDs (by hash parity) take the interned fallback,
 //!                               to mix packed and interned keys
 //!   SESSIONS_DEBUG_NO_FAST=3    the portable SWAR classifier instead of NEON/SSE2
@@ -730,6 +731,145 @@ fn parse_ts(s: &[u8]) -> Option<i64> {
     None
 }
 
+// Window-local timestamp decoding, ported from Explorer's explore/window-timestamps
+// (d1da46e, evals/explore/window-timestamps.md). F1/F2 dates within the window +-8 days
+// come from a small table, the clock digits decode in parallel, and 13-digit F3 values
+// decode 8 lanes at a time. Every miss, and every other form, goes to v1's parse_ts.
+
+#[inline]
+fn eight_digits(digits: u64) -> bool {
+    const HIGH_NIBBLES: u64 = 0xf0f0_f0f0_f0f0_f0f0;
+    const SIX: u64 = 0x0606_0606_0606_0606;
+    // Each lane started as ASCII XOR '0'. Values 0..=9 keep a zero high
+    // nibble after adding six, and any originally set high nibble also fails.
+    (digits | digits.wrapping_add(SIX)) & HIGH_NIBBLES == 0
+}
+
+#[inline]
+fn decimal_eight(digits: u64) -> u64 {
+    let pairs = (digits * 10 + (digits >> 8)) & 0x00ff_00ff_00ff_00ff;
+    let quads = (pairs * 100 + (pairs >> 16)) & 0x0000_ffff_0000_ffff;
+    ((quads as u32) as u64) * 10_000 + (quads >> 32)
+}
+
+#[inline]
+fn clock_ms(clock: u64) -> Option<i64> {
+    let digits = clock ^ u64::from_le_bytes(*b"00:00:00");
+    if !eight_digits(digits) || digits & 0x0000_ff00_00ff_0000 != 0 {
+        return None;
+    }
+    let pairs = digits * 10 + (digits >> 8);
+    let h = pairs as u8;
+    let m = (pairs >> 24) as u8;
+    let s = (pairs >> 48) as u8;
+    if h > 23 || m > 59 || s > 59 {
+        return None;
+    }
+    Some(((h as i64 * 60 + m as i64) * 60 + s as i64) * 1000)
+}
+
+// Inverse of days_from_civil, used once per cached calendar day.
+fn civil_from_days(day: i64) -> (i64, i64, i64) {
+    let z = day + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (era * 400 + yoe + i64::from(m <= 2), m, d)
+}
+
+#[derive(Clone, Copy, Default)]
+struct CalendarDay {
+    prefix: u64,
+    midnight: i64,
+}
+
+struct TimestampDecoder {
+    days: [CalendarDay; 512],
+}
+
+impl TimestampDecoder {
+    fn new(start: i64, end: i64) -> Self {
+        let mut decoder = Self { days: [CalendarDay::default(); 512] };
+        // This covers click offsets, and the ordinary ingest dates around
+        // the window. A miss still uses the general parser, even for ingest.
+        let first = start.div_euclid(DAY_MS) - 8;
+        let last = end.div_euclid(DAY_MS) + 8;
+        if last - first > 48 {
+            return decoder;
+        }
+        for day in first..=last {
+            let (y, m, d) = civil_from_days(day);
+            if !(0..=9999).contains(&y) {
+                continue;
+            }
+            let date = format!("{y:04}-{m:02}-{d:02}");
+            let bytes = date.as_bytes();
+            let prefix = u64::from_le_bytes(bytes[..8].try_into().unwrap());
+            let index = Self::index(bytes[6], bytes[8], bytes[9]);
+            decoder.days[index] = CalendarDay { prefix, midnight: day * DAY_MS };
+        }
+        decoder
+    }
+
+    #[inline]
+    fn index(month: u8, tens: u8, ones: u8) -> usize {
+        (((month as usize) & 1) << 8) | (((tens as usize) & 15) << 4) | ((ones as usize) & 15)
+    }
+
+    #[inline]
+    fn cached_datetime(&self, s: &[u8]) -> Option<i64> {
+        let prefix = u64::from_le_bytes(s[..8].try_into().unwrap());
+        let day = &self.days[Self::index(s[6], s[8], s[9])];
+        // A matching slot checks the complete date: the prefix covers year,
+        // month and dashes, and the index plus high nibbles checks day digits.
+        if day.prefix == 0 || prefix != day.prefix
+            || (s[8] & 0xf0) != b'0' || (s[9] & 0xf0) != b'0' || s[10] != b'T'
+        {
+            return None;
+        }
+        let clock = u64::from_le_bytes(s[11..19].try_into().unwrap());
+        Some(day.midnight + clock_ms(clock)?)
+    }
+
+    #[inline]
+    fn parse(&self, s: &[u8]) -> Option<i64> {
+        match s.len() {
+            20 if s[19] == b'Z' => {
+                if let Some(ts) = self.cached_datetime(s) {
+                    return Some(ts);
+                }
+            }
+            25 if matches!(s[19], b'+' | b'-') && s[22] == b':' => {
+                if let Some(ts) = self.cached_datetime(s) {
+                    let (h, m) = (dig2(s, 20)?, dig2(s, 23)?);
+                    if h > 23 || m > 59 {
+                        return None;
+                    }
+                    let offset = (h * 60 + m) * 60_000;
+                    return Some(if s[19] == b'+' { ts - offset } else { ts + offset });
+                }
+            }
+            13 => {
+                const ZEROES: u64 = u64::from_le_bytes(*b"00000000");
+                let low = u64::from_le_bytes(s[5..13].try_into().unwrap()) ^ ZEROES;
+                let high = (u64::from_le_bytes(s[..8].try_into().unwrap()) ^ ZEROES) & 0xff_ffff_ffff;
+                if eight_digits(high) && eight_digits(low) {
+                    // The first five digits were loaded with three zero lanes.
+                    return Some((decimal_eight(high) * 100_000 + decimal_eight(low)) as i64);
+                }
+                return None;
+            }
+            _ => {}
+        }
+        parse_ts(s)
+    }
+}
+
+
 /// Purchase price: ASCII digits only, value 1..=10_000_000.
 #[inline]
 fn parse_price(s: &[u8]) -> Option<u32> {
@@ -937,6 +1077,17 @@ struct Ck {
 struct Win {
     start: i64,
     end: i64,
+    decoder: Option<TimestampDecoder>, // None under SESSIONS_DEBUG_NO_FAST=1
+}
+
+impl Win {
+    #[inline]
+    fn parse_ts(&self, s: &[u8]) -> Option<i64> {
+        match &self.decoder {
+            Some(d) => d.parse(s),
+            None => parse_ts(s),
+        }
+    }
 }
 
 /// One parse task's output for events.
@@ -997,7 +1148,7 @@ fn validate<'a>(f: &[&'a [u8]; 7], ingest: i64, w: &Win) -> Option<(&'a [u8], i6
     if user.is_empty() || product.is_empty() {
         return None;
     }
-    let ts = parse_ts(f[2])?;
+    let ts = w.parse_ts(f[2])?;
     if ts < w.start || ts >= w.end {
         return None;
     }
@@ -1018,7 +1169,7 @@ fn parse_event<'a>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &mut EvOut) 
         return;
     }
     let eid = lk.ids.key(f[0]);
-    let ingest = parse_ts(f[3]).unwrap_or(i64::MAX);
+    let ingest = w.parse_ts(f[3]).unwrap_or(i64::MAX);
     match validate(f, ingest, w) {
         Some((user, ts, price)) => {
             let user = lk.ids.key(user);
@@ -1044,7 +1195,7 @@ fn parse_click<'a>(f: &[&'a [u8]; 4], lk: &Lookups<'a>, w: &Win) -> Option<(Ck, 
         return None;
     }
     let camp = lk.campaign(f[2])?;
-    let ts = parse_ts(f[3])?;
+    let ts = w.parse_ts(f[3])?;
     if ts < w.start - WEEK_MS || ts >= w.end {
         return None;
     }
@@ -1556,7 +1707,9 @@ fn main() {
     let manifest: serde_json::Value =
         serde_json::from_slice(&read_small(&data.join("manifest.json"))).expect("parse manifest.json");
     let mts = |k: &str| parse_ts(manifest[k].as_str().expect("manifest key").as_bytes()).expect("manifest ts");
-    let win = Win { start: mts("window_start"), end: mts("window_end") };
+    let (start, end) = (mts("window_start"), mts("window_end"));
+    let decoder = (knobs.no_fast != 1).then(|| TimestampDecoder::new(start, end));
+    let win = Win { start, end, decoder };
 
     let products_buf = read_small(&data.join("products.csv"));
     let campaigns_buf = read_small(&data.join("campaigns.csv"));
@@ -1828,6 +1981,44 @@ mod tests {
                 let mut got: Vec<Vec<Vec<u8>>> = Vec::new();
                 for_each_record(&buf, 0, buf.len(), scan, |o: &[&[u8]; 3]| got.push(o.iter().map(|f| f.to_vec()).collect()));
                 assert_eq!(got, want, "{:?}", String::from_utf8_lossy(&buf));
+            }
+        }
+    }
+
+    #[test]
+    fn timestamp_decoder_matches_parse_ts() {
+        // window around Feb 29 2028 and a year end, so the table holds month/year edges
+        for (ws, we) in [("2028-02-20T00:00:00Z", "2028-03-05T00:00:00Z"), ("2027-12-20T00:00:00Z", "2028-01-03T00:00:00Z")] {
+            let (start, end) = (parse_ts(ws.as_bytes()).unwrap(), parse_ts(we.as_bytes()).unwrap());
+            let dec = TimestampDecoder::new(start, end);
+            let mut cases: Vec<Vec<u8>> = Vec::new();
+            for day in (start / DAY_MS - 12)..(end / DAY_MS + 12) {
+                let (y, m, d) = civil_from_days(day);
+                for clock in ["00:00:00", "23:59:59", "12:34:56", "24:00:00", "12:60:00", "12:00:60"] {
+                    cases.push(format!("{y:04}-{m:02}-{d:02}T{clock}Z").into_bytes());
+                    cases.push(format!("{y:04}-{m:02}-{d:02}T{clock}+05:30").into_bytes());
+                    cases.push(format!("{y:04}-{m:02}-{d:02}T{clock}-10:00").into_bytes());
+                    cases.push(format!("{y:04}-{m:02}-{d:02}T{clock}+24:00").into_bytes());
+                }
+                cases.push(((day * DAY_MS + 1234) as u64).to_string().into_bytes());
+            }
+            cases.push(b"0000000000000".to_vec());
+            cases.push(b"9999999999999".to_vec());
+            cases.push(b"2028-02-30T00:00:00Z".to_vec());
+            cases.push(b"2028-02-29t00:00:00Z".to_vec());
+            // every byte value at every position of a few seeds
+            let seeds: Vec<Vec<u8>> = cases.iter().step_by(37).cloned().collect();
+            for seed in seeds {
+                for i in 0..seed.len() {
+                    for b in 0..=255u8 {
+                        let mut c = seed.clone();
+                        c[i] = b;
+                        cases.push(c);
+                    }
+                }
+            }
+            for c in &cases {
+                assert_eq!(dec.parse(c), parse_ts(c), "{:?}", String::from_utf8_lossy(c));
             }
         }
     }
