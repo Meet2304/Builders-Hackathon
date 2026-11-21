@@ -17,6 +17,7 @@ TIMING = re.compile(r"^eval_time ([0-9.]+) (\d+) (\d+) (\d+) ([0-9.]+) ([0-9.]+)
 WALL_NS = re.compile(r"^eval_wall_ns (\d+)$", re.MULTILINE)
 THP_PATH = "/sys/kernel/mm/transparent_hugepage/enabled"
 THP_MODE = re.compile(r"\[(always|madvise|never)\]")
+THP_CONTROL_IMAGE = "debian:bookworm-slim"
 PROBE_SCRIPT = r"""
 if [ -r /sys/kernel/mm/transparent_hugepage/enabled ]; then
     printf 'eval_thp '
@@ -77,9 +78,9 @@ printf '%s\n' "$resident" | awk '{bytes += $1} END {printf "%.0f\n", bytes}'
 
 
 @contextmanager
-def thp_madvise(call, platform, tag, result):
+def thp_madvise(call, platform, result):
     prefix = ("run", "--rm", "--platform", platform, "--privileged", "--network", "none",
-              "--entrypoint", "/bin/sh", tag, "-c")
+              "--entrypoint", "/bin/sh", THP_CONTROL_IMAGE, "-c")
 
     def control(mode=None):
         script = 'if [ "$#" -gt 1 ]; then printf "%s\n" "$2" > "$1" || exit; fi; cat "$1"'
@@ -234,7 +235,7 @@ def probe_linux(image: dict, docker: dict, candidates: list[tuple[str, int]], *,
                     log(f"Linux proxy cleanup for {token}: {e}")
 
     try:
-        with thp_madvise(call, image["platform"], tag, result):
+        with thp_madvise(call, image["platform"], result):
             for dataset, footprint in candidates:
                 if footprint + GIB > vm_budget_gib * GIB:
                     result["attempts"].append({"dataset": dataset, "error": "native footprint leaves <1 GiB headroom"})
