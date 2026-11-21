@@ -974,6 +974,8 @@ impl EvOut {
             let person = lk.links.get_at(x.user, x.slot);
             let d = bucket(lk.hk(person), nb);
             let seq = self.r[d].len();
+            // MAX_TASK_BYTES keeps this far below 2^20; fail loudly rather than corrupt
+            assert!(seq < 1 << 20, "rows per (task, partition) overflow the 20-bit ref");
             self.r[d].push(Row { person, ts: x.ts, price: x.price, cat: x.cat });
             let q = bucket(lk.hk(x.eid), nb);
             self.e[q].push(EidEnt { eid: x.eid, ingest: x.ingest });
@@ -1591,6 +1593,7 @@ fn main() {
             o
         })
         .collect();
+    assert!(ev_out.len() < 1 << 24, "task index overflows the 24-bit drop field");
     lap("events parsed");
 
     // clicks: parse + validate + scatter by person
