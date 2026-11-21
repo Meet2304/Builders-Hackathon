@@ -946,4 +946,8 @@ fn main() {
     write_parquet(&cd_dir.join("part-00000.parquet"), campaign_batch(&camp_total, &ctx));
     let rows: usize = accs.iter().map(|a| a.users.len()).sum();
     lap(&format!("written ({rows} user_daily rows)"));
+    // Every Parquet writer is closed (ArrowWriter::close flushed it, and its File was
+    // dropped inside write_parquet), so nothing is left to flush. Skip the teardown:
+    // dropping GBs of Vecs and unmapping the input is serial work worth 0.1-0.35 s.
+    std::process::exit(0);
 }
