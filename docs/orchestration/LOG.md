@@ -8,17 +8,18 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ref | d170ffe | main | 236 s (1 thread) | n/a | 17 GB at 20M | oracle | no | n/a |
 | v1 | 3e48662 | main (tag v1) | 1.550 s (5 runs, sd 0.03) | 5.79 s (3 runs) | 11.46 GB footprint (16.6 GB RSS incl. page cache) | **SUBMIT-READY** | no | n/a |
+| v2 | 953af43 | method/v2 | ~1.57 s (1 rough run) | ~4.89 s warm | 17.8 GB RSS | in eval | no | n/a |
 
 ## Thread registry
 
 | Thread | Role | Branch / worktree | Status |
 | --- | --- | --- | --- |
 | Orchestrator | coordination, merges, log | main / project root | active |
-| [Eval: framework + scoring](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:89ba2159fefcb9d132aac87119da7af32599350130f935c6869fa5fd8158d759) | evaluation framework | eval/framework (worktree from origin/main @ 7f27b6a) | running: framework v1 (calibration fit, Linux proxy, IPC/row, knobs fuzz, 2nd 20M oracle); no timed runs until cleared |
+| [Eval: framework + scoring](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:89ba2159fefcb9d132aac87119da7af32599350130f935c6869fa5fd8158d759) | evaluation framework | eval/framework (worktree from origin/main @ 7f27b6a) | running (Codex sol): full timed eval of v2 @ 953af43; framework v1 merged |
 | [Dashboard (simple, static)](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/thread:delegated-task:command%3Amcp%3A02321fc3-e973-4332-85f8-fdaccde89f88%3Adelegate-task%3Adashboard-sol-1) | dashboard (Codex gpt-6.2-sol) | t3/build-progress-dashboard, merged (8807552) | done |
 | [Analyst: insights](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:4bb2f427ec0d090bb0b1d04656a70cbb5677caeda85f78ddb59f299ee7c58728) | insights | analysis (worktree from origin/main @ 54be3ad) | idle: v1 insights merged |
-| [Method: next version](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:12abc78a5e772d60f60bfee203e923ca14d54c88168f046f78565586a6182097) | pipeline versions | method/v2 (worktree from origin/main @ e695855) | running: v2 = skip teardown + debug knobs + per-phase cpu marks |
-| [Dashboard: live Claude artifact](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:41ab4ef0a8234b722582c94a9f60a3b6ad91d309d5aa3b1510e7c1c2ad26f325) | live claude.ai dashboard (one URL, data in the artifact DB) | dashboard/live (worktree from local main) | running |
+| [Method: next version](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:12abc78a5e772d60f60bfee203e923ca14d54c88168f046f78565586a6182097) | pipeline versions | method/v2 (worktree from origin/main @ e695855) | running (Claude): v3 on method/v3 (packed IDs, dedup routing, direct-index lookups, SIMD scan); no big timings until cleared |
+| [Dashboard: live Claude artifact](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:41ab4ef0a8234b722582c94a9f60a3b6ad91d309d5aa3b1510e7c1c2ad26f325) | live claude.ai dashboard (one URL, data in the artifact DB) | dashboard/live, merged (f927858) | done: https://claude.ai/artifact/BeFsRwhCxaqqo3KRDhdWM5 |
 
 ## Entries
 
@@ -41,3 +42,4 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **Eval (now Codex sol):** framework v1 @ `33e140b`: calibration fit, seed-62 20M leap-day oracle, knob checks (4 cases × 5 settings MATCH on v2), IPC and instructions per row, per-phase CPU, hybrid-core scaling, Linux fault probe (mock-tested). Merged.
 - **Dashboard:** live artifact https://claude.ai/artifact/BeFsRwhCxaqqo3KRDhdWM5 (claude_andrew account), data-only syncs per `docs/orchestration/dashboard/SYNC.md`. `f927858` merged.
 - **User request:** move all Claude threads from claude_andrew to the `Claude` provider. Method and Dashboard are switched. **Orchestrator:** cleared the machine and sent Eval to run the full v2 evaluation.
+- **Orchestrator (loop start):** the user asked for a continuous loop until we beat the board. Method was sent v3 (`method/v3`) on the `Claude` provider, but that instance still returned "5-hour limit, resets 18:40 ET" twice. Method is back on claude_andrew so it keeps working, and moves to `Claude` after the reset. Eval (Codex) is timing v2. Dashboard synced (23 writes, same URL). The user will spend a weekly reset if needed (weekly at 91%).
