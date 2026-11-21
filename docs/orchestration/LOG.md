@@ -8,7 +8,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ref | d170ffe | main | 236 s (1 thread) | n/a | 17 GB at 20M | oracle | no | n/a |
 | v1 | 3e48662 | main (tag v1) | 1.550 s (5 runs, sd 0.03) | 5.79 s (3 runs) | 11.46 GB footprint (16.6 GB RSS incl. page cache) | **SUBMIT-READY** | no | n/a |
-| v2 | 953af43 | method/v2 | ~1.57 s (1 rough run) | ~4.89 s warm | 17.8 GB RSS | in eval | no | n/a |
+| v2 | 953af43 | method/v2 | 1.661 s (interleaved 1.610 vs v1 1.659) | 5.367 s | 11.41 GB footprint (17.76 GB RSS) | HOLD (Gate C: only 2.94% faster, needs 5%) | no | n/a |
 
 ## Thread registry
 
@@ -45,3 +45,4 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **User request:** move all Claude threads from claude_andrew to the `Claude` provider. Method and Dashboard are switched. **Orchestrator:** cleared the machine and sent Eval to run the full v2 evaluation.
 - **Orchestrator (loop start):** the user asked for a continuous loop until we beat the board. Method was sent v3 (`method/v3`) on the `Claude` provider, but that instance still returned "5-hour limit, resets 18:40 ET" twice. Method is back on claude_andrew so it keeps working, and moves to `Claude` after the reset. Eval (Codex) is timing v2. Dashboard synced (23 writes, same URL). The user will spend a weekly reset if needed (weekly at 91%).
 - **User request:** a separate Sol thread that invents new methods, runs them on the latest eval framework, and feeds the Analyst. **Orchestrator** launched **Explorer (Sol)** (Codex gpt-6.2-sol, high) on `explore/sol`, scoped to ideas orthogonal to v3: output-side Parquet, fused passes, spec shortcuts, RSS and page faults, scheduling. Results go to the Analyst via the Orchestrator. **Protocol change:** two threads may now time, so timed runs take the machine lock `mkdir /tmp/builders-bench.lock` and release it with `rmdir`. Eval, Method and Explorer have been told.
+- **Eval:** v2 full eval at `8405f87`, merged. **HOLD.** Gates A and B pass: 36/36 on native, arm64 and amd64; 10 oracles; 1000 fuzz seeds under every knob; all 82 dialect cases at each chunk size. Gate C fails: 2.94% faster over 11 interleaved pairs, under the 5% bar. Instructions per row about 4,264 at 20M, IPC 1.95 (1.76 at 60M). Parse events is the biggest phase (0.73 s wall, 5.8 core-s). **Linux named-volume probe at 20M: 2.05 s warm, 811k minor faults; cold 2.39 s.** Linux is about 25% slower than macOS, so page faults matter on the scorer. v2 stays the base for v3 (its knobs and CPU marks are needed); it won't be submitted.
