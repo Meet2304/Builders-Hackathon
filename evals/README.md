@@ -26,12 +26,14 @@ average before it starts. A block is flagged `noisy` when the machine was > 12 %
 
 ## Isolation
 
-- Sources come from `git archive <sha>` into `~/.cache/sessions-eval/src/<sha12>/`. No worktree is touched.
-- Native builds use one shared `CARGO_TARGET_DIR` (`~/.cache/sessions-eval/target`), so dependencies are reused
+- Sources come from `git archive <sha>` into `~/.cache/sessions-eval.noindex/src/<sha12>/`. No worktree is touched.
+- Native builds use one shared `CARGO_TARGET_DIR` (`~/.cache/sessions-eval.noindex/target`), so dependencies are reused
   across revs. A file lock serialises builds, and each binary is copied to `bin/<sha12>/sessions` (cached per sha;
   `--rebuild` forces a rebuild).
 - Images are tagged `sessions-eval:<sha12>-<arch>` and never overwrite `shopping-sessions:*`.
-- Run outputs go to `~/.cache/sessions-eval/runs/` and are deleted afterwards. Set `EVAL_WORK` to move all of this.
+- Run outputs go to `~/.cache/sessions-eval.noindex/runs/` and are deleted afterwards. Set `EVAL_WORK` to move all of this.
+  The `.noindex` suffix keeps Spotlight from indexing run outputs; `mds_stores` was taking up to 60 % of a core
+  during timed runs before that change.
 - Fixtures, the reference, `scripts/docker_run.sh` and the comparison code come from the **eval** worktree, not from
   the candidate, so a candidate can never change how it is judged.
 

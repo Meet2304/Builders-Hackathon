@@ -86,7 +86,7 @@ def build_native(sha: str, rebuild: bool = False) -> dict:
     if out.exists() and meta_path.exists() and not rebuild:
         import json
         meta = json.loads(meta_path.read_text())
-        meta["cached"] = True
+        meta.update(cached=True, binary=str(out), src=str(src))  # paths stay valid if EVAL_WORK moves
         return meta
     env = rust_env()
     with locked("cargo"):

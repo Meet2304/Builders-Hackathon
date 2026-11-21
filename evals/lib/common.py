@@ -23,7 +23,8 @@ EXPECTED = DATA / "expected"           # cached reference outputs, one dir per d
 CONSISTENCY = DATA / "consistency"     # cached outputs of the best verified version (no oracle)
 FUZZ_DATA = DATA / "fuzz"              # generated adversarial cases + their reference outputs
 STATS = DATA / "stats"                 # cached dataset stats (bytes, lines)
-WORK = Path(os.environ.get("EVAL_WORK", Path.home() / ".cache" / "sessions-eval"))
+# ".noindex": Spotlight must not index the run outputs (it competed for CPU during timed runs)
+WORK = Path(os.environ.get("EVAL_WORK", Path.home() / ".cache" / "sessions-eval.noindex"))
 PY = str(REPO / ".venv" / "bin" / "python") if (REPO / ".venv").exists() else sys.executable
 REFERENCE = REPO / "reference" / "reference.py"
 FIXTURES = REPO / "fixtures"
