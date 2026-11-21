@@ -1,0 +1,591 @@
+{
+  "fuzz_seeds": 300,
+  "strict_cases": 254,
+  "mutants": 37,
+  "killed_total": 37,
+  "killed_by_fixtures": 24,
+  "killed_by_fuzz": 37,
+  "fuzz_only": [
+    "F3 wraps at 2^64",
+    "F3 wraps at 2^63",
+    "F3 longer than 19 chars rejected",
+    "offset hour 24 accepted",
+    "lowercase z accepted",
+    "hour 24 accepted",
+    "second 60 accepted",
+    "no leap years",
+    "price wraps at 2^32",
+    "price 0 accepted",
+    "price max exclusive",
+    "inner quotes tolerated",
+    "header line parsed as data"
+  ],
+  "survivors": [],
+  "controls_ok": true,
+  "broken": [],
+  "results": [
+    {
+      "mutant": "gap >= 30 min splits",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 2,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "late cutoff >= 24 h",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 1,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        20,
+        24,
+        27,
+        41,
+        53
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "click exactly 7 d before excluded",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 3,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        2,
+        3,
+        13,
+        14,
+        15
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "click at session start excluded",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 3,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        2,
+        3,
+        11,
+        12,
+        13
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "tie click -> largest click_id",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 1,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        2,
+        3,
+        5,
+        9,
+        11
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "dedup keeps latest ingest",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 2,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "dedup after validation",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 1,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        2,
+        3,
+        5,
+        9
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "F3 wraps at 2^64",
+      "control": false,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        2,
+        3,
+        14,
+        17,
+        23
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "F3 wraps at 2^63",
+      "control": false,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        2,
+        3,
+        13,
+        14,
+        17
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "F3 longer than 19 chars rejected",
+      "control": false,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "offset hour 24 accepted",
+      "control": false,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        3,
+        11,
+        14,
+        17,
+        21
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "offset minute 60 accepted",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 1,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        11,
+        25,
+        29,
+        31,
+        41
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "offset sign inverted",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 2,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        2,
+        3,
+        5,
+        9
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "lowercase z accepted",
+      "control": false,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        2,
+        4,
+        5,
+        9,
+        11
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "hour 24 accepted",
+      "control": false,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        5,
+        11,
+        20,
+        31,
+        41
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "second 60 accepted",
+      "control": false,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        11,
+        15,
+        17,
+        25,
+        41
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "no leap years",
+      "control": false,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        28
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "price wraps at 2^32",
+      "control": false,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        17,
+        24,
+        27,
+        31,
+        47
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "price 0 accepted",
+      "control": false,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        2,
+        3,
+        4,
+        5
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "price max exclusive",
+      "control": false,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        2,
+        3,
+        4,
+        5,
+        9
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "\\r treated as line ending",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 1,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "inner quotes tolerated",
+      "control": false,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        2,
+        3,
+        4,
+        5
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "half-quoted field tolerated",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 1,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        2,
+        3,
+        4,
+        5
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "person named by largest ID",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 5,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "user IDs case-folded",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 1,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        2,
+        3,
+        4,
+        5,
+        9
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "user IDs trimmed",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 1,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        2,
+        3,
+        4,
+        5,
+        9
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "links ignored",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 5,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "only direct links (no transitivity)",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 2,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "top category tie -> largest",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 1,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        49
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "assists counted per click",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 1,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        2,
+        3,
+        4,
+        5
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "event window end inclusive",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 1,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        2,
+        3,
+        4,
+        9
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "click window start exclusive",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 1,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        34,
+        49,
+        51
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "day = last event's date",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 1,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "header line parsed as data",
+      "control": false,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        1,
+        2,
+        4,
+        5
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "unknown product -> empty category",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 2,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        2,
+        14,
+        15,
+        20,
+        24
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "view/cart need a valid price",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 32,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "unknown campaign clicks kept",
+      "control": false,
+      "killed_by_fixtures": true,
+      "fixtures_failed": 2,
+      "killed_by_fuzz": true,
+      "first_fuzz_kills": [
+        2,
+        3,
+        4,
+        5,
+        9
+      ],
+      "status": "killed"
+    },
+    {
+      "mutant": "CONTROL dedup ties keep last copy",
+      "control": true,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": false,
+      "first_fuzz_kills": [],
+      "status": "survived"
+    },
+    {
+      "mutant": "CONTROL clicks keep last copy",
+      "control": true,
+      "killed_by_fixtures": false,
+      "fixtures_failed": 0,
+      "killed_by_fuzz": false,
+      "first_fuzz_kills": [],
+      "status": "survived"
+    }
+  ]
+}
