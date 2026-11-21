@@ -25,6 +25,7 @@ import traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cache_reference import cached_ok  # noqa: E402
 from lib import gates  # noqa: E402
 from lib.build import build_image, build_native, docker_info, repo_size, resolve  # noqa: E402
 from lib.common import (CONSISTENCY, DATA, EVALS, EXPECTED, REPO, WORK, canonical_hash, dataset_stats,  # noqa: E402
@@ -121,14 +122,14 @@ class Eval:
         self.binary = Path(b["binary"])
         self.run = runner_cmd(self.binary, None)
 
-    def correctness_small(self):
+    def correctness_untimed(self):
         c = self.r["correctness"]
         c["fixtures_native"] = run_fixtures(self.run, label="native")
         missing = []
         for name, d in self.suite.items():
-            if d["kind"] != "oracle" or d.get("events", 0) >= 5_000_000:
+            if d["kind"] != "oracle" or d.get("role") == "perf-20M":
                 continue
-            exp = read_json(EXPECTED / name / "meta.json")
+            exp = cached_ok(name)
             if not (DATA / name).is_dir() or not exp:
                 missing.append(name)
                 continue
@@ -185,7 +186,7 @@ class Eval:
         block = {"dataset": name, "role": role, "ncpu": ncpu, "events_lines": st["events_lines"],
                  "input_bytes": st["bytes"], "load_before": load, "warmup": [], "runs": []}
         hashes = []
-        exp = read_json(EXPECTED / name / "meta.json") if self.suite[name]["kind"] == "oracle" else None
+        exp = cached_ok(name) if self.suite[name]["kind"] == "oracle" else None
         for i in range(warmup + runs):
             res = run_once(self.binary, ds, out, scratch, ncpu, timeout=600)
             self.stdout_max = max(self.stdout_max, res["stdout_bytes"])
@@ -542,7 +543,7 @@ class Eval:
             r["gates"] = {}
             write_json(EVALS / "results" / f"{r['version']}.json", r)
             sys.exit(1)
-        self.step("correctness", self.correctness_small)
+        self.step("correctness", self.correctness_untimed)
         self.step("fuzz", self.fuzz)
         self.perf()
         self.step("probe", self.probe)
