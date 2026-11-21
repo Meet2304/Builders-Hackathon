@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Run the v3-review cases: Python oracle vs a candidate binary under every debug knob.
 
-    .venv/bin/python evals/insights/v3_review/run.py BINARY WORK_DIR
+    .venv/bin/python evals/insights/v3_review/run.py BINARY WORK_DIR [CASES_SCRIPT]
+
+CASES_SCRIPT defaults to cases.py; cases_ts.py holds the timestamp-decoder cases.
 """
 from __future__ import annotations
 
@@ -23,7 +25,8 @@ KNOBS = [{}, {"SESSIONS_DEBUG_NO_FAST": "1"}, {"SESSIONS_DEBUG_NO_FAST": "2"}, {
 def main():
     binary, work = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
     cases = work / "cases"
-    names = subprocess.run([sys.executable, str(HERE / "cases.py"), str(cases)], check=True,
+    script = HERE / (sys.argv[3] if len(sys.argv) > 3 else "cases.py")
+    names = subprocess.run([sys.executable, str(script), str(cases)], check=True,
                            capture_output=True, text=True).stdout.split()
     failures = 0
     for name in names:

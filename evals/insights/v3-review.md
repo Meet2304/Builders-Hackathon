@@ -249,3 +249,106 @@ with **SSE2** in the amd64 container. The SSE2 path is the one the scorer runs.
     minimum and a click tie.
 - Run the amd64 image under `NO_FAST=3` (SWAR) as well as the default (SSE2) for the fixtures and the dev
   answer, and keep the amd64 `cargo test` from this review (`classifiers_are_exact` ran on SSE2 here).
+
+## Addendum: `method/v3` @ 29b64bf (mimalloc `8004f65`, window timestamp decoder `29b64bf`)
+
+**Verdict: no bugs found.** The two new commits don't change output on anything I could construct.
+
+| Check | Result |
+| --- | --- |
+| 5 new timestamp cases (`v3_review/cases_ts.py`) × 10 knobs, native arm64, against the oracle | 50/50 MATCH |
+| The original 7 cases × 10 knobs, re-run at 29b64bf | 70/70 MATCH |
+| `cargo test --release` at 29b64bf, including the new `timestamp_decoder_matches_parse_ts` | 6/6 pass |
+| Mutation check: 4 deliberately broken decoders run on the new cases | 4/4 caught (see below) |
+
+### What the decoder does, and why it is exact
+
+`TimestampDecoder` answers three shapes itself and sends everything else to v1's `parse_ts`:
+
+- **F1 and F2 (length 20 with `Z`, length 25 with `±` and `:`):** a 512-slot table holds every calendar day from
+  `window_start - 8 days` to `window_end + 8 days`. The slot index is (month's last digit & 1, day tens & 15,
+  day ones & 15). A hit needs bytes 0..8 to equal the stored `YYYY-MM-`, the high nibble of both day digits to be
+  `0x3_`, and `s[10] == 'T'`.
+  - Together these pin all 10 date bytes exactly. The table only holds real dates, so Feb 30, Feb 29 in a
+    non-leap year, `-00` and `-32` always miss and fall back to `parse_ts`, which rejects them.
+  - Two days can only share a slot if they have the same day number in months of the same last-digit parity.
+    That needs about 59 or more days, and the table is capped at 48 (`last - first > 48` leaves it empty).
+  - `clock_ms` checks all 8 clock bytes: digits by SWAR, the two `:` lanes must XOR to zero, and h ≤ 23,
+    m ≤ 59, s ≤ 59. That's the same range as the rules.
+  - F2 offsets go through the same `dig2` and range checks as `parse_ts`. All 20 or 25 bytes are checked on
+    every path.
+- **F3, length 13:** both 8-byte halves must be all digits; the top 5 digits are loaded with 3 zero lanes, so the
+  value is `D5 × 10^8 + D8`. Any other 13-byte string returns `None`, which matches `parse_ts`, because F1 and
+  F2 are never 13 bytes long.
+- **Everything else** (F3 of any other length, leading zeros, overflow, dates off the table, a window wider than
+  48 days, `NO_FAST=1`) goes to `parse_ts` unchanged.
+
+On generator data the table is always on (14-day windows at midnight). It covers every click (back to
+start − 7 days), every ingest of a late event (at most 5 days after `ts`), and every F2 local date (±12 h).
+
+### The new cases (`evals/insights/v3_review/cases_ts.py`)
+
+Each probe pins the decoded value **to the millisecond**:
+
+- **Event probes:** the probe event sits between two anchors of the same user at t − 30:00 and t + 30:00, where t
+  is the oracle's value.
+  - The anchors are 16-digit F3, so they bypass the decoder.
+  - The three events make one session only if the probe decodes to exactly t. A wrong reject gives two
+    one-event sessions; any other value gives a split.
+- **Click probes:** each click has its own campaign, and its person has purchase sessions starting at t and at
+  t + 7 days. The click credits the first only if it decodes to ≤ t, and the second only if it decodes to ≥ t.
+- **Ingest probes:**
+  - Lags of 24 h − 1 s, 24 h, 24 h + 1 s, 0, −9 d, −10 d, +9 d and +30 d, so some ingest dates land off the
+    table and use the fallback.
+  - Dedup pairs where the smaller ingest is off the table and the larger is on it, with the invalid copy first
+    or second. This checks that the fallback and table values order correctly and that an invalid winner isn't
+    rescued.
+- **Probe strings, about 14–17k per case:**
+  - Every day from window − 12 to window + 12 days, which crosses both table edges.
+  - 8 clocks, including `24:00:00`, `12:60:00`, `12:00:60` and a misplaced colon.
+  - 11 zones: `Z`, `±00:00`, `+05:30`, `-10:00`, `+12:00`, `±23:59`, `+24:00`, `+05:60` and `+0530`.
+  - F3 of 12, 13, 14 and 16 digits, plus a 13-byte non-digit.
+  - Impossible dates whose bytes land in the table's index space (`10-3:`, `10-0:`, `1:-01`, `02-30`, `09-31`).
+  - Single-byte mutations of 60 sampled strings at every position, using 24 characters: digits, `:;/-+TtZz .`,
+    NUL, DEL and 0xFF.
+- **Windows:**
+
+  | Case | Window | What it exercises |
+  | --- | --- | --- |
+  | `ts_yearend` | 2027-12-25..2028-01-08 | year crossing |
+  | `ts_leap` | 2028-02-22..2028-03-07 | Feb 29 2028 |
+  | `ts_offmidnight30` | 2026-10-01T05:30Z, 30 days | off-midnight start; table on at 46 days |
+  | `ts_wide40` | 40 days | table off: fallback only |
+  | `ts_autumn` | 2026-09-24..10-08 | the 09→10 month-parity edge |
+
+**Mutation check (do the cases bite?).** I built four broken decoders from 29b64bf and ran each on the five cases:
+
+| Mutant | Caught in |
+| --- | --- |
+| Drop the day-digit high-nibble check (accepts `10-0 ` / `10-0\0` as day 00) | 4/5 |
+| A clock ending `:59` decodes 1 ms late | 4/5 |
+| F3 mask keeps 6 high lanes instead of 5 | 5/5 |
+| A `-10:xx` offset decodes 1 ms late | 4/5 |
+
+The one miss each time is `ts_wide40`, where the table is off by design, so table mutants can't show there.
+
+### mimalloc
+
+- **Logic:** none changes. `#[global_allocator]` only.
+- **Build:** `libmimalloc-sys` compiles C with `cc`. `rust:1-slim-bookworm` ships gcc and libc6-dev, and
+  `target-cpu` is passed only as `RUSTFLAGS` (cc-rs doesn't read it), so the C side builds generically on
+  both arches.
+- **Not checked by me:** I did not build the amd64 image of 29b64bf, because the bench lock was held by Explorer.
+  Eval's Gate A amd64 container build covers it.
+- **Runtime:** no file writes, no network, and no extra threads, so the read-only root, uid 1000 and the
+  4,096-thread cap are unaffected.
+
+### Requests for Eval (addendum)
+
+- Add `run.py BINARY WORK cases_ts.py` to Gate A next to the original cases. It takes about 20 s native for
+  50 runs.
+- Gate A on 29b64bf must include the amd64 container build and fixtures: it's the first commit with a C
+  dependency, so it needs that.
+- `evals/fuzz/gen.py` draws only 14-day midnight windows, the same as the generator. That's fine for the score,
+  but a `windows` focus with year-end, leap-day and off-midnight windows would keep the table edges covered if
+  the decoder changes again.
