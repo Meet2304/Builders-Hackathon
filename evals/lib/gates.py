@@ -75,7 +75,7 @@ def gate_a(r: dict) -> dict:
     knobs = c.get("debug_knobs", {})
     for name, item in knobs.items():
         if item["status"] != "n/a":
-            out.append(check(name, item["status"], "dev and strict fuzz match the default canonical output"))
+            out.append(check(name, item["status"]))
     if not det:
         out.append(check("deterministic canonical hash", "not_run"))
     else:
@@ -191,9 +191,10 @@ def gate_c(r: dict) -> dict:
     paired_c = base.get("ab_candidate_wall_s", {})
     fast = any(is_fast(s) for s in (cand, base["wall_s"], paired_b, paired_c))
     paired_n = min(paired_b.get("n", 0), paired_c.get("n", 0))
-    if fast and base.get("sha") != r.get("sha") and paired_n < FAST_RUNS:
+    minimum_pairs = max(base.get("ab_required_pairs", 0), FAST_RUNS if fast else 0)
+    if base.get("sha") != r.get("sha") and paired_n < minimum_pairs:
         return {"status": "incomplete", "baseline": base,
-                "checks": [check(f"interleaved A/B with >= {FAST_RUNS} runs per version", "not_run",
+                "checks": [check(f"interleaved A/B with >= {minimum_pairs} runs per version", "not_run",
                                  f"only {paired_n} pairs")]}
     use_ab = paired_n >= 5
     b, c_ = (paired_b, paired_c) if use_ab else (base["wall_s"], cand)
