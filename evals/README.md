@@ -164,7 +164,7 @@ invariants.
 
 ```
 evals/run.py              runner (stages, report, ledger)
-evals/compare.py          A vs B per metric, significance = |Δ| > 2·pooled sd and Welch |t| > 3
+evals/compare.py          A vs B per metric, significance = |Δ| > 2·pooled sd, Welch |t| > 3 and ≥ 1 %
 evals/cache_reference.py  one-time reference caching into data/expected/
 evals/calibrate.py        local→scorer ratio
 evals/suite.json          the dataset suite (kind oracle/consistency, roles perf-1M/20M/60M, generator args)

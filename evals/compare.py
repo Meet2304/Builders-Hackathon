@@ -5,7 +5,7 @@
 
 A and B are version names (evals/results/<name>.json) or paths. Deltas are B
 relative to A. A timing delta is called significant when it exceeds 2× the
-pooled standard deviation of the two sample sets *and* the Welch |t| > 3
+pooled standard deviation of the two sample sets, the Welch |t| > 3 and the change is >= 1 %
 (both need ≥ 2 samples); otherwise it is shown as `~` (noise).
 """
 from __future__ import annotations
@@ -36,7 +36,8 @@ def sig(a: dict, b: dict) -> tuple[str, float | None]:
     d = b["median"] - a["median"]
     t = welch_t(b, a)
     sd = pooled_sd(a, b)
-    if a["n"] >= 2 and b["n"] >= 2 and abs(d) > 2 * sd and t is not None and abs(t) > 3:
+    rel = abs(d) / a["median"] if a["median"] else 0
+    if a["n"] >= 2 and b["n"] >= 2 and abs(d) > 2 * sd and t is not None and abs(t) > 3 and rel >= 0.01:
         return ("better" if d < 0 else "worse"), t
     return "~", t
 
@@ -52,7 +53,9 @@ def fmt(v, unit):
         return f"{v / 1e6:.2f}MB"
     if unit == "x":
         return f"{v:.3f}"
-    return f"{v:,.0f}" if isinstance(v, (int, float)) and abs(v) >= 100 else f"{v}"
+    if isinstance(v, (int, float)) and abs(v) >= 100:
+        return f"{v:,.0f}"
+    return f"{v:.3g}" if isinstance(v, float) else f"{v}"
 
 
 def row(rows, name, a, b, unit="s", stat="median"):
