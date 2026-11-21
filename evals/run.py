@@ -227,11 +227,15 @@ class Eval:
                 out = self.runs_dir / "debug-invalid"
                 out.mkdir(parents=True, exist_ok=True)
                 label = f"reject {key}={value}"
-                p = self.run(FIXTURES / "E5" / "input", out, extra_env={key: value})
-                checks[label] = {"status": "pass" if p.returncode > 0 and key.encode() in p.stderr else "fail",
-                                 "returncode": p.returncode, "stderr_tail": p.stderr.decode(errors="replace")[-400:]}
+                checks[label] = self.reject_knob(key, value, out)
         if full and b"SESSIONS_DEBUG_PARTS" in binary:
             self.empty_outputs(checks)
+
+    def reject_knob(self, key, value, out):
+        p = self.run(FIXTURES / "E5" / "input", out, extra_env={key: value})
+        # A release build can use panic=abort. Python reports the signal as a negative exit status.
+        status = "pass" if p.returncode != 0 and f"{key}={value}:".encode() in p.stderr else "fail"
+        return {"status": status, "returncode": p.returncode, "stderr_tail": p.stderr.decode(errors="replace")[-400:]}
 
     def empty_outputs(self, checks):
         cases = ("E5", "E13")

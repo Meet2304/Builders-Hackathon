@@ -20,9 +20,18 @@ printf 'eval_page_bytes '
 getconf PAGESIZE
 exec /usr/bin/time -f 'eval_time %e %R %F %M' /app/sessions
 """
+COLD_PREP = """\
+set -eu
+sync -f /data
+find /data -type f -exec sh -ec '
+  for file do dd if="$file" iflag=nocache count=0 status=none; done
+' sh {} +
+resident=$(find /data -type f -exec fincore -b -n -o RES {} +)
+printf '%s\n' "$resident" | awk '{bytes += $1} END {printf "%.0f\n", bytes}'
+"""
 
 
-def probe_linux(image: dict, docker: dict, candidates: list[tuple[str, int]]) -> dict:
+def probe_linux(image: dict, docker: dict, candidates: list[tuple[str, int]], *, cold: bool = False) -> dict:
     """Try candidate datasets in descending size, falling back when the VM cannot run one."""
     budget_gib = min(24, docker["mem_bytes"] // GIB - 1)
     result = {"status": "unavailable", "mem_gib": budget_gib, "attempts": [],
@@ -67,8 +76,7 @@ def probe_linux(image: dict, docker: dict, candidates: list[tuple[str, int]]) ->
                      "-e", "DATA_DIR=/data", "-e", "OUTPUT_DIR=/output", "-e", "SCRATCH_DIR=/scratch",
                      "-e", "HOME=/scratch", "-e", "NCPU=8", "-e", f"MEM_GB={budget_gib}", "-e", "LC_ALL=C",
                      "--entrypoint", "/bin/sh", tag, "-c", PROBE_SCRIPT]
-            samples = []
-            for _ in range(2):
+            def sample():
                 start = time.perf_counter()
                 run = call(*flags, timeout=120)
                 wall = time.perf_counter() - start
@@ -79,12 +87,26 @@ def probe_linux(image: dict, docker: dict, candidates: list[tuple[str, int]]) ->
                 thp = re.search(r"^eval_thp (.+)$", run.stdout, re.MULTILINE)
                 active = re.search(r"\[([^]]+)\]", thp.group(1)) if thp else None
                 page = re.search(r"^eval_page_bytes (\d+)$", run.stdout, re.MULTILINE)
-                samples.append({"process_wall_s": float(elapsed), "container_wall_s": round(wall, 4),
-                                "minor_faults": int(minor), "major_faults": int(major), "max_rss_bytes": int(rss) * 1024,
-                                "thp_mode": active.group(1) if active else None,
-                                "page_bytes": int(page.group(1)) if page else None,
-                                "phases": parse_phases(run.stderr)})
-            return {"warmup": samples[0], "sample": samples[1]}
+                return {"process_wall_s": float(elapsed), "container_wall_s": round(wall, 4),
+                        "minor_faults": int(minor), "major_faults": int(major), "max_rss_bytes": int(rss) * 1024,
+                        "thp_mode": active.group(1) if active else None,
+                        "page_bytes": int(page.group(1)) if page else None, "phases": parse_phases(run.stderr)}
+
+            if cold:
+                # The staging files belong to root. Run fincore as their owner to get real residency.
+                prep = call("run", "--rm", "--platform", image["platform"], "--name", stage, "--network", "none",
+                            "--read-only", "--mount", mount + ",readonly", "--entrypoint", "/bin/sh", tag,
+                            "-c", COLD_PREP, timeout=120, check=True)
+                resident_bytes = int(prep.stdout.strip())
+                if resident_bytes:
+                    return {"error": f"{resident_bytes} input bytes still resident after eviction"}
+                run = sample()
+                return run if "error" in run else {"sample": run, "resident_input_bytes_before": resident_bytes}
+            warmup = sample()
+            if "error" in warmup:
+                return warmup
+            run = sample()
+            return run if "error" in run else {"warmup": warmup, "sample": run}
         except subprocess.CalledProcessError as e:
             return {"error": (e.stderr or str(e))[-800:]}
         except (OSError, subprocess.TimeoutExpired) as e:
