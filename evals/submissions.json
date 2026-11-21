@@ -1,4 +1,4 @@
 {
-  "_doc": "Versions the user has submitted to the scorer, newest last. Gate C compares against the best of these (lowest local 20M median). Add {\"version\": \"v1\", \"sha\": \"...\", \"submitted_at\": \"ISO time\", \"board_time_s\": null} when the user submits; fill board_time_s from the leaderboard.",
+  "_doc": "Versions the user has submitted to the scorer, newest last. Gate C compares against the best of these (by board time when all comparable results have one, otherwise by local 20M median). Add {\"version\": \"v1\", \"sha\": \"...\", \"submitted_at\": \"ISO time\", \"board_time_s\": null} when the user submits; fill board_time_s from the leaderboard.",
   "submissions": []
 }

@@ -6,3 +6,6 @@
 __pycache__/
 .DS_Store
 /docs/orchestration/dashboard/index.html
+/docs/orchestration/dashboard/snapshot.json
+/docs/orchestration/dashboard/snapshot/
+/docs/orchestration/dashboard/existing/

@@ -92,11 +92,14 @@ diff-seed: release  ## Differential test: Rust vs reference on data/seed-$(SEED)
 clean:           ## Remove build outputs and run outputs (keeps data/)
 	cargo clean; rm -rf $(OUT) out-a out-b out-ref
 
-.PHONY: dashboard dashboard-watch
+.PHONY: dashboard dashboard-watch dashboard-snapshot
 
 dashboard:       ## Generate the progress dashboard
 	@if test -x .venv/bin/python; then .venv/bin/python docs/orchestration/dashboard/build.py; \
 	else python3 docs/orchestration/dashboard/build.py; fi
+
+dashboard-snapshot: ## Export the live-dashboard snapshot and print the sync batch (see docs/orchestration/dashboard/SYNC.md)
+	@python3 docs/orchestration/dashboard/export.py --plan docs/orchestration/dashboard/existing
 
 dashboard-watch: ## Regenerate the progress dashboard every 30 seconds
 	@while :; do $(MAKE) --no-print-directory dashboard || exit $$?; sleep 30; done
@@ -106,7 +109,7 @@ VERSION ?=
 REV     ?= HEAD
 PROFILE ?= quick
 .PHONY: eval eval-compare eval-cache-ref eval-selftest eval-calibrate
-eval:            ## Evaluate a candidate: make eval VERSION=v2 REV=method/v2 PROFILE=quick|full
+eval:            ## Evaluate a candidate: make eval VERSION=v2 REV=method/v2 PROFILE=quick|full|linux
 	@test -n "$(VERSION)" || (echo "VERSION=... is required" && exit 2)
 	$(PY) evals/run.py --version $(VERSION) --rev $(REV) --profile $(PROFILE)
 
@@ -119,5 +122,5 @@ eval-cache-ref:  ## One-time: cache the reference's output for every oracle data
 eval-selftest:   ## Mutation self-test: how many reference mutants do fixtures and fuzz kill
 	$(PY) evals/fuzz/selftest.py
 
-eval-calibrate:  ## Recompute the local->scorer ratio from evals/calibration.json points
+eval-calibrate:  ## Recompute the local-to-scorer fit from evals/calibration.json points
 	$(PY) evals/calibrate.py

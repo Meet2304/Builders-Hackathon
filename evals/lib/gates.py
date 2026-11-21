@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .common import EVALS, read_json
+from .calibration import estimate
 from .measure import pooled_sd
 
 GB = 10**9
@@ -14,6 +15,12 @@ LIMITS = {
 }
 GATE_C_MIN_GAIN = 0.05
 GATE_C_SIGMAS = 2.0
+FAST_RUNS = 11
+FAST_WALL_S = 0.5
+
+
+def is_fast(stats: dict | None) -> bool:
+    return bool(stats and stats.get("median", FAST_WALL_S) < FAST_WALL_S)
 
 
 def check(name, status, detail=""):
@@ -65,6 +72,10 @@ def gate_a(r: dict) -> dict:
                          f"{s['passed']}/{n} (seeds {fz['seeds'][0]}..{fz['seeds'][1] - 1})"
                          + (f"; failing seeds {[x['seed'] for x in s['failed']][:10]}" if s["failed"] else "")))
     det = c.get("determinism", {})
+    knobs = c.get("debug_knobs", {})
+    for name, item in knobs.items():
+        if item["status"] != "n/a":
+            out.append(check(name, item["status"]))
     if not det:
         out.append(check("deterministic canonical hash", "not_run"))
     else:
@@ -132,28 +143,26 @@ def _gate(checks):
 
 
 def best_baseline(exclude_version: str) -> dict | None:
-    """Best submitted version (lowest 20M median); else best SUBMIT-READY version in results."""
+    """Pick the best submitted version, or the fastest SUBMIT-READY local result."""
     subs = read_json(EVALS / "submissions.json", {"submissions": []}).get("submissions", [])
     pool = []
     if subs:
         for s in subs:
             res = read_json(EVALS / "results" / f"{s['version']}.json")
             if res:
-                pool.append(("submitted", res))
+                pool.append(("submitted", res, s.get("board_time_s")))
     else:
         for path in sorted((EVALS / "results").glob("*.json")):
             res = read_json(path)
             if res and res.get("verdict", {}).get("verdict") == "SUBMIT-READY" and res.get("version") != exclude_version:
-                pool.append(("submit-ready", res))
-    best = None
-    for kind, res in pool:
-        s = perf_20m(res)
-        if s and s.get("n") and (best is None or s["median"] < best[2]["median"]):
-            best = (kind, res, s)
-    if not best:
+                pool.append(("submit-ready", res, None))
+    eligible = [(kind, res, board, s) for kind, res, board in pool if (s := perf_20m(res)) and s.get("n")]
+    if not eligible:
         return None
-    kind, res, s = best
-    return {"kind": kind, "version": res["version"], "sha": res.get("sha"), "wall_s": s}
+    rank_by_board = all(board and board > 0 for _, _, board, _ in eligible)
+    kind, res, board, s = min(eligible, key=lambda x: x[2] if rank_by_board else x[3]["median"])
+    return {"kind": kind, "version": res["version"], "sha": res.get("sha"), "wall_s": s,
+            "board_time_s": board}
 
 
 def perf_20m(res: dict) -> dict | None:
@@ -168,27 +177,62 @@ def gate_c(r: dict) -> dict:
     base = r.get("baseline")
     if not cand or not cand.get("n"):
         return {"status": "incomplete", "checks": [check("20M median beats baseline", "not_run")], "baseline": base}
-    if cand["n"] < 5:
+    minimum = FAST_RUNS if is_fast(cand) else 5
+    if cand["n"] < minimum:
         return {"status": "incomplete",
-                "checks": [check("20M median from >= 5 runs", "not_run", f"only {cand['n']} runs")], "baseline": base}
+                "checks": [check(f"20M median from >= {minimum} runs", "not_run", f"only {cand['n']} runs")],
+                "baseline": base}
     if not base:
         return {"status": "pass", "baseline": None,
                 "checks": [check("20M median beats baseline", "pass",
                                  "no submitted or SUBMIT-READY version yet: nothing to beat")]}
     # prefer an interleaved A/B measurement of the baseline taken in this same eval
-    b = base.get("ab_wall_s") or base["wall_s"]
-    c_ = base.get("ab_candidate_wall_s") or cand
-    gain = (b["median"] - c_["median"]) / b["median"]
+    paired_b = base.get("ab_wall_s", {})
+    paired_c = base.get("ab_candidate_wall_s", {})
+    fast = any(is_fast(s) for s in (cand, base["wall_s"], paired_b, paired_c))
+    paired_n = min(paired_b.get("n", 0), paired_c.get("n", 0))
+    minimum_pairs = max(base.get("ab_required_pairs", 0), FAST_RUNS if fast else 0)
+    if base.get("sha") != r.get("sha") and paired_n < minimum_pairs:
+        return {"status": "incomplete", "baseline": base,
+                "checks": [check(f"interleaved A/B with >= {minimum_pairs} runs per version", "not_run",
+                                 f"only {paired_n} pairs")]}
+    use_ab = paired_n >= 5
+    b, c_ = (paired_b, paired_c) if use_ab else (base["wall_s"], cand)
+    b_med, c_med = b["median"], c_["median"]
     sd = pooled_sd(b, c_)
+    cal = r.get("calibration", {})
+    b_est, c_est = estimate(cal, b_med), estimate(cal, c_med)
+    metric = "local"
+    if b_est is not None and c_est is not None:
+        b_med, c_med = b_est, c_est
+        sd *= cal["slope"]
+        metric = "estimated scorer"
+    delta = b_med - c_med
+    gain = delta / b_med
     ok_gain = gain >= GATE_C_MIN_GAIN
-    ok_sig = (b["median"] - c_["median"]) > GATE_C_SIGMAS * sd
-    src = "interleaved A/B in this eval" if base.get("ab_wall_s") else "baseline's own result JSON"
+    ok_sig = delta > GATE_C_SIGMAS * sd
+    src = "interleaved A/B in this eval" if use_ab else "baseline's own result JSON"
     return {"status": "pass" if ok_gain and ok_sig else "fail", "baseline": base,
-            "gain": round(gain, 4), "pooled_sd_s": round(sd, 5),
+            "gain": round(gain, 4), "pooled_sd_s": round(sd, 5), "metric": metric,
             "checks": [check(f">= 5% faster than {base['version']} ({base['kind']})", _status(ok_gain),
-                             f"{c_['median']:.3f}s vs {b['median']:.3f}s = {gain * 100:+.1f}% ({src})"),
+                             f"{c_med:.3f}s vs {b_med:.3f}s = {gain * 100:+.1f}% ({metric}, {src})"),
                        check("> 2x pooled stdev", _status(ok_sig),
-                             f"delta {b['median'] - c_['median']:.4f}s vs 2sd {2 * sd:.4f}s")]}
+                             f"delta {delta:.4f}s vs 2sd {2 * sd:.4f}s")]}
+
+
+def linux_signal(r: dict) -> dict:
+    timing = r["perf"]["linux_timing"]
+    b = timing.get("baseline_summary", {}).get("process_wall_s", {})
+    c = timing.get("summary", {}).get("process_wall_s", {})
+    if min(b.get("n", 0), c.get("n", 0)) < 5 or timing.get("baseline_sha") != (r.get("baseline") or {}).get("sha"):
+        return {"status": "unavailable", "detail": "no comparable paired Linux samples"}
+    delta = b["median"] - c["median"]
+    gain = delta / b["median"]
+    sd = pooled_sd(b, c)
+    significant = abs(delta) > GATE_C_SIGMAS * sd and abs(gain) >= GATE_C_MIN_GAIN
+    status = ("supports" if delta > 0 else "regression") if significant else "inconclusive"
+    return {"status": status, "gain": round(gain, 4), "pooled_sd_s": round(sd, 6), "pairs": b["n"],
+            "detail": f"{c['median']:.4f}s vs {b['median']:.4f}s ({gain:+.1%}, {b['n']} pairs)"}
 
 
 def verdict(r: dict) -> dict:

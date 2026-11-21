@@ -13,14 +13,38 @@ from .common import (EVALS, FIXTURES, FUZZ_DATA, REPO, SCHEMAS, WORK, canonical,
                      load_table, log, read_json, reference_sha, run_reference, sha256_file, write_json)
 
 DOCKER_RUN = REPO / "scripts" / "docker_run.sh"
+DEBUG_CASES = (
+    ("SESSIONS_DEBUG_HASH_BITS", "4"),
+    ("SESSIONS_DEBUG_CHUNK", "97"),
+    ("SESSIONS_DEBUG_PARTS", "1"),
+    ("SESSIONS_DEBUG_PARTS", "4096"),
+    ("SESSIONS_DEBUG_NO_FAST", "1"),
+)
+EXTRA_DEBUG_CASES = (
+    ("SESSIONS_DEBUG_HASH_BITS", "0"),
+    ("SESSIONS_DEBUG_PARTS", "3"),
+    ("SESSIONS_DEBUG_PARTS", "255"),
+    ("SESSIONS_DEBUG_CHUNK", "1"),
+    ("SESSIONS_DEBUG_CHUNK", "4096"),
+)
+DIALECT_ONLY = set(EXTRA_DEBUG_CASES[-2:])
+INVALID_DEBUG_CASES = (
+    ("SESSIONS_DEBUG_HASH_BITS", "bad"),
+    ("SESSIONS_DEBUG_CHUNK", "bad"),
+    ("SESSIONS_DEBUG_PARTS", "bad"),
+    ("SESSIONS_DEBUG_PARTS", "0"),
+    ("SESSIONS_DEBUG_PARTS", "4097"),
+)
 
 
 def runner_cmd(binary: Path | None, image: dict | None):
     """A callable (data, out, ncpu) -> CompletedProcess for a native binary or a container image."""
-    def native(data: Path, out: Path, ncpu: int = 8, timeout: float = 120):
+    def native(data: Path, out: Path, ncpu: int = 8, timeout: float = 120, extra_env: dict | None = None):
         with tempfile.TemporaryDirectory(dir=WORK / "tmp") as scratch:
             env = dict(os.environ, DATA_DIR=str(data), OUTPUT_DIR=str(out), SCRATCH_DIR=scratch, NCPU=str(ncpu),
                        MEM_GB="24")
+            env = {k: v for k, v in env.items() if not k.startswith("SESSIONS_DEBUG_")}
+            env.update(extra_env or {})
             return subprocess.run([str(binary)], env=env, capture_output=True, timeout=timeout)
 
     def container(data: Path, out: Path, ncpu: int = 8, timeout: float = 600):
@@ -135,9 +159,12 @@ def ensure_fuzz_cases(seeds: range, jobs: int = 10) -> Path:
     return base
 
 
-def run_fuzz(run, seeds: range, jobs: int = 8) -> dict:
+def run_fuzz(run, seeds: range, jobs: int = 8, *, record_hashes: dict | None = None,
+             default_hashes: dict | None = None, focus: str | None = None) -> dict:
     base = ensure_fuzz_cases(seeds)
-    log(f"fuzz: running candidate on {len(seeds)} cases (NCPU cycles 1,2,4,8)")
+    selected = seeds if focus is None else [seed for seed in seeds
+                                           if read_json(base / str(seed) / "case.json")["focus"] == focus]
+    log(f"fuzz: running candidate on {len(selected)} cases (NCPU cycles 1,2,4,8)")
 
     def one(seed: int):
         d = base / str(seed)
@@ -154,14 +181,17 @@ def run_fuzz(run, seeds: range, jobs: int = 8) -> dict:
                 return seed, meta, {"match": False,
                                     "error": f"exit {p.returncode}: {p.stderr.decode('utf-8', 'replace')[-300:]}"}
             res = check_output(out, d / "expected", meta["expected_hash"])
+            if default_hashes is not None and res["match"] and default_hashes.get(seed) != res["hash"]:
+                res.update(match=False, error="canonical hash differs from default run")
             if p.stdout:
                 res["match"] = False
                 res["error"] = f"stdout {len(p.stdout)} bytes"
             return seed, meta, res
 
     with ThreadPoolExecutor(jobs) as pool:
-        results = list(pool.map(one, seeds))
+        results = list(pool.map(one, selected))
     summary = {"gen_sha": fuzz_gen_sha(), "cases_dir": str(base), "seeds": [seeds.start, seeds.stop],
+               "focus": focus,
                "strict": {"total": 0, "passed": 0, "skipped": 0, "failed": []},
                "robust": {"total": 0, "passed": 0, "skipped": 0, "failed": []},
                "by_focus": {}, "failing_tags": {}}
@@ -175,6 +205,8 @@ def run_fuzz(run, seeds: range, jobs: int = 8) -> dict:
             continue
         if res.get("match"):
             group["passed"] += 1
+            if record_hashes is not None:
+                record_hashes[seed] = res["hash"]
             continue
         f["failed"] += 1
         for t in meta["tags"]:

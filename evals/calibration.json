@@ -1,5 +1,8 @@
 {
-  "_doc": "Local -> scorer calibration. Add one point per submitted version once its board time is known: {\"version\", \"local_20m_median_s\" (from results/<version>.json), \"board_s\"}. ratio = median(board_s / local_20m_median_s), set by hand or by `make eval-calibrate`; while null, Gate C uses local times only (a ratio scales both sides equally) and no scorer estimate is printed.",
+  "_doc": "Add one point per submitted version with version, board_s and optionally local_20m_median_s. make eval-calibrate fills missing local times from results and saves the fit. One valid point uses a ratio; two or more fit board = intercept + slope * local.",
   "points": [],
-  "ratio": null
+  "fit": {
+    "points": 0,
+    "method": null
+  }
 }
