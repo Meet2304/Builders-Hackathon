@@ -93,6 +93,16 @@ impl Knobs {
     }
 }
 
+/// Process CPU time so far (user + sys, all threads), in seconds.
+fn cpu_secs() -> f64 {
+    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) } != 0 {
+        return 0.0;
+    }
+    let tv = |t: libc::timeval| t.tv_sec as f64 + t.tv_usec as f64 * 1e-6;
+    tv(ru.ru_utime) + tv(ru.ru_stime)
+}
+
 fn new_map<K, V>(cap: usize) -> HashMap<K, V> {
     HashMap::with_capacity_and_hasher(cap, Default::default())
 }
@@ -872,7 +882,15 @@ fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()));
     rayon::ThreadPoolBuilder::new().num_threads(ncpu).build_global().ok();
-    let lap = |what: &str| eprintln!("[{:>7.3}s] {what}", t0.elapsed().as_secs_f64());
+    // `[  1.234s] phase (detail, cpu=X.XXXs)`: wall since start, then the process's
+    // cumulative user+sys CPU, inside the parentheses so the Eval phase key is unchanged.
+    let lap = |what: &str| {
+        let (wall, cpu) = (t0.elapsed().as_secs_f64(), cpu_secs());
+        match what.strip_suffix(')') {
+            Some(head) if head.contains(" (") => eprintln!("[{wall:>7.3}s] {head}, cpu={cpu:.3}s)"),
+            _ => eprintln!("[{wall:>7.3}s] {what} (cpu={cpu:.3}s)"),
+        }
+    };
     let knobs = Knobs::from_env();
     let nb = knobs.nb;
 

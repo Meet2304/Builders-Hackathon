@@ -590,6 +590,7 @@ dependencies = [
  "arrow-array",
  "arrow-schema",
  "foldhash",
+ "libc",
  "memchr",
  "memmap2",
  "parquet",
