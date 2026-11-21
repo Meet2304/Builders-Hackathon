@@ -33,6 +33,7 @@ from lib.calibration import report as calibration_report  # noqa: E402
 from lib.common import (CONSISTENCY, DATA, EVALS, EXPECTED, REPO, WORK, canonical_hash, dataset_stats,  # noqa: E402
                         diff_outputs, invariants, log, read_json, reference_sha, sha256_file, write_json)
 from lib.correct import DEBUG_CASES, check_output, fuzz_gen_sha, run_fixtures, run_fuzz, runner_cmd  # noqa: E402
+from lib.linux_proxy import probe_linux  # noqa: E402
 from lib.measure import load_snapshot, run_once, summarize, summarize_runs  # noqa: E402
 
 SCHEMA_VERSION = 1
@@ -47,9 +48,10 @@ PROFILES = {
                                                                             "perf-60M": 1},
              "fuzz_seeds": 1000, "thread_scaling": True, "docker": True, "probe": "perf-60M", "ab": True},
 }
-SCALING_NCPU = [1, 2, 4, 8]
+SCALING_NCPU = [1, 2, 4, 5, 8]
 SCALING_RUNS = 3
 AB_RUNS = 5
+EFF_CORE_RATIO = (6.4 - 5) / 3  # Analyst's M5 estimate for an E-core relative to a P-core.
 
 
 def host_info() -> dict:
@@ -231,7 +233,8 @@ class Eval:
                  "input_bytes": st["bytes"], "load_before": load, "warmup": [], "runs": []}
         hashes = []
         exp = cached_ok(name) if self.suite[name]["kind"] == "oracle" else None
-        for i in range(warmup + runs):
+        i = 0
+        while i < warmup + runs:
             res = run_once(self.binary, ds, out, scratch, ncpu, timeout=600)
             self.stdout_max = max(self.stdout_max, res["stdout_bytes"])
             if res["returncode"] != 0:
@@ -258,7 +261,13 @@ class Eval:
             log(f"  {'warm-up' if i < warmup else 'run'} {i - warmup if i >= warmup else i}: "
                 f"{res['wall_s']:.3f}s, RSS {res.get('max_rss_bytes', 0) / 2**30:.2f} GiB, "
                 f"cpu {res.get('cpu_util', 0) or 0:.2f}")
-        s = summarize_runs(block["runs"])
+            i += 1
+            if i == warmup + runs and runs < gates.FAST_RUNS:
+                wall = summarize([r["wall_s"] for r in block["runs"] if r["returncode"] == 0])
+                if gates.is_fast(wall):
+                    runs = gates.FAST_RUNS
+                    log(f"  median under {gates.FAST_WALL_S}s; extending to {runs} timed runs")
+        s = summarize_runs(block["runs"], st["events_lines"])
         block["summary"] = s
         w = s["wall_s"]
         if w.get("n"):
@@ -363,27 +372,30 @@ class Eval:
         base = self.r["perf"]["datasets"].get("perf-20M")
         if not base:
             return
-        curve = {}
+        curve, detail = {}, {}
+        host = self.r["host"]
+        is_m5 = "M5" in host["machine"] and host["perf_cores"] == "5" and int(host["eff_cores"] or 0) >= 3
         for n in SCALING_NCPU:
-            if n == 8:
-                s = base["summary"]["wall_s"]
-            else:
-                b = self.perf_block("perf-20M", ncpu=n, runs=SCALING_RUNS, warmup=0, check=False, label=f"scaling NCPU={n}")
-                if not b:
-                    continue
-                s = b["summary"]["wall_s"]
-                curve[f"_block_{n}"] = {"cpu_util": b["summary"].get("cpu_util"), "phases": {
-                    k: v.get("median") for k, v in b["summary"]["phases"].items()}}
+            block = base if n == 8 else self.perf_block("perf-20M", ncpu=n, runs=SCALING_RUNS, warmup=0,
+                                                       check=False, label=f"scaling NCPU={n}")
+            if not block or not (s := block["summary"]["wall_s"]).get("n"):
+                continue
+            detail[str(n)] = {"cpu_util": block["summary"].get("cpu_util"),
+                              "phases": {k: v["median"] for k, v in block["summary"]["phases"].items()}}
             curve[str(n)] = {"median_s": s["median"], "stdev_s": s["stdev"], "n": s["n"]}
-        t1 = curve.get("1", {}).get("median_s")
-        for n in SCALING_NCPU:
-            c = curve.get(str(n))
-            if c and t1:
-                c["speedup"] = round(t1 / c["median_s"], 3)
-                c["efficiency"] = round(t1 / c["median_s"] / n, 3)
-        blocks = {k: curve.pop(k) for k in list(curve) if k.startswith("_block_")}
+        if "1" in curve:
+            for key, point in curve.items():
+                n = int(key)
+                speedup = curve["1"]["median_s"] / point["median_s"]
+                point.update(speedup=round(speedup, 3), efficiency=round(speedup / n, 3))
+                if is_m5:
+                    ceiling = min(n, 5) + max(n - 5, 0) * EFF_CORE_RATIO
+                    point.update(p_core_equivalents=round(ceiling, 3), hybrid_efficiency=round(speedup / ceiling, 3))
+                detail[key]["phase_speedup"] = {phase: round(detail["1"]["phases"][phase] / sec, 3)
+                                               for phase, sec in detail[key]["phases"].items()
+                                               if sec > 0 and phase in detail["1"]["phases"]}
         self.r["perf"]["thread_scaling"] = {"dataset": base["dataset"], "points": curve,
-                                            "per_ncpu_detail": {k[7:]: v for k, v in blocks.items()}}
+                                            "per_ncpu_detail": detail}
 
     def size_scaling(self):
         p = self.r["perf"]["datasets"]
@@ -421,7 +433,8 @@ class Eval:
             c["fixtures_arm64"] = run_fixtures(run, jobs=6, label="arm64 container")
             c["dev_answer_arm64"] = self.container_dev(run, "arm64")
             ro_ok &= c["fixtures_arm64"]["passed"] == c["fixtures_arm64"]["total"] and c["dev_answer_arm64"]["match"]
-            self.container_overhead(run, info)
+            self.container_overhead(run)
+            self.step("Linux proxy", self.linux_proxy, arm, info)
         amd = build_image(self.sha, "amd64")
         imgs["amd64"] = amd
         if amd["ok"]:
@@ -450,7 +463,7 @@ class Eval:
         shutil.rmtree(out, ignore_errors=True)
         return res
 
-    def container_overhead(self, run, info):
+    def container_overhead(self, run):
         out = self.runs_dir / "ovh"
         walls = []
         log("container overhead: arm64 container on dev, 1 warm-up + 5 runs")
@@ -467,29 +480,42 @@ class Eval:
         if nat.get("median") and s.get("n"):
             ovh["dev_overhead_s"] = round(s["median"] - nat["median"], 3)
             ovh["dev_ratio"] = round(s["median"] / nat["median"], 2)
-        # informational: 20M in the container (Docker Desktop's virtiofs bind mounts are much slower than the
-        # scorer's, so this mostly measures the VM file-sharing layer)
-        name = self.role("perf-20M")
-        if name and info.get("mem_bytes", 0) >= 12 * 2**30:
-            walls = []
-            mem = f"{min(24, info['mem_bytes'] // 2**30 - 1)}g"
-            run20 = runner_cmd(None, {**self.r["build"]["images"]["arm64"], "mem": mem})
-            log(f"container overhead: arm64 container on {name} x2 (MEM={mem}; informational)")
-            for i in range(2):
-                shutil.rmtree(out, ignore_errors=True)
-                t = time.perf_counter()
-                p = run20(DATA / name, out)
-                if p.returncode == 0:
-                    walls.append(time.perf_counter() - t)
-                else:
-                    ovh["20m_error"] = p.stderr.decode()[-300:]
-            shutil.rmtree(out, ignore_errors=True)
-            n20 = self.r["perf"]["datasets"].get("perf-20M", {}).get("summary", {}).get("wall_s", {})
-            ovh["20m_container_wall_s"] = summarize(walls)
-            if walls and n20.get("median"):
-                ovh["20m_ratio"] = round(min(walls) / n20["median"], 2)
         self.r["perf"]["container_overhead"] = ovh
         log(f"  dev container median {s.get('median', 0):.3f}s vs native {nat.get('median') or 0:.3f}s")
+
+    def linux_proxy(self, image, info):
+        perf = self.r["perf"]
+        datasets = []
+        for role in ("perf-20M", "perf-1M"):
+            if name := self.role(role):
+                footprint = perf["datasets"].get(role, {}).get("summary", {}).get("peak_footprint_bytes", {})
+                datasets.append((name, footprint.get("max", 0)))
+        perf["linux_proxy"] = probe_linux(image, info, datasets)
+
+    def cold_cache(self):
+        perf = self.r["perf"]
+        cold = perf["cold_cache"] = {"status": "unavailable"}
+        name = self.role("perf-20M")
+        purge = shutil.which("purge")
+        if not name or not purge:
+            cold["reason"] = "20M dataset or macOS purge is unavailable"
+            return
+        cold.update(dataset=name, load_before=self.wait_quiet())
+        try:
+            p = subprocess.run([purge], capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            cold["reason"] = str(e)
+            return
+        if p.returncode:
+            cold["reason"] = p.stderr.strip() or f"purge exited {p.returncode}"
+            return
+        log(f"cold cache: one run on {name} after purge")
+        out, scratch = self.runs_dir / "out", self.runs_dir / "scratch"
+        run = run_once(self.binary, DATA / name, out, scratch, 8)
+        shutil.rmtree(out, ignore_errors=True)
+        self.stdout_max = max(self.stdout_max, run["stdout_bytes"])
+        cold.update(status="ok" if run["returncode"] == 0 else "failed", run=run)
+        cold["warm_median_s"] = (gates.perf_20m(self.r) or {}).get("median")
 
     # -------------------------------------------------------------- baseline / A-B
     def baseline(self):
@@ -497,7 +523,10 @@ class Eval:
         if base and base.get("sha") == self.sha:
             base["note"] = "baseline is the same commit"
         self.r["baseline"] = base
-        if not base or not self.prof["ab"] or base.get("sha") == self.sha:
+        if not base or base.get("sha") == self.sha:
+            return
+        fast = gates.is_fast(gates.perf_20m(self.r)) or gates.is_fast(base["wall_s"])
+        if not fast and not self.prof["ab"]:
             return
         name = self.role("perf-20M")
         if not name:
@@ -507,15 +536,30 @@ class Eval:
         except Exception as e:  # noqa: BLE001
             self.note(f"A/B: could not build baseline {base['version']}: {e}")
             return
-        self.wait_quiet()
-        log(f"A/B: interleaving {AB_RUNS} runs each of {self.a.version} and {base['version']} on {name}")
         out, scratch = self.runs_dir / "out", self.runs_dir / "scratch"
+        base["ab_load_before"] = self.wait_quiet()
+        for binary in (self.binary, bbin):
+            r = run_once(binary, DATA / name, out, scratch, 8)
+            self.stdout_max = max(self.stdout_max, r["stdout_bytes"])
         cand, bl = [], []
-        for i in range(AB_RUNS):
-            for b, acc in ((self.binary, cand), (bbin, bl)) if i % 2 == 0 else ((bbin, bl), (self.binary, cand)):
+        runs = gates.FAST_RUNS if fast else AB_RUNS
+        log(f"A/B: interleaving {runs} runs each of {self.a.version} and {base['version']} on {name}")
+        i = 0
+        while i < runs:
+            order = (self.binary, bbin) if i % 2 == 0 else (bbin, self.binary)
+            pair = {}
+            for b in order:
                 r = run_once(b, DATA / name, out, scratch, 8)
+                self.stdout_max = max(self.stdout_max, r["stdout_bytes"])
                 if r["returncode"] == 0:
-                    acc.append(r["wall_s"])
+                    pair[b] = r["wall_s"]
+            if len(pair) == 2:
+                cand.append(pair[self.binary])
+                bl.append(pair[bbin])
+            i += 1
+            if i == AB_RUNS and not fast and any(gates.is_fast(summarize(x)) for x in (cand, bl)):
+                runs = gates.FAST_RUNS
+                log(f"  A/B median under {gates.FAST_WALL_S}s; extending to {runs} pairs")
         shutil.rmtree(out, ignore_errors=True)
         base["ab_wall_s"] = summarize(bl)
         base["ab_candidate_wall_s"] = summarize(cand)
@@ -595,6 +639,8 @@ class Eval:
         self.step("baseline", self.baseline)
         if self.prof["docker"]:
             self.step("containers", self.containers)
+        if self.a.profile == "full":
+            self.step("cold cache", self.cold_cache)
         self.step("constraints", self.constraints)
         self.step("calibration", self.calibration)
         self.finish()
@@ -604,6 +650,10 @@ class Eval:
 
 def fmt_s(x):
     return "n/a" if x is None else f"{x:.3f}s"
+
+
+def fmt_number(x):
+    return "n/a" if x is None else f"{x:,.2f}"
 
 
 def render_md(r: dict) -> str:
@@ -679,20 +729,35 @@ def render_md(r: dict) -> str:
         if not ph:
             continue
         L += ["", f"Phases, {b['dataset']} (median of {b['summary']['wall_s'].get('n')} runs):", "",
-              "| Phase | Median | Share |", "| --- | --- | --- |"]
+              "| Phase | Wall | Share | CPU | CPU / wall |", "| --- | --- | --- | --- | --- |"]
         tot = b["summary"]["wall_s"].get("median") or 1
         for k, v in ph.items():
-            L.append(f"| {k} | {fmt_s(v.get('median'))} | {100 * (v.get('median') or 0) / tot:.0f}% |")
+            cpu = fmt_s(v.get("cpu_s", {}).get("median"))
+            parallelism = fmt_number(v.get("parallelism", {}).get("median"))
+            L.append(f"| {k} | {fmt_s(v.get('median'))} | {100 * (v.get('median') or 0) / tot:.0f}% | "
+                     f"{cpu} | {parallelism} |")
         L += ["", f"Resources (median): page reclaims {b['summary'].get('page_reclaims', {}).get('median')}, "
                   f"page faults {b['summary'].get('page_faults', {}).get('median')}, vol ctx sw "
                   f"{b['summary'].get('vcsw', {}).get('median')}, invol ctx sw {b['summary'].get('ivcsw', {}).get('median')}, "
                   f"peak footprint {b['summary'].get('peak_footprint_bytes', {}).get('max', 0) / 2**30:.2f} GiB"]
+        counters = [("instructions/row", "instructions_per_row"), ("cycles/row", "cycles_per_row"), ("IPC", "ipc")]
+        L.append("Hardware counters (median): " + ", ".join(
+            f"{label} {fmt_number(b['summary'].get(key, {}).get('median'))}" for label, key in counters))
     ts = p.get("thread_scaling")
     if ts:
-        L += ["", f"## Thread scaling ({ts['dataset']})", "", "| NCPU | Median | Speedup | Efficiency |",
-              "| --- | --- | --- | --- |"]
+        L += ["", f"## Thread scaling ({ts['dataset']})", "",
+              "| NCPU | Median | Speedup | Efficiency | P-core equivalents | Hybrid efficiency |",
+              "| --- | --- | --- | --- | --- | --- |"]
         for n, v in ts["points"].items():
-            L.append(f"| {n} | {fmt_s(v['median_s'])} | {v.get('speedup', '')} | {v.get('efficiency', '')} |")
+            L.append(f"| {n} | {fmt_s(v['median_s'])} | {v.get('speedup', '')} | {v.get('efficiency', '')} "
+                     f"| {v.get('p_core_equivalents', '')} | {v.get('hybrid_efficiency', '')} |")
+        scaling = {n: detail["phase_speedup"] for n, detail in ts["per_ncpu_detail"].items()
+                   if "phase_speedup" in detail}
+        if scaling:
+            L += ["", "| Phase speedup vs NCPU=1 | " + " | ".join(scaling) + " |",
+                  "| --- " * (len(scaling) + 1) + "|"]
+            for phase in scaling.get("1", {}):
+                L.append(f"| {phase} | " + " | ".join(fmt_number(s.get(phase)) for s in scaling.values()) + " |")
     ss = p.get("size_scaling", {})
     if ss.get("ratios"):
         L += ["", "## Size scaling", ""] + [f"- {k}: time ×{v['time_ratio']} for events ×{v['events_ratio']}"
@@ -706,6 +771,26 @@ def render_md(r: dict) -> str:
         if co.get("20m_container_wall_s", {}).get("n"):
             L.append(f"- 20M (informational, virtiofs-bound): best {fmt_s(co['20m_container_wall_s']['min'])}, "
                      f"×{co.get('20m_ratio')} native")
+    if proxy := p.get("linux_proxy"):
+        L += ["", "## Linux page-fault proxy", ""]
+        if proxy["status"] == "ok":
+            s = proxy["sample"]
+            L.append(f"- {proxy['dataset']}, named volume, {proxy['mem_gib']} GiB limit, "
+                     f"THP {s['thp_mode'] or 'unavailable'}, page size {s['page_bytes'] or 'unknown'} B. "
+                     f"Process {fmt_s(s['process_wall_s'])}, {s['minor_faults']:,} minor and {s['major_faults']:,} major faults.")
+        elif proxy.get("reason"):
+            L.append(f"- Unavailable: {proxy['reason'].splitlines()[-1]}")
+        else:
+            L.append("- Unavailable")
+        for attempt in proxy["attempts"]:
+            L.append(f"- {attempt['dataset']}: {attempt['error'].strip().splitlines()[-1] if attempt['error'].strip() else 'unavailable'}")
+    if cold := p.get("cold_cache"):
+        L += ["", "## Cold cache", ""]
+        if cold["status"] == "ok":
+            L.append(f"- {cold['dataset']} after purge: {fmt_s(cold['run']['wall_s'])}, "
+                     f"warm median {fmt_s(cold['warm_median_s'])}.")
+        else:
+            L.append(f"- {cold['status']}: {cold.get('reason', cold.get('run', {}).get('stderr_tail', '')).strip()}")
     pr = p.get("probe")
     k = r["constraints"]
     L += ["", "## Constraints and sizes", "",
