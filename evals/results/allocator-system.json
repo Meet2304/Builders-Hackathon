@@ -1,0 +1,3096 @@
+{
+  "schema_version": 1,
+  "version": "allocator-system",
+  "rev": "953af43",
+  "sha": "953af436f8aa1f8cf4b0771b8451effe961f738a",
+  "profile": "linux",
+  "started": "2026-11-21T18:33:40-0500",
+  "host": {
+    "machine": "Apple M5 Pro",
+    "ncpu": 15,
+    "perf_cores": "5",
+    "eff_cores": "10",
+    "mem_bytes": 51539607552,
+    "os": "macOS-27.2.1-arm64-arm-64bit",
+    "python": "3.12.16",
+    "polars": "2.1.0"
+  },
+  "evaluator": {
+    "eval_sha": "e93a363c8f45",
+    "reference_sha": "83c8ac2d3ab92ac0",
+    "fuzz_gen_sha": "c05c7a1570ec",
+    "scorer_flags_script": "scripts/docker_run.sh"
+  },
+  "build": {
+    "native": {
+      "binary": "/Users/meet/.cache/sessions-eval.noindex/bin/953af436f8aa/sessions",
+      "build_s": 17.51,
+      "binary_bytes": 3818672,
+      "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+      "rustflags": "",
+      "cached": true,
+      "src": "/Users/meet/.cache/sessions-eval.noindex/src/953af436f8aa"
+    },
+    "docker": {
+      "available": true,
+      "ncpu": 15,
+      "mem_bytes": 25273950208,
+      "server_version": "29.9.3"
+    },
+    "images": {
+      "arm64": {
+        "tag": "sessions-eval:953af436f8aa-arm64",
+        "platform": "linux/arm64",
+        "no_cache": false,
+        "build_s": 0.6,
+        "ok": true,
+        "x86_cpu": null,
+        "image_bytes": 141915571
+      }
+    }
+  },
+  "correctness": {
+    "differential": {
+      "dev": {
+        "hash": "a0d52e872e8b406e71d251556d9fd7d771048d136d70b94f3a7a03d2fff3c15b",
+        "rows": {
+          "user_daily": 117038,
+          "campaign_daily": 27400
+        },
+        "match": true,
+        "kind": "oracle",
+        "against": "data/expected/dev (reference 83c8ac2d)"
+      },
+      "seed-2": {
+        "hash": "7c56c8cae10bfb8453964d6d348cc7b3b08c066778d0d2081324a1bcac42a033",
+        "rows": {
+          "user_daily": 25041,
+          "campaign_daily": 19032
+        },
+        "match": true,
+        "kind": "oracle",
+        "against": "data/expected/seed-2 (reference 83c8ac2d)"
+      },
+      "seed-3": {
+        "hash": "cda21a31b683b26a8fabd73b63953e71ecbedb1996f9776aeef7f31e6681bc06",
+        "rows": {
+          "user_daily": 25329,
+          "campaign_daily": 19018
+        },
+        "match": true,
+        "kind": "oracle",
+        "against": "data/expected/seed-3 (reference 83c8ac2d)"
+      },
+      "seed-4": {
+        "hash": "984593adc6eceb0b814efa81fa85f53db89ae2009816bad9e96bd683db405bcb",
+        "rows": {
+          "user_daily": 25204,
+          "campaign_daily": 19139
+        },
+        "match": true,
+        "kind": "oracle",
+        "against": "data/expected/seed-4 (reference 83c8ac2d)"
+      },
+      "seed-5": {
+        "hash": "0df6998af8e097132c3181974fb7870a9470e883ef574f47d2d96e5503b29aad",
+        "rows": {
+          "user_daily": 25139,
+          "campaign_daily": 18987
+        },
+        "match": true,
+        "kind": "oracle",
+        "against": "data/expected/seed-5 (reference 83c8ac2d)"
+      },
+      "seed-6": {
+        "hash": "d697c24a2335ef94888956ef81ac7eaa215b466da6a0c0f1cc9ffb4220623d27",
+        "rows": {
+          "user_daily": 24728,
+          "campaign_daily": 18871
+        },
+        "match": true,
+        "kind": "oracle",
+        "against": "data/expected/seed-6 (reference 83c8ac2d)"
+      },
+      "seed-15": {
+        "hash": "ae5285b01dc837be52c937a99b0a49ad75583206264223f47a91b7136f803032",
+        "rows": {
+          "user_daily": 36881,
+          "campaign_daily": 22115
+        },
+        "match": true,
+        "kind": "oracle",
+        "against": "data/expected/seed-15 (reference 83c8ac2d)"
+      },
+      "seed-62": {
+        "hash": "7ae7f8381951bf6724567e15719375257769018342f2767333301bf75dd86526",
+        "rows": {
+          "user_daily": 37083,
+          "campaign_daily": 22190
+        },
+        "match": true,
+        "kind": "oracle",
+        "against": "data/expected/seed-62 (reference 83c8ac2d)"
+      },
+      "seed-62-20m": {
+        "hash": "9de5962668b3092a9eefc3a385e3256a044d3fa6cb0a88dd308e4b5ecc8b9b69",
+        "rows": {
+          "user_daily": 2249561,
+          "campaign_daily": 28014
+        },
+        "match": true,
+        "kind": "oracle",
+        "against": "data/expected/seed-62-20m (reference 83c8ac2d)"
+      },
+      "seed-42": {
+        "match": true,
+        "hash": "3a77b9fd70f2a47435c182de701737f9c73df847f230772c0b2251ca6606e47a",
+        "rows": {
+          "user_daily": 2246306,
+          "campaign_daily": 28014
+        },
+        "kind": "oracle",
+        "against": "data/expected/seed-42 (reference 83c8ac2d)"
+      }
+    },
+    "determinism": {
+      "seed-42": {
+        "runs": 6,
+        "hashes": [
+          "3a77b9fd70f2a47435c182de701737f9c73df847f230772c0b2251ca6606e47a"
+        ],
+        "deterministic": true,
+        "byte_identical_files": false
+      }
+    },
+    "row_counts": {
+      "dev": {
+        "user_daily": 117038,
+        "campaign_daily": 27400
+      },
+      "seed-2": {
+        "user_daily": 25041,
+        "campaign_daily": 19032
+      },
+      "seed-3": {
+        "user_daily": 25329,
+        "campaign_daily": 19018
+      },
+      "seed-4": {
+        "user_daily": 25204,
+        "campaign_daily": 19139
+      },
+      "seed-5": {
+        "user_daily": 25139,
+        "campaign_daily": 18987
+      },
+      "seed-6": {
+        "user_daily": 24728,
+        "campaign_daily": 18871
+      },
+      "seed-15": {
+        "user_daily": 36881,
+        "campaign_daily": 22115
+      },
+      "seed-62": {
+        "user_daily": 37083,
+        "campaign_daily": 22190
+      },
+      "seed-62-20m": {
+        "user_daily": 2249561,
+        "campaign_daily": 28014
+      },
+      "seed-42": {
+        "user_daily": 2246306,
+        "campaign_daily": 28014
+      }
+    },
+    "fixtures_native": {
+      "passed": 36,
+      "total": 36,
+      "failed": []
+    },
+    "dev_answer_native": {
+      "match": true
+    },
+    "fuzz": {
+      "gen_sha": "c05c7a1570ec",
+      "cases_dir": "/Users/meet/.cache/sessions-eval.noindex/explorer/allocator.2UFmgN/data/fuzz/gen-c05c7a1570ec-ref-83c8ac2d",
+      "seeds": [
+        0,
+        150
+      ],
+      "focus": null,
+      "strict": {
+        "total": 129,
+        "passed": 129,
+        "skipped": 0,
+        "failed": []
+      },
+      "robust": {
+        "total": 21,
+        "passed": 21,
+        "skipped": 0,
+        "failed": []
+      },
+      "by_focus": {
+        "dialect": {
+          "total": 9,
+          "failed": 0
+        },
+        "timestamps": {
+          "total": 19,
+          "failed": 0
+        },
+        "sessions": {
+          "total": 14,
+          "failed": 0
+        },
+        "clicks": {
+          "total": 15,
+          "failed": 0
+        },
+        "links": {
+          "total": 18,
+          "failed": 0
+        },
+        "dedup": {
+          "total": 12,
+          "failed": 0
+        },
+        "files": {
+          "total": 14,
+          "failed": 0
+        },
+        "overflow": {
+          "total": 15,
+          "failed": 0
+        },
+        "window": {
+          "total": 12,
+          "failed": 0
+        },
+        "mixed": {
+          "total": 15,
+          "failed": 0
+        },
+        "id-shapes": {
+          "total": 7,
+          "failed": 0
+        }
+      },
+      "failing_tags": {}
+    },
+    "debug_knobs": {
+      "SESSIONS_DEBUG_HASH_BITS=4": {
+        "status": "pass",
+        "dev": {
+          "hash": "a0d52e872e8b406e71d251556d9fd7d771048d136d70b94f3a7a03d2fff3c15b",
+          "rows": {
+            "user_daily": 117038,
+            "campaign_daily": 27400
+          },
+          "match": true
+        },
+        "fuzz": {
+          "gen_sha": "c05c7a1570ec",
+          "cases_dir": "/Users/meet/.cache/sessions-eval.noindex/explorer/allocator.2UFmgN/data/fuzz/gen-c05c7a1570ec-ref-83c8ac2d",
+          "seeds": [
+            0,
+            150
+          ],
+          "focus": null,
+          "strict": {
+            "total": 129,
+            "passed": 129,
+            "skipped": 0,
+            "failed": []
+          },
+          "robust": {
+            "total": 21,
+            "passed": 21,
+            "skipped": 0,
+            "failed": []
+          },
+          "by_focus": {
+            "dialect": {
+              "total": 9,
+              "failed": 0
+            },
+            "timestamps": {
+              "total": 19,
+              "failed": 0
+            },
+            "sessions": {
+              "total": 14,
+              "failed": 0
+            },
+            "clicks": {
+              "total": 15,
+              "failed": 0
+            },
+            "links": {
+              "total": 18,
+              "failed": 0
+            },
+            "dedup": {
+              "total": 12,
+              "failed": 0
+            },
+            "files": {
+              "total": 14,
+              "failed": 0
+            },
+            "overflow": {
+              "total": 15,
+              "failed": 0
+            },
+            "window": {
+              "total": 12,
+              "failed": 0
+            },
+            "mixed": {
+              "total": 15,
+              "failed": 0
+            },
+            "id-shapes": {
+              "total": 7,
+              "failed": 0
+            }
+          },
+          "failing_tags": {}
+        }
+      },
+      "SESSIONS_DEBUG_CHUNK=97": {
+        "status": "pass",
+        "dev": {
+          "hash": "a0d52e872e8b406e71d251556d9fd7d771048d136d70b94f3a7a03d2fff3c15b",
+          "rows": {
+            "user_daily": 117038,
+            "campaign_daily": 27400
+          },
+          "match": true
+        },
+        "fuzz": {
+          "gen_sha": "c05c7a1570ec",
+          "cases_dir": "/Users/meet/.cache/sessions-eval.noindex/explorer/allocator.2UFmgN/data/fuzz/gen-c05c7a1570ec-ref-83c8ac2d",
+          "seeds": [
+            0,
+            150
+          ],
+          "focus": null,
+          "strict": {
+            "total": 129,
+            "passed": 129,
+            "skipped": 0,
+            "failed": []
+          },
+          "robust": {
+            "total": 21,
+            "passed": 21,
+            "skipped": 0,
+            "failed": []
+          },
+          "by_focus": {
+            "dialect": {
+              "total": 9,
+              "failed": 0
+            },
+            "timestamps": {
+              "total": 19,
+              "failed": 0
+            },
+            "sessions": {
+              "total": 14,
+              "failed": 0
+            },
+            "clicks": {
+              "total": 15,
+              "failed": 0
+            },
+            "links": {
+              "total": 18,
+              "failed": 0
+            },
+            "dedup": {
+              "total": 12,
+              "failed": 0
+            },
+            "files": {
+              "total": 14,
+              "failed": 0
+            },
+            "overflow": {
+              "total": 15,
+              "failed": 0
+            },
+            "window": {
+              "total": 12,
+              "failed": 0
+            },
+            "mixed": {
+              "total": 15,
+              "failed": 0
+            },
+            "id-shapes": {
+              "total": 7,
+              "failed": 0
+            }
+          },
+          "failing_tags": {}
+        }
+      },
+      "SESSIONS_DEBUG_PARTS=1": {
+        "status": "pass",
+        "dev": {
+          "hash": "a0d52e872e8b406e71d251556d9fd7d771048d136d70b94f3a7a03d2fff3c15b",
+          "rows": {
+            "user_daily": 117038,
+            "campaign_daily": 27400
+          },
+          "match": true
+        },
+        "fuzz": {
+          "gen_sha": "c05c7a1570ec",
+          "cases_dir": "/Users/meet/.cache/sessions-eval.noindex/explorer/allocator.2UFmgN/data/fuzz/gen-c05c7a1570ec-ref-83c8ac2d",
+          "seeds": [
+            0,
+            150
+          ],
+          "focus": null,
+          "strict": {
+            "total": 129,
+            "passed": 129,
+            "skipped": 0,
+            "failed": []
+          },
+          "robust": {
+            "total": 21,
+            "passed": 21,
+            "skipped": 0,
+            "failed": []
+          },
+          "by_focus": {
+            "dialect": {
+              "total": 9,
+              "failed": 0
+            },
+            "timestamps": {
+              "total": 19,
+              "failed": 0
+            },
+            "sessions": {
+              "total": 14,
+              "failed": 0
+            },
+            "clicks": {
+              "total": 15,
+              "failed": 0
+            },
+            "links": {
+              "total": 18,
+              "failed": 0
+            },
+            "dedup": {
+              "total": 12,
+              "failed": 0
+            },
+            "files": {
+              "total": 14,
+              "failed": 0
+            },
+            "overflow": {
+              "total": 15,
+              "failed": 0
+            },
+            "window": {
+              "total": 12,
+              "failed": 0
+            },
+            "mixed": {
+              "total": 15,
+              "failed": 0
+            },
+            "id-shapes": {
+              "total": 7,
+              "failed": 0
+            }
+          },
+          "failing_tags": {}
+        }
+      },
+      "SESSIONS_DEBUG_PARTS=4096": {
+        "status": "pass",
+        "dev": {
+          "hash": "a0d52e872e8b406e71d251556d9fd7d771048d136d70b94f3a7a03d2fff3c15b",
+          "rows": {
+            "user_daily": 117038,
+            "campaign_daily": 27400
+          },
+          "match": true
+        },
+        "fuzz": {
+          "gen_sha": "c05c7a1570ec",
+          "cases_dir": "/Users/meet/.cache/sessions-eval.noindex/explorer/allocator.2UFmgN/data/fuzz/gen-c05c7a1570ec-ref-83c8ac2d",
+          "seeds": [
+            0,
+            150
+          ],
+          "focus": null,
+          "strict": {
+            "total": 129,
+            "passed": 129,
+            "skipped": 0,
+            "failed": []
+          },
+          "robust": {
+            "total": 21,
+            "passed": 21,
+            "skipped": 0,
+            "failed": []
+          },
+          "by_focus": {
+            "dialect": {
+              "total": 9,
+              "failed": 0
+            },
+            "timestamps": {
+              "total": 19,
+              "failed": 0
+            },
+            "sessions": {
+              "total": 14,
+              "failed": 0
+            },
+            "clicks": {
+              "total": 15,
+              "failed": 0
+            },
+            "links": {
+              "total": 18,
+              "failed": 0
+            },
+            "dedup": {
+              "total": 12,
+              "failed": 0
+            },
+            "files": {
+              "total": 14,
+              "failed": 0
+            },
+            "overflow": {
+              "total": 15,
+              "failed": 0
+            },
+            "window": {
+              "total": 12,
+              "failed": 0
+            },
+            "mixed": {
+              "total": 15,
+              "failed": 0
+            },
+            "id-shapes": {
+              "total": 7,
+              "failed": 0
+            }
+          },
+          "failing_tags": {}
+        }
+      },
+      "SESSIONS_DEBUG_NO_FAST=1": {
+        "status": "pass",
+        "dev": {
+          "hash": "a0d52e872e8b406e71d251556d9fd7d771048d136d70b94f3a7a03d2fff3c15b",
+          "rows": {
+            "user_daily": 117038,
+            "campaign_daily": 27400
+          },
+          "match": true
+        },
+        "fuzz": {
+          "gen_sha": "c05c7a1570ec",
+          "cases_dir": "/Users/meet/.cache/sessions-eval.noindex/explorer/allocator.2UFmgN/data/fuzz/gen-c05c7a1570ec-ref-83c8ac2d",
+          "seeds": [
+            0,
+            150
+          ],
+          "focus": null,
+          "strict": {
+            "total": 129,
+            "passed": 129,
+            "skipped": 0,
+            "failed": []
+          },
+          "robust": {
+            "total": 21,
+            "passed": 21,
+            "skipped": 0,
+            "failed": []
+          },
+          "by_focus": {
+            "dialect": {
+              "total": 9,
+              "failed": 0
+            },
+            "timestamps": {
+              "total": 19,
+              "failed": 0
+            },
+            "sessions": {
+              "total": 14,
+              "failed": 0
+            },
+            "clicks": {
+              "total": 15,
+              "failed": 0
+            },
+            "links": {
+              "total": 18,
+              "failed": 0
+            },
+            "dedup": {
+              "total": 12,
+              "failed": 0
+            },
+            "files": {
+              "total": 14,
+              "failed": 0
+            },
+            "overflow": {
+              "total": 15,
+              "failed": 0
+            },
+            "window": {
+              "total": 12,
+              "failed": 0
+            },
+            "mixed": {
+              "total": 15,
+              "failed": 0
+            },
+            "id-shapes": {
+              "total": 7,
+              "failed": 0
+            }
+          },
+          "failing_tags": {}
+        }
+      }
+    }
+  },
+  "perf": {
+    "datasets": {
+      "perf-20M": {
+        "dataset": "seed-42",
+        "role": "perf-20M",
+        "ncpu": 8,
+        "events_lines": 21507843,
+        "input_bytes": 1915552584,
+        "load_before": {
+          "load1": 7.7,
+          "load5": 5.33,
+          "load15": 4.75,
+          "cpu_busy_pct": 7.7,
+          "top": [
+            {
+              "pcpu": 415.1,
+              "comm": "com.apple.Virtualization.VirtualMachine"
+            },
+            {
+              "pcpu": 20.1,
+              "comm": "T3 Code (Beta) Helper (Renderer)"
+            },
+            {
+              "pcpu": 14.8,
+              "comm": "WindowServer"
+            },
+            {
+              "pcpu": 11.5,
+              "comm": "Finder"
+            },
+            {
+              "pcpu": 10.5,
+              "comm": "Codenotch"
+            }
+          ],
+          "waited_s": 2.3
+        },
+        "warmup": [
+          {
+            "returncode": 0,
+            "wall_s": 1.7078,
+            "ncpu": 8,
+            "stdout_bytes": 0,
+            "stderr_bytes": 273,
+            "phases": [
+              {
+                "key": "lookups",
+                "label": "lookups (1199028 linked ids)",
+                "at_s": 0.1,
+                "dur_s": 0.1,
+                "cpu_s": 0.117,
+                "parallelism": 1.17
+              },
+              {
+                "key": "events parsed",
+                "label": "events parsed",
+                "at_s": 0.819,
+                "dur_s": 0.719,
+                "cpu_s": 5.657,
+                "parallelism": 7.868
+              },
+              {
+                "key": "clicks parsed",
+                "label": "clicks parsed",
+                "at_s": 0.974,
+                "dur_s": 0.155,
+                "cpu_s": 1.139,
+                "parallelism": 7.348
+              },
+              {
+                "key": "events deduped",
+                "label": "events deduped",
+                "at_s": 1.202,
+                "dur_s": 0.228,
+                "cpu_s": 1.548,
+                "parallelism": 6.789
+              },
+              {
+                "key": "sessions + attribution",
+                "label": "sessions + attribution",
+                "at_s": 1.506,
+                "dur_s": 0.304,
+                "cpu_s": 2.379,
+                "parallelism": 7.826
+              },
+              {
+                "key": "written",
+                "label": "written (2246306 user_daily rows)",
+                "at_s": 1.564,
+                "dur_s": 0.058,
+                "cpu_s": 0.326,
+                "parallelism": 5.621
+              }
+            ],
+            "time_real_s": 1.65,
+            "user_s": 10.28,
+            "sys_s": 0.97,
+            "max_rss_bytes": 6457065472,
+            "page_reclaims": 416845,
+            "page_faults": 2,
+            "block_in": 0,
+            "block_out": 0,
+            "vcsw": 12,
+            "ivcsw": 11603,
+            "instructions": 91870676073,
+            "cycles": 47349843984,
+            "peak_footprint_bytes": 4061778744,
+            "cpu_util": 0.8234,
+            "canonical_hash": "3a77b9fd70f2a47435c182de701737f9c73df847f230772c0b2251ca6606e47a",
+            "rows": {
+              "user_daily": 2246306,
+              "campaign_daily": 28014
+            },
+            "files_sha": "709b5c759656d2c9"
+          }
+        ],
+        "runs": [
+          {
+            "returncode": 0,
+            "wall_s": 1.8751,
+            "ncpu": 8,
+            "stdout_bytes": 0,
+            "stderr_bytes": 273,
+            "phases": [
+              {
+                "key": "lookups",
+                "label": "lookups (1199028 linked ids)",
+                "at_s": 0.13,
+                "dur_s": 0.13,
+                "cpu_s": 0.147,
+                "parallelism": 1.131
+              },
+              {
+                "key": "events parsed",
+                "label": "events parsed",
+                "at_s": 0.892,
+                "dur_s": 0.762,
+                "cpu_s": 5.973,
+                "parallelism": 7.839
+              },
+              {
+                "key": "clicks parsed",
+                "label": "clicks parsed",
+                "at_s": 1.067,
+                "dur_s": 0.175,
+                "cpu_s": 1.241,
+                "parallelism": 7.091
+              },
+              {
+                "key": "events deduped",
+                "label": "events deduped",
+                "at_s": 1.339,
+                "dur_s": 0.272,
+                "cpu_s": 1.736,
+                "parallelism": 6.382
+              },
+              {
+                "key": "sessions + attribution",
+                "label": "sessions + attribution",
+                "at_s": 1.672,
+                "dur_s": 0.333,
+                "cpu_s": 2.565,
+                "parallelism": 7.703
+              },
+              {
+                "key": "written",
+                "label": "written (2246306 user_daily rows)",
+                "at_s": 1.719,
+                "dur_s": 0.047,
+                "cpu_s": 0.284,
+                "parallelism": 6.043
+              }
+            ],
+            "time_real_s": 1.82,
+            "user_s": 10.84,
+            "sys_s": 1.19,
+            "max_rss_bytes": 6449414144,
+            "page_reclaims": 415463,
+            "page_faults": 13,
+            "block_in": 0,
+            "block_out": 0,
+            "vcsw": 2,
+            "ivcsw": 24324,
+            "instructions": 92536461748,
+            "cycles": 50582866945,
+            "peak_footprint_bytes": 4080505704,
+            "cpu_util": 0.8019,
+            "canonical_hash": "3a77b9fd70f2a47435c182de701737f9c73df847f230772c0b2251ca6606e47a",
+            "rows": {
+              "user_daily": 2246306,
+              "campaign_daily": 28014
+            },
+            "files_sha": "466a86e4786a422d"
+          },
+          {
+            "returncode": 0,
+            "wall_s": 1.6472,
+            "ncpu": 8,
+            "stdout_bytes": 0,
+            "stderr_bytes": 273,
+            "phases": [
+              {
+                "key": "lookups",
+                "label": "lookups (1199028 linked ids)",
+                "at_s": 0.103,
+                "dur_s": 0.103,
+                "cpu_s": 0.122,
+                "parallelism": 1.184
+              },
+              {
+                "key": "events parsed",
+                "label": "events parsed",
+                "at_s": 0.83,
+                "dur_s": 0.727,
+                "cpu_s": 5.699,
+                "parallelism": 7.839
+              },
+              {
+                "key": "clicks parsed",
+                "label": "clicks parsed",
+                "at_s": 0.984,
+                "dur_s": 0.154,
+                "cpu_s": 1.132,
+                "parallelism": 7.351
+              },
+              {
+                "key": "events deduped",
+                "label": "events deduped",
+                "at_s": 1.202,
+                "dur_s": 0.218,
+                "cpu_s": 1.522,
+                "parallelism": 6.982
+              },
+              {
+                "key": "sessions + attribution",
+                "label": "sessions + attribution",
+                "at_s": 1.513,
+                "dur_s": 0.311,
+                "cpu_s": 2.361,
+                "parallelism": 7.592
+              },
+              {
+                "key": "written",
+                "label": "written (2246306 user_daily rows)",
+                "at_s": 1.558,
+                "dur_s": 0.045,
+                "cpu_s": 0.279,
+                "parallelism": 6.2
+              }
+            ],
+            "time_real_s": 1.61,
+            "user_s": 10.27,
+            "sys_s": 0.89,
+            "max_rss_bytes": 6453575680,
+            "page_reclaims": 414850,
+            "page_faults": 0,
+            "block_in": 0,
+            "block_out": 0,
+            "vcsw": 3,
+            "ivcsw": 10931,
+            "instructions": 91888868346,
+            "cycles": 46775834066,
+            "peak_footprint_bytes": 4094710632,
+            "cpu_util": 0.8469,
+            "canonical_hash": "3a77b9fd70f2a47435c182de701737f9c73df847f230772c0b2251ca6606e47a",
+            "rows": {
+              "user_daily": 2246306,
+              "campaign_daily": 28014
+            },
+            "files_sha": "40a3ebcfe3ef74bd"
+          },
+          {
+            "returncode": 0,
+            "wall_s": 1.6122,
+            "ncpu": 8,
+            "stdout_bytes": 0,
+            "stderr_bytes": 273,
+            "phases": [
+              {
+                "key": "lookups",
+                "label": "lookups (1199028 linked ids)",
+                "at_s": 0.102,
+                "dur_s": 0.102,
+                "cpu_s": 0.122,
+                "parallelism": 1.196
+              },
+              {
+                "key": "events parsed",
+                "label": "events parsed",
+                "at_s": 0.818,
+                "dur_s": 0.716,
+                "cpu_s": 5.641,
+                "parallelism": 7.878
+              },
+              {
+                "key": "clicks parsed",
+                "label": "clicks parsed",
+                "at_s": 0.966,
+                "dur_s": 0.148,
+                "cpu_s": 1.107,
+                "parallelism": 7.48
+              },
+              {
+                "key": "events deduped",
+                "label": "events deduped",
+                "at_s": 1.176,
+                "dur_s": 0.21,
+                "cpu_s": 1.481,
+                "parallelism": 7.052
+              },
+              {
+                "key": "sessions + attribution",
+                "label": "sessions + attribution",
+                "at_s": 1.472,
+                "dur_s": 0.296,
+                "cpu_s": 2.291,
+                "parallelism": 7.74
+              },
+              {
+                "key": "written",
+                "label": "written (2246306 user_daily rows)",
+                "at_s": 1.517,
+                "dur_s": 0.045,
+                "cpu_s": 0.285,
+                "parallelism": 6.333
+              }
+            ],
+            "time_real_s": 1.57,
+            "user_s": 10.13,
+            "sys_s": 0.83,
+            "max_rss_bytes": 6451544064,
+            "page_reclaims": 415342,
+            "page_faults": 0,
+            "block_in": 0,
+            "block_out": 0,
+            "vcsw": 4,
+            "ivcsw": 7279,
+            "instructions": 91779212899,
+            "cycles": 46028316134,
+            "peak_footprint_bytes": 4067365712,
+            "cpu_util": 0.8497,
+            "canonical_hash": "3a77b9fd70f2a47435c182de701737f9c73df847f230772c0b2251ca6606e47a",
+            "rows": {
+              "user_daily": 2246306,
+              "campaign_daily": 28014
+            },
+            "files_sha": "a0a7289aa2e7863f"
+          },
+          {
+            "returncode": 0,
+            "wall_s": 1.6638,
+            "ncpu": 8,
+            "stdout_bytes": 0,
+            "stderr_bytes": 273,
+            "phases": [
+              {
+                "key": "lookups",
+                "label": "lookups (1199028 linked ids)",
+                "at_s": 0.098,
+                "dur_s": 0.098,
+                "cpu_s": 0.117,
+                "parallelism": 1.194
+              },
+              {
+                "key": "events parsed",
+                "label": "events parsed",
+                "at_s": 0.815,
+                "dur_s": 0.717,
+                "cpu_s": 5.639,
+                "parallelism": 7.865
+              },
+              {
+                "key": "clicks parsed",
+                "label": "clicks parsed",
+                "at_s": 0.972,
+                "dur_s": 0.157,
+                "cpu_s": 1.127,
+                "parallelism": 7.178
+              },
+              {
+                "key": "events deduped",
+                "label": "events deduped",
+                "at_s": 1.186,
+                "dur_s": 0.214,
+                "cpu_s": 1.47,
+                "parallelism": 6.869
+              },
+              {
+                "key": "sessions + attribution",
+                "label": "sessions + attribution",
+                "at_s": 1.517,
+                "dur_s": 0.331,
+                "cpu_s": 2.437,
+                "parallelism": 7.363
+              },
+              {
+                "key": "written",
+                "label": "written (2246306 user_daily rows)",
+                "at_s": 1.565,
+                "dur_s": 0.048,
+                "cpu_s": 0.285,
+                "parallelism": 5.937
+              }
+            ],
+            "time_real_s": 1.62,
+            "user_s": 10.27,
+            "sys_s": 0.86,
+            "max_rss_bytes": 6469550080,
+            "page_reclaims": 416502,
+            "page_faults": 0,
+            "block_in": 0,
+            "block_out": 0,
+            "vcsw": 6,
+            "ivcsw": 14848,
+            "instructions": 91821440566,
+            "cycles": 46880514196,
+            "peak_footprint_bytes": 4079031120,
+            "cpu_util": 0.8362,
+            "canonical_hash": "3a77b9fd70f2a47435c182de701737f9c73df847f230772c0b2251ca6606e47a",
+            "rows": {
+              "user_daily": 2246306,
+              "campaign_daily": 28014
+            },
+            "files_sha": "d2c97a2c6b6138c0"
+          },
+          {
+            "returncode": 0,
+            "wall_s": 1.656,
+            "ncpu": 8,
+            "stdout_bytes": 0,
+            "stderr_bytes": 273,
+            "phases": [
+              {
+                "key": "lookups",
+                "label": "lookups (1199028 linked ids)",
+                "at_s": 0.111,
+                "dur_s": 0.111,
+                "cpu_s": 0.129,
+                "parallelism": 1.162
+              },
+              {
+                "key": "events parsed",
+                "label": "events parsed",
+                "at_s": 0.823,
+                "dur_s": 0.712,
+                "cpu_s": 5.611,
+                "parallelism": 7.881
+              },
+              {
+                "key": "clicks parsed",
+                "label": "clicks parsed",
+                "at_s": 0.976,
+                "dur_s": 0.153,
+                "cpu_s": 1.13,
+                "parallelism": 7.386
+              },
+              {
+                "key": "events deduped",
+                "label": "events deduped",
+                "at_s": 1.199,
+                "dur_s": 0.223,
+                "cpu_s": 1.548,
+                "parallelism": 6.942
+              },
+              {
+                "key": "sessions + attribution",
+                "label": "sessions + attribution",
+                "at_s": 1.502,
+                "dur_s": 0.303,
+                "cpu_s": 2.291,
+                "parallelism": 7.561
+              },
+              {
+                "key": "written",
+                "label": "written (2246306 user_daily rows)",
+                "at_s": 1.546,
+                "dur_s": 0.044,
+                "cpu_s": 0.278,
+                "parallelism": 6.318
+              }
+            ],
+            "time_real_s": 1.6,
+            "user_s": 10.15,
+            "sys_s": 0.88,
+            "max_rss_bytes": 6454001664,
+            "page_reclaims": 414826,
+            "page_faults": 0,
+            "block_in": 0,
+            "block_out": 0,
+            "vcsw": 4,
+            "ivcsw": 7959,
+            "instructions": 91887091612,
+            "cycles": 46350624129,
+            "peak_footprint_bytes": 4070478672,
+            "cpu_util": 0.8326,
+            "canonical_hash": "3a77b9fd70f2a47435c182de701737f9c73df847f230772c0b2251ca6606e47a",
+            "rows": {
+              "user_daily": 2246306,
+              "campaign_daily": 28014
+            },
+            "files_sha": "3d6aabd024b3bead"
+          }
+        ],
+        "summary": {
+          "wall_s": {
+            "n": 5,
+            "median": 1.656,
+            "mean": 1.69086,
+            "min": 1.6122,
+            "max": 1.8751,
+            "p90": 1.8751,
+            "stdev": 0.104864,
+            "cv": 0.0633,
+            "samples": [
+              1.8751,
+              1.6472,
+              1.6122,
+              1.6638,
+              1.656
+            ]
+          },
+          "user_s": {
+            "n": 5,
+            "median": 10.27,
+            "mean": 10.332,
+            "min": 10.13,
+            "max": 10.84,
+            "p90": 10.84,
+            "stdev": 0.29141,
+            "cv": 0.0284,
+            "samples": [
+              10.84,
+              10.27,
+              10.13,
+              10.27,
+              10.15
+            ]
+          },
+          "sys_s": {
+            "n": 5,
+            "median": 0.88,
+            "mean": 0.93,
+            "min": 0.83,
+            "max": 1.19,
+            "p90": 1.19,
+            "stdev": 0.147139,
+            "cv": 0.1672,
+            "samples": [
+              1.19,
+              0.89,
+              0.83,
+              0.86,
+              0.88
+            ]
+          },
+          "cpu_util": {
+            "n": 5,
+            "median": 0.8362,
+            "mean": 0.83346,
+            "min": 0.8019,
+            "max": 0.8497,
+            "p90": 0.8497,
+            "stdev": 0.019031,
+            "cv": 0.0228,
+            "samples": [
+              0.8019,
+              0.8469,
+              0.8497,
+              0.8362,
+              0.8326
+            ]
+          },
+          "max_rss_bytes": {
+            "n": 5,
+            "median": 6453575680,
+            "mean": 6455617126.4,
+            "min": 6449414144,
+            "max": 6469550080,
+            "p90": 6469550080,
+            "stdev": 7999550.708612,
+            "cv": 0.0012,
+            "samples": [
+              6449414144,
+              6453575680,
+              6451544064,
+              6469550080,
+              6454001664
+            ]
+          },
+          "peak_footprint_bytes": {
+            "n": 5,
+            "median": 4079031120,
+            "mean": 4078418368.0,
+            "min": 4067365712,
+            "max": 4094710632,
+            "p90": 4094710632,
+            "stdev": 10669703.370559,
+            "cv": 0.0026,
+            "samples": [
+              4080505704,
+              4094710632,
+              4067365712,
+              4079031120,
+              4070478672
+            ]
+          },
+          "page_reclaims": {
+            "n": 5,
+            "median": 415342,
+            "mean": 415396.6,
+            "min": 414826,
+            "max": 416502,
+            "p90": 416502,
+            "stdev": 680.745033,
+            "cv": 0.0016,
+            "samples": [
+              415463,
+              414850,
+              415342,
+              416502,
+              414826
+            ]
+          },
+          "page_faults": {
+            "n": 5,
+            "median": 0,
+            "mean": 2.6,
+            "min": 0,
+            "max": 13,
+            "p90": 13,
+            "stdev": 5.813777,
+            "cv": null,
+            "samples": [
+              13,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "vcsw": {
+            "n": 5,
+            "median": 4,
+            "mean": 3.8,
+            "min": 2,
+            "max": 6,
+            "p90": 6,
+            "stdev": 1.48324,
+            "cv": 0.3708,
+            "samples": [
+              2,
+              3,
+              4,
+              6,
+              4
+            ]
+          },
+          "ivcsw": {
+            "n": 5,
+            "median": 10931,
+            "mean": 13068.2,
+            "min": 7279,
+            "max": 24324,
+            "p90": 24324,
+            "stdev": 6965.039605,
+            "cv": 0.6372,
+            "samples": [
+              24324,
+              10931,
+              7279,
+              14848,
+              7959
+            ]
+          },
+          "instructions": {
+            "n": 5,
+            "median": 91887091612,
+            "mean": 91982615034.2,
+            "min": 91779212899,
+            "max": 92536461748,
+            "p90": 92536461748,
+            "stdev": 313053104.891087,
+            "cv": 0.0034,
+            "samples": [
+              92536461748,
+              91888868346,
+              91779212899,
+              91821440566,
+              91887091612
+            ]
+          },
+          "cycles": {
+            "n": 5,
+            "median": 46775834066,
+            "mean": 47323631094.0,
+            "min": 46028316134,
+            "max": 50582866945,
+            "p90": 50582866945,
+            "stdev": 1853620504.658436,
+            "cv": 0.0396,
+            "samples": [
+              50582866945,
+              46775834066,
+              46028316134,
+              46880514196,
+              46350624129
+            ]
+          },
+          "stdout_bytes": {
+            "n": 5,
+            "median": 0,
+            "mean": 0.0,
+            "min": 0,
+            "max": 0,
+            "p90": 0,
+            "stdev": 0.0,
+            "cv": null,
+            "samples": [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "instructions_per_row": {
+            "n": 5,
+            "median": 4272.259734,
+            "mean": 4276.701064,
+            "min": 4267.243949,
+            "max": 4302.451982,
+            "p90": 4302.451982,
+            "stdev": 14.5553,
+            "cv": 0.0034,
+            "samples": [
+              4302.451982,
+              4272.342343,
+              4267.243949,
+              4269.20731,
+              4272.259734
+            ]
+          },
+          "cycles_per_row": {
+            "n": 5,
+            "median": 2174.826833,
+            "mean": 2200.296473,
+            "min": 2140.071235,
+            "max": 2351.833559,
+            "p90": 2351.833559,
+            "stdev": 86.183468,
+            "cv": 0.0396,
+            "samples": [
+              2351.833559,
+              2174.826833,
+              2140.071235,
+              2179.6939,
+              2155.056838
+            ]
+          },
+          "ipc": {
+            "n": 5,
+            "median": 1.964452,
+            "mean": 1.945778,
+            "min": 1.829403,
+            "max": 1.993973,
+            "p90": 1.993973,
+            "stdev": 0.066565,
+            "cv": 0.0339,
+            "samples": [
+              1.829403,
+              1.964452,
+              1.993973,
+              1.958627,
+              1.982435
+            ]
+          },
+          "last_mark_s": {
+            "n": 5,
+            "median": 1.558,
+            "mean": 1.581,
+            "min": 1.517,
+            "max": 1.719,
+            "p90": 1.719,
+            "stdev": 0.079294,
+            "cv": 0.0509,
+            "samples": [
+              1.719,
+              1.558,
+              1.517,
+              1.565,
+              1.546
+            ]
+          },
+          "phases": {
+            "lookups": {
+              "n": 5,
+              "median": 0.103,
+              "mean": 0.1088,
+              "min": 0.098,
+              "max": 0.13,
+              "p90": 0.13,
+              "stdev": 0.012755,
+              "cv": 0.1238,
+              "samples": [
+                0.13,
+                0.103,
+                0.102,
+                0.098,
+                0.111
+              ],
+              "cpu_s": {
+                "n": 5,
+                "median": 0.122,
+                "mean": 0.1274,
+                "min": 0.117,
+                "max": 0.147,
+                "p90": 0.147,
+                "stdev": 0.01176,
+                "cv": 0.0964,
+                "samples": [
+                  0.147,
+                  0.122,
+                  0.122,
+                  0.117,
+                  0.129
+                ]
+              },
+              "parallelism": {
+                "n": 5,
+                "median": 1.184,
+                "mean": 1.1734,
+                "min": 1.131,
+                "max": 1.196,
+                "p90": 1.196,
+                "stdev": 0.027273,
+                "cv": 0.023,
+                "samples": [
+                  1.131,
+                  1.184,
+                  1.196,
+                  1.194,
+                  1.162
+                ]
+              }
+            },
+            "events parsed": {
+              "n": 5,
+              "median": 0.717,
+              "mean": 0.7268,
+              "min": 0.712,
+              "max": 0.762,
+              "p90": 0.762,
+              "stdev": 0.020438,
+              "cv": 0.0285,
+              "samples": [
+                0.762,
+                0.727,
+                0.716,
+                0.717,
+                0.712
+              ],
+              "cpu_s": {
+                "n": 5,
+                "median": 5.641,
+                "mean": 5.7126,
+                "min": 5.611,
+                "max": 5.973,
+                "p90": 5.973,
+                "stdev": 0.149046,
+                "cv": 0.0264,
+                "samples": [
+                  5.973,
+                  5.699,
+                  5.641,
+                  5.639,
+                  5.611
+                ]
+              },
+              "parallelism": {
+                "n": 5,
+                "median": 7.865,
+                "mean": 7.8604,
+                "min": 7.839,
+                "max": 7.881,
+                "p90": 7.881,
+                "stdev": 0.02044,
+                "cv": 0.0026,
+                "samples": [
+                  7.839,
+                  7.839,
+                  7.878,
+                  7.865,
+                  7.881
+                ]
+              }
+            },
+            "clicks parsed": {
+              "n": 5,
+              "median": 0.154,
+              "mean": 0.1574,
+              "min": 0.148,
+              "max": 0.175,
+              "p90": 0.175,
+              "stdev": 0.010359,
+              "cv": 0.0673,
+              "samples": [
+                0.175,
+                0.154,
+                0.148,
+                0.157,
+                0.153
+              ],
+              "cpu_s": {
+                "n": 5,
+                "median": 1.13,
+                "mean": 1.1474,
+                "min": 1.107,
+                "max": 1.241,
+                "p90": 1.241,
+                "stdev": 0.053266,
+                "cv": 0.0471,
+                "samples": [
+                  1.241,
+                  1.132,
+                  1.107,
+                  1.127,
+                  1.13
+                ]
+              },
+              "parallelism": {
+                "n": 5,
+                "median": 7.351,
+                "mean": 7.2972,
+                "min": 7.091,
+                "max": 7.48,
+                "p90": 7.48,
+                "stdev": 0.158842,
+                "cv": 0.0216,
+                "samples": [
+                  7.091,
+                  7.351,
+                  7.48,
+                  7.178,
+                  7.386
+                ]
+              }
+            },
+            "events deduped": {
+              "n": 5,
+              "median": 0.218,
+              "mean": 0.2274,
+              "min": 0.21,
+              "max": 0.272,
+              "p90": 0.272,
+              "stdev": 0.025393,
+              "cv": 0.1165,
+              "samples": [
+                0.272,
+                0.218,
+                0.21,
+                0.214,
+                0.223
+              ],
+              "cpu_s": {
+                "n": 5,
+                "median": 1.522,
+                "mean": 1.5514,
+                "min": 1.47,
+                "max": 1.736,
+                "p90": 1.736,
+                "stdev": 0.10786,
+                "cv": 0.0709,
+                "samples": [
+                  1.736,
+                  1.522,
+                  1.481,
+                  1.47,
+                  1.548
+                ]
+              },
+              "parallelism": {
+                "n": 5,
+                "median": 6.942,
+                "mean": 6.8454,
+                "min": 6.382,
+                "max": 7.052,
+                "p90": 7.052,
+                "stdev": 0.267381,
+                "cv": 0.0385,
+                "samples": [
+                  6.382,
+                  6.982,
+                  7.052,
+                  6.869,
+                  6.942
+                ]
+              }
+            },
+            "sessions + attribution": {
+              "n": 5,
+              "median": 0.311,
+              "mean": 0.3148,
+              "min": 0.296,
+              "max": 0.333,
+              "p90": 0.333,
+              "stdev": 0.016589,
+              "cv": 0.0533,
+              "samples": [
+                0.333,
+                0.311,
+                0.296,
+                0.331,
+                0.303
+              ],
+              "cpu_s": {
+                "n": 5,
+                "median": 2.361,
+                "mean": 2.389,
+                "min": 2.291,
+                "max": 2.565,
+                "p90": 2.565,
+                "stdev": 0.115404,
+                "cv": 0.0489,
+                "samples": [
+                  2.565,
+                  2.361,
+                  2.291,
+                  2.437,
+                  2.291
+                ]
+              },
+              "parallelism": {
+                "n": 5,
+                "median": 7.592,
+                "mean": 7.5918,
+                "min": 7.363,
+                "max": 7.74,
+                "p90": 7.74,
+                "stdev": 0.148009,
+                "cv": 0.0195,
+                "samples": [
+                  7.703,
+                  7.592,
+                  7.74,
+                  7.363,
+                  7.561
+                ]
+              }
+            },
+            "written": {
+              "n": 5,
+              "median": 0.045,
+              "mean": 0.0458,
+              "min": 0.044,
+              "max": 0.048,
+              "p90": 0.048,
+              "stdev": 0.001643,
+              "cv": 0.0365,
+              "samples": [
+                0.047,
+                0.045,
+                0.045,
+                0.048,
+                0.044
+              ],
+              "cpu_s": {
+                "n": 5,
+                "median": 0.284,
+                "mean": 0.2822,
+                "min": 0.278,
+                "max": 0.285,
+                "p90": 0.285,
+                "stdev": 0.003421,
+                "cv": 0.012,
+                "samples": [
+                  0.284,
+                  0.279,
+                  0.285,
+                  0.285,
+                  0.278
+                ]
+              },
+              "parallelism": {
+                "n": 5,
+                "median": 6.2,
+                "mean": 6.1662,
+                "min": 5.937,
+                "max": 6.333,
+                "p90": 6.333,
+                "stdev": 0.173002,
+                "cv": 0.0279,
+                "samples": [
+                  6.043,
+                  6.2,
+                  6.333,
+                  5.937,
+                  6.318
+                ]
+              }
+            },
+            "(after last mark: exit/unmap + spawn)": {
+              "n": 5,
+              "median": 0.0988,
+              "mean": 0.10986,
+              "min": 0.0892,
+              "max": 0.1561,
+              "p90": 0.1561,
+              "stdev": 0.026936,
+              "cv": 0.2726,
+              "samples": [
+                0.1561,
+                0.0892,
+                0.0952,
+                0.0988,
+                0.11
+              ]
+            }
+          }
+        },
+        "throughput": {
+          "mb_per_s": 1156.7,
+          "events_per_s": 12987828,
+          "ns_per_event": 77.0
+        },
+        "noisy": true,
+        "noisy_reasons": [
+          "wall CV 0.063 > 0.05"
+        ]
+      }
+    },
+    "linux_timing": {
+      "status": "ok",
+      "mem_gib": 24,
+      "attempts": [],
+      "input_storage": "Docker named volume",
+      "thp_policy": "VM default",
+      "dataset": "seed-42",
+      "warmup": {
+        "process_wall_s": 2.267357501,
+        "container_wall_s": 2.3848,
+        "minor_faults": 814185,
+        "major_faults": 3,
+        "max_rss_bytes": 5669924864,
+        "thp_mode": "always",
+        "page_bytes": 4096,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.142,
+            "dur_s": 0.142,
+            "cpu_s": 0.165,
+            "parallelism": 1.162
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 1.17,
+            "dur_s": 1.028,
+            "cpu_s": 7.683,
+            "parallelism": 7.474
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 1.4,
+            "dur_s": 0.23,
+            "cpu_s": 1.687,
+            "parallelism": 7.335
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.695,
+            "dur_s": 0.295,
+            "cpu_s": 2.153,
+            "parallelism": 7.298
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 2.088,
+            "dur_s": 0.393,
+            "cpu_s": 3.094,
+            "parallelism": 7.873
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 2.125,
+            "dur_s": 0.037,
+            "cpu_s": 0.232,
+            "parallelism": 6.27
+          }
+        ]
+      },
+      "load_before": {
+        "load1": 6.52,
+        "load5": 4.85,
+        "load15": 4.56,
+        "cpu_busy_pct": 36.7,
+        "top": [
+          {
+            "pcpu": 99.3,
+            "comm": "rustc"
+          },
+          {
+            "pcpu": 66.5,
+            "comm": "python"
+          },
+          {
+            "pcpu": 18.5,
+            "comm": "WindowServer"
+          },
+          {
+            "pcpu": 16.2,
+            "comm": "Finder"
+          },
+          {
+            "pcpu": 10.9,
+            "comm": "MenuBarAgent"
+          }
+        ],
+        "waited_s": 32.2
+      },
+      "event_lines": 21507843,
+      "baseline_warmup": {
+        "process_wall_s": 2.171317418,
+        "container_wall_s": 2.2774,
+        "minor_faults": 815594,
+        "major_faults": 1,
+        "max_rss_bytes": 5679738880,
+        "thp_mode": "always",
+        "page_bytes": 4096,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.128,
+            "dur_s": 0.128
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 1.136,
+            "dur_s": 1.008
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 1.342,
+            "dur_s": 0.206
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.596,
+            "dur_s": 0.254
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.984,
+            "dur_s": 0.388
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 2.026,
+            "dur_s": 0.042
+          }
+        ]
+      },
+      "runs": [
+        {
+          "process_wall_s": 2.145688084,
+          "container_wall_s": 2.2636,
+          "minor_faults": 815190,
+          "major_faults": 0,
+          "max_rss_bytes": 5700108288,
+          "thp_mode": "always",
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.125,
+              "dur_s": 0.125,
+              "cpu_s": 0.142,
+              "parallelism": 1.136
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 1.079,
+              "dur_s": 0.954,
+              "cpu_s": 7.116,
+              "parallelism": 7.459
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.285,
+              "dur_s": 0.206,
+              "cpu_s": 1.482,
+              "parallelism": 7.194
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.578,
+              "dur_s": 0.293,
+              "cpu_s": 2.007,
+              "parallelism": 6.85
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.966,
+              "dur_s": 0.388,
+              "cpu_s": 3.031,
+              "parallelism": 7.812
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 2.003,
+              "dur_s": 0.037,
+              "cpu_s": 0.233,
+              "parallelism": 6.297
+            }
+          ],
+          "minor_faults_per_row": 0.03790198766096628,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 1.924508375,
+          "container_wall_s": 2.0383,
+          "minor_faults": 817056,
+          "major_faults": 0,
+          "max_rss_bytes": 5671882752,
+          "thp_mode": "always",
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.114,
+              "dur_s": 0.114,
+              "cpu_s": 0.13,
+              "parallelism": 1.14
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.987,
+              "dur_s": 0.873,
+              "cpu_s": 6.628,
+              "parallelism": 7.592
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.159,
+              "dur_s": 0.172,
+              "cpu_s": 1.274,
+              "parallelism": 7.407
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.409,
+              "dur_s": 0.25,
+              "cpu_s": 1.861,
+              "parallelism": 7.444
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.758,
+              "dur_s": 0.349,
+              "cpu_s": 2.756,
+              "parallelism": 7.897
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.792,
+              "dur_s": 0.034,
+              "cpu_s": 0.209,
+              "parallelism": 6.147
+            }
+          ],
+          "minor_faults_per_row": 0.037988746709746765,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 2.054209043,
+          "container_wall_s": 2.1536,
+          "minor_faults": 817779,
+          "major_faults": 0,
+          "max_rss_bytes": 5662433280,
+          "thp_mode": "always",
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.111,
+              "dur_s": 0.111,
+              "cpu_s": 0.127,
+              "parallelism": 1.144
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.978,
+              "dur_s": 0.867,
+              "cpu_s": 6.54,
+              "parallelism": 7.543
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.153,
+              "dur_s": 0.175,
+              "cpu_s": 1.291,
+              "parallelism": 7.377
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.47,
+              "dur_s": 0.317,
+              "cpu_s": 2.247,
+              "parallelism": 7.088
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.876,
+              "dur_s": 0.406,
+              "cpu_s": 3.224,
+              "parallelism": 7.941
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.915,
+              "dur_s": 0.039,
+              "cpu_s": 0.24,
+              "parallelism": 6.154
+            }
+          ],
+          "minor_faults_per_row": 0.03802236235404917,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 1.945167626,
+          "container_wall_s": 2.0459,
+          "minor_faults": 820812,
+          "major_faults": 0,
+          "max_rss_bytes": 5667037184,
+          "thp_mode": "always",
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.127,
+              "dur_s": 0.127,
+              "cpu_s": 0.144,
+              "parallelism": 1.134
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.991,
+              "dur_s": 0.864,
+              "cpu_s": 6.525,
+              "parallelism": 7.552
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.171,
+              "dur_s": 0.18,
+              "cpu_s": 1.347,
+              "parallelism": 7.483
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.425,
+              "dur_s": 0.254,
+              "cpu_s": 1.85,
+              "parallelism": 7.283
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.776,
+              "dur_s": 0.351,
+              "cpu_s": 2.774,
+              "parallelism": 7.903
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.809,
+              "dur_s": 0.033,
+              "cpu_s": 0.213,
+              "parallelism": 6.455
+            }
+          ],
+          "minor_faults_per_row": 0.03816338067931777,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 1.971073542,
+          "container_wall_s": 2.0653,
+          "minor_faults": 819460,
+          "major_faults": 0,
+          "max_rss_bytes": 5689262080,
+          "thp_mode": "always",
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.13,
+              "dur_s": 0.13,
+              "cpu_s": 0.146,
+              "parallelism": 1.123
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.994,
+              "dur_s": 0.864,
+              "cpu_s": 6.472,
+              "parallelism": 7.491
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.173,
+              "dur_s": 0.179,
+              "cpu_s": 1.296,
+              "parallelism": 7.24
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.424,
+              "dur_s": 0.251,
+              "cpu_s": 1.849,
+              "parallelism": 7.367
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.805,
+              "dur_s": 0.381,
+              "cpu_s": 2.819,
+              "parallelism": 7.399
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.837,
+              "dur_s": 0.032,
+              "cpu_s": 0.206,
+              "parallelism": 6.437
+            }
+          ],
+          "minor_faults_per_row": 0.03810051988941894,
+          "major_faults_per_row": 0.0
+        }
+      ],
+      "summary": {
+        "process_wall_s": {
+          "n": 5,
+          "median": 1.971074,
+          "mean": 2.008129,
+          "min": 1.924508,
+          "max": 2.145688,
+          "p90": 2.145688,
+          "stdev": 0.091345,
+          "cv": 0.0463,
+          "samples": [
+            2.145688,
+            1.924508,
+            2.054209,
+            1.945168,
+            1.971074
+          ]
+        },
+        "container_wall_s": {
+          "n": 5,
+          "median": 2.0653,
+          "mean": 2.11334,
+          "min": 2.0383,
+          "max": 2.2636,
+          "p90": 2.2636,
+          "stdev": 0.095768,
+          "cv": 0.0464,
+          "samples": [
+            2.2636,
+            2.0383,
+            2.1536,
+            2.0459,
+            2.0653
+          ]
+        },
+        "minor_faults": {
+          "n": 5,
+          "median": 817779,
+          "mean": 818059.4,
+          "min": 815190,
+          "max": 820812,
+          "p90": 820812,
+          "stdev": 2171.2542,
+          "cv": 0.0027,
+          "samples": [
+            815190,
+            817056,
+            817779,
+            820812,
+            819460
+          ]
+        },
+        "major_faults": {
+          "n": 5,
+          "median": 0,
+          "mean": 0.0,
+          "min": 0,
+          "max": 0,
+          "p90": 0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "minor_faults_per_row": {
+          "n": 5,
+          "median": 0.038022,
+          "mean": 0.038035,
+          "min": 0.037902,
+          "max": 0.038163,
+          "p90": 0.038163,
+          "stdev": 0.000101,
+          "cv": 0.0027,
+          "samples": [
+            0.037902,
+            0.037989,
+            0.038022,
+            0.038163,
+            0.038101
+          ]
+        },
+        "major_faults_per_row": {
+          "n": 5,
+          "median": 0.0,
+          "mean": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "p90": 0.0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "baseline_runs": [
+        {
+          "process_wall_s": 2.010038445,
+          "container_wall_s": 2.1146,
+          "minor_faults": 812883,
+          "major_faults": 0,
+          "max_rss_bytes": 5665923072,
+          "thp_mode": "always",
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.124,
+              "dur_s": 0.124
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 1.052,
+              "dur_s": 0.928
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.237,
+              "dur_s": 0.185
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.487,
+              "dur_s": 0.25
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.837,
+              "dur_s": 0.35
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.872,
+              "dur_s": 0.035
+            }
+          ],
+          "minor_faults_per_row": 0.03779472446400134,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 2.019042084,
+          "container_wall_s": 2.1165,
+          "minor_faults": 821651,
+          "major_faults": 0,
+          "max_rss_bytes": 5700268032,
+          "thp_mode": "always",
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.115,
+              "dur_s": 0.115
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 1.036,
+              "dur_s": 0.921
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.233,
+              "dur_s": 0.197
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.491,
+              "dur_s": 0.258
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.847,
+              "dur_s": 0.356
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.882,
+              "dur_s": 0.035
+            }
+          ],
+          "minor_faults_per_row": 0.03820238970500203,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 2.042170626,
+          "container_wall_s": 2.1446,
+          "minor_faults": 812202,
+          "major_faults": 0,
+          "max_rss_bytes": 5676752896,
+          "thp_mode": "always",
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.137,
+              "dur_s": 0.137
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 1.067,
+              "dur_s": 0.93
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.244,
+              "dur_s": 0.177
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.498,
+              "dur_s": 0.254
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.864,
+              "dur_s": 0.366
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.904,
+              "dur_s": 0.04
+            }
+          ],
+          "minor_faults_per_row": 0.037763061595716504,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 1.96655496,
+          "container_wall_s": 2.0585,
+          "minor_faults": 815222,
+          "major_faults": 0,
+          "max_rss_bytes": 5660393472,
+          "thp_mode": "always",
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.121,
+              "dur_s": 0.121
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 1.01,
+              "dur_s": 0.889
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.195,
+              "dur_s": 0.185
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.449,
+              "dur_s": 0.254
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.795,
+              "dur_s": 0.346
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.829,
+              "dur_s": 0.034
+            }
+          ],
+          "minor_faults_per_row": 0.037903475490313,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 1.890641251,
+          "container_wall_s": 1.996,
+          "minor_faults": 813437,
+          "major_faults": 0,
+          "max_rss_bytes": 5682241536,
+          "thp_mode": "always",
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.115,
+              "dur_s": 0.115
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.95,
+              "dur_s": 0.835
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.119,
+              "dur_s": 0.169
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.361,
+              "dur_s": 0.242
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.712,
+              "dur_s": 0.351
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.746,
+              "dur_s": 0.034
+            }
+          ],
+          "minor_faults_per_row": 0.03782048250956639,
+          "major_faults_per_row": 0.0
+        }
+      ],
+      "baseline_summary": {
+        "process_wall_s": {
+          "n": 5,
+          "median": 2.010038,
+          "mean": 1.985689,
+          "min": 1.890641,
+          "max": 2.042171,
+          "p90": 2.042171,
+          "stdev": 0.059782,
+          "cv": 0.0297,
+          "samples": [
+            2.010038,
+            2.019042,
+            2.042171,
+            1.966555,
+            1.890641
+          ]
+        },
+        "container_wall_s": {
+          "n": 5,
+          "median": 2.1146,
+          "mean": 2.08604,
+          "min": 1.996,
+          "max": 2.1446,
+          "p90": 2.1446,
+          "stdev": 0.059242,
+          "cv": 0.028,
+          "samples": [
+            2.1146,
+            2.1165,
+            2.1446,
+            2.0585,
+            1.996
+          ]
+        },
+        "minor_faults": {
+          "n": 5,
+          "median": 813437,
+          "mean": 815079.0,
+          "min": 812202,
+          "max": 821651,
+          "p90": 821651,
+          "stdev": 3840.811828,
+          "cv": 0.0047,
+          "samples": [
+            812883,
+            821651,
+            812202,
+            815222,
+            813437
+          ]
+        },
+        "major_faults": {
+          "n": 5,
+          "median": 0,
+          "mean": 0.0,
+          "min": 0,
+          "max": 0,
+          "p90": 0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "minor_faults_per_row": {
+          "n": 5,
+          "median": 0.03782,
+          "mean": 0.037897,
+          "min": 0.037763,
+          "max": 0.038202,
+          "p90": 0.038202,
+          "stdev": 0.000179,
+          "cv": 0.0047,
+          "samples": [
+            0.037795,
+            0.038202,
+            0.037763,
+            0.037903,
+            0.03782
+          ]
+        },
+        "major_faults_per_row": {
+          "n": 5,
+          "median": 0.0,
+          "mean": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "p90": 0.0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        }
+      },
+      "baseline_version": "v1",
+      "baseline_sha": "3e4866243a5aeea488703ef14ea01e21ebd4d434"
+    },
+    "size_scaling": {
+      "points": {
+        "perf-20M": {
+          "events": 21507843,
+          "median_s": 1.656,
+          "ns_per_event": 77.0
+        }
+      },
+      "ratios": {}
+    }
+  },
+  "constraints": {
+    "stdout_bytes_max": 0,
+    "repo": {
+      "tracked_bytes": 517451,
+      "tracked_files": 343,
+      "data_files": [],
+      "largest": [
+        {
+          "path": "evals/results/v1.json",
+          "bytes": 84668
+        },
+        {
+          "path": "evals/run.py",
+          "bytes": 39036
+        },
+        {
+          "path": "src/main.rs",
+          "bytes": 37125
+        },
+        {
+          "path": "evals/fuzz/gen.py",
+          "bytes": 29556
+        },
+        {
+          "path": "evals/insights/v1.md",
+          "bytes": 25669
+        }
+      ]
+    },
+    "binary_bytes": 3818672,
+    "image_bytes": {
+      "arm64": 141915571
+    }
+  },
+  "notes": [],
+  "errors": [],
+  "baseline": {
+    "kind": "submit-ready",
+    "version": "v1",
+    "sha": "3e4866243a5aeea488703ef14ea01e21ebd4d434",
+    "wall_s": {
+      "n": 5,
+      "median": 1.5499,
+      "mean": 1.57056,
+      "min": 1.5468,
+      "max": 1.6087,
+      "p90": 1.6087,
+      "stdev": 0.030315,
+      "cv": 0.0196,
+      "samples": [
+        1.6087,
+        1.5499,
+        1.5468,
+        1.5491,
+        1.5983
+      ]
+    },
+    "board_time_s": null,
+    "ab_load_before": {
+      "load1": 8.38,
+      "load5": 5.55,
+      "load15": 4.83,
+      "cpu_busy_pct": 5.4,
+      "top": [
+        {
+          "pcpu": 316.7,
+          "comm": "python"
+        },
+        {
+          "pcpu": 15.2,
+          "comm": "fseventsd"
+        },
+        {
+          "pcpu": 9.8,
+          "comm": "Codenotch"
+        },
+        {
+          "pcpu": 9.3,
+          "comm": "WindowServer"
+        },
+        {
+          "pcpu": 5.8,
+          "comm": "Finder"
+        }
+      ],
+      "waited_s": 2.3
+    },
+    "ab_wall_s": {
+      "n": 5,
+      "median": 1.6561,
+      "mean": 1.6548,
+      "min": 1.6063,
+      "max": 1.7011,
+      "p90": 1.7011,
+      "stdev": 0.033617,
+      "cv": 0.0203,
+      "samples": [
+        1.7011,
+        1.6063,
+        1.6561,
+        1.6519,
+        1.6586
+      ]
+    },
+    "ab_candidate_wall_s": {
+      "n": 5,
+      "median": 1.604,
+      "mean": 1.60952,
+      "min": 1.5885,
+      "max": 1.6525,
+      "p90": 1.6525,
+      "stdev": 0.026232,
+      "cv": 0.0164,
+      "samples": [
+        1.5891,
+        1.5885,
+        1.604,
+        1.6525,
+        1.6135
+      ]
+    }
+  },
+  "calibration": {
+    "points": 0,
+    "method": null,
+    "estimated_scorer_20m_s": null,
+    "board_target_s": 0.28,
+    "beats_board_target": null,
+    "extrapolated": false
+  },
+  "gates": {
+    "A": {
+      "status": "incomplete",
+      "checks": [
+        {
+          "name": "fixtures native 36/36",
+          "status": "pass",
+          "detail": "36/36"
+        },
+        {
+          "name": "fixtures amd64 container 36/36",
+          "status": "not_run",
+          "detail": ""
+        },
+        {
+          "name": "dev MATCH native",
+          "status": "pass",
+          "detail": "MATCH"
+        },
+        {
+          "name": "dev MATCH amd64 container",
+          "status": "not_run",
+          "detail": ""
+        },
+        {
+          "name": "differential vs reference (all oracle datasets)",
+          "status": "pass",
+          "detail": "10/10 MATCH"
+        },
+        {
+          "name": "fuzz/adversarial strict MATCH",
+          "status": "pass",
+          "detail": "129/129 (seeds 0..149)"
+        },
+        {
+          "name": "SESSIONS_DEBUG_HASH_BITS=4",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "SESSIONS_DEBUG_CHUNK=97",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "SESSIONS_DEBUG_PARTS=1",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "SESSIONS_DEBUG_PARTS=4096",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "SESSIONS_DEBUG_NO_FAST=1",
+          "status": "pass",
+          "detail": ""
+        },
+        {
+          "name": "deterministic canonical hash",
+          "status": "pass",
+          "detail": "6 runs over 1 datasets"
+        }
+      ]
+    },
+    "B": {
+      "status": "incomplete",
+      "checks": [
+        {
+          "name": "60M peak memory <= 16 GB",
+          "status": "not_run",
+          "detail": ""
+        },
+        {
+          "name": "60M local wall <= 30 s",
+          "status": "not_run",
+          "detail": ""
+        },
+        {
+          "name": "stdout < 1 MB",
+          "status": "pass",
+          "detail": "max 0 bytes"
+        },
+        {
+          "name": "threads < 1000",
+          "status": "not_run",
+          "detail": ""
+        },
+        {
+          "name": "writes only to output/scratch (read-only container run)",
+          "status": "not_run",
+          "detail": ""
+        },
+        {
+          "name": "image builds from clean",
+          "status": "not_run",
+          "detail": ""
+        },
+        {
+          "name": "repo < 50 MB, no data",
+          "status": "pass",
+          "detail": "0.52 MB tracked"
+        }
+      ]
+    },
+    "C": {
+      "status": "fail",
+      "baseline": {
+        "kind": "submit-ready",
+        "version": "v1",
+        "sha": "3e4866243a5aeea488703ef14ea01e21ebd4d434",
+        "wall_s": {
+          "n": 5,
+          "median": 1.5499,
+          "mean": 1.57056,
+          "min": 1.5468,
+          "max": 1.6087,
+          "p90": 1.6087,
+          "stdev": 0.030315,
+          "cv": 0.0196,
+          "samples": [
+            1.6087,
+            1.5499,
+            1.5468,
+            1.5491,
+            1.5983
+          ]
+        },
+        "board_time_s": null,
+        "ab_load_before": {
+          "load1": 8.38,
+          "load5": 5.55,
+          "load15": 4.83,
+          "cpu_busy_pct": 5.4,
+          "top": [
+            {
+              "pcpu": 316.7,
+              "comm": "python"
+            },
+            {
+              "pcpu": 15.2,
+              "comm": "fseventsd"
+            },
+            {
+              "pcpu": 9.8,
+              "comm": "Codenotch"
+            },
+            {
+              "pcpu": 9.3,
+              "comm": "WindowServer"
+            },
+            {
+              "pcpu": 5.8,
+              "comm": "Finder"
+            }
+          ],
+          "waited_s": 2.3
+        },
+        "ab_wall_s": {
+          "n": 5,
+          "median": 1.6561,
+          "mean": 1.6548,
+          "min": 1.6063,
+          "max": 1.7011,
+          "p90": 1.7011,
+          "stdev": 0.033617,
+          "cv": 0.0203,
+          "samples": [
+            1.7011,
+            1.6063,
+            1.6561,
+            1.6519,
+            1.6586
+          ]
+        },
+        "ab_candidate_wall_s": {
+          "n": 5,
+          "median": 1.604,
+          "mean": 1.60952,
+          "min": 1.5885,
+          "max": 1.6525,
+          "p90": 1.6525,
+          "stdev": 0.026232,
+          "cv": 0.0164,
+          "samples": [
+            1.5891,
+            1.5885,
+            1.604,
+            1.6525,
+            1.6135
+          ]
+        }
+      },
+      "gain": 0.0315,
+      "pooled_sd_s": 0.03015,
+      "metric": "local",
+      "checks": [
+        {
+          "name": ">= 5% faster than v1 (submit-ready)",
+          "status": "fail",
+          "detail": "1.604s vs 1.656s = +3.1% (local, interleaved A/B in this eval)"
+        },
+        {
+          "name": "> 2x pooled stdev",
+          "status": "fail",
+          "detail": "delta 0.0521s vs 2sd 0.0603s"
+        }
+      ],
+      "linux_secondary": {
+        "status": "inconclusive",
+        "gain": 0.0194,
+        "pooled_sd_s": 0.077194,
+        "pairs": 5,
+        "detail": "1.9711s vs 2.0100s (+1.9%, 5 pairs)"
+      }
+    }
+  },
+  "verdict": {
+    "verdict": "HOLD",
+    "final": false,
+    "reasons": [
+      "Gate C: >= 5% faster than v1 (submit-ready) (1.604s vs 1.656s = +3.1% (local, interleaved A/B in this eval))",
+      "Gate C: > 2x pooled stdev (delta 0.0521s vs 2sd 0.0603s)",
+      "Gate A: fixtures amd64 container 36/36 not run",
+      "Gate A: dev MATCH amd64 container not run",
+      "Gate B: 60M peak memory <= 16 GB not run",
+      "Gate B: 60M local wall <= 30 s not run",
+      "Gate B: threads < 1000 not run",
+      "Gate B: writes only to output/scratch (read-only container run) not run",
+      "Gate B: image builds from clean not run"
+    ],
+    "warnings": []
+  },
+  "finished": "2026-11-21T18:35:39-0500",
+  "duration_s": 118.9
+}
