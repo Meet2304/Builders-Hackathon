@@ -1,0 +1,6458 @@
+{
+  "dataset": "seed-42",
+  "ncpu": 8,
+  "events_lines": 21507843,
+  "load_before": {
+    "load1": 6.66,
+    "load5": 5.44,
+    "load15": 4.74,
+    "cpu_busy_pct": 3.5,
+    "top": [
+      {
+        "pcpu": 9.4,
+        "comm": "fseventsd"
+      },
+      {
+        "pcpu": 1.8,
+        "comm": "com.apple.Virtualization.VirtualMachine"
+      },
+      {
+        "pcpu": 1.6,
+        "comm": "mds"
+      },
+      {
+        "pcpu": 1.3,
+        "comm": "coreaudiod"
+      },
+      {
+        "pcpu": 1.2,
+        "comm": "WhatsApp"
+      }
+    ]
+  },
+  "orders": [
+    [
+      "v1",
+      "v2",
+      "window-timestamps"
+    ],
+    [
+      "v1",
+      "window-timestamps",
+      "v2"
+    ],
+    [
+      "v2",
+      "v1",
+      "window-timestamps"
+    ],
+    [
+      "v2",
+      "window-timestamps",
+      "v1"
+    ],
+    [
+      "window-timestamps",
+      "v1",
+      "v2"
+    ],
+    [
+      "window-timestamps",
+      "v2",
+      "v1"
+    ]
+  ],
+  "shas": {
+    "v1": "3e4866243a5aeea488703ef14ea01e21ebd4d434",
+    "v2": "953af436f8aa1f8cf4b0771b8451effe961f738a",
+    "window-timestamps": "d1da46eb91f9a002250640b228f660480665c262"
+  },
+  "warmups": {
+    "v1": {
+      "returncode": 0,
+      "wall_s": 1.602,
+      "ncpu": 8,
+      "stdout_bytes": 0,
+      "stderr_bytes": 195,
+      "phases": [
+        {
+          "key": "lookups",
+          "label": "lookups (1199028 linked ids)",
+          "at_s": 0.1,
+          "dur_s": 0.1
+        },
+        {
+          "key": "events parsed",
+          "label": "events parsed",
+          "at_s": 0.811,
+          "dur_s": 0.711
+        },
+        {
+          "key": "clicks parsed",
+          "label": "clicks parsed",
+          "at_s": 0.963,
+          "dur_s": 0.152
+        },
+        {
+          "key": "events deduped",
+          "label": "events deduped",
+          "at_s": 1.172,
+          "dur_s": 0.209
+        },
+        {
+          "key": "sessions + attribution",
+          "label": "sessions + attribution",
+          "at_s": 1.46,
+          "dur_s": 0.288
+        },
+        {
+          "key": "written",
+          "label": "written (2246306 user_daily rows)",
+          "at_s": 1.5,
+          "dur_s": 0.04
+        }
+      ],
+      "time_real_s": 1.57,
+      "user_s": 10.08,
+      "sys_s": 0.82,
+      "max_rss_bytes": 6448119808,
+      "page_reclaims": 416679,
+      "page_faults": 0,
+      "block_in": 0,
+      "block_out": 0,
+      "vcsw": 1,
+      "ivcsw": 5199,
+      "instructions": 91793918688,
+      "cycles": 46480035895,
+      "peak_footprint_bytes": 4095415120,
+      "cpu_util": 0.8505
+    },
+    "v2": {
+      "returncode": 0,
+      "wall_s": 1.5963,
+      "ncpu": 8,
+      "stdout_bytes": 0,
+      "stderr_bytes": 273,
+      "phases": [
+        {
+          "key": "lookups",
+          "label": "lookups (1199028 linked ids)",
+          "at_s": 0.1,
+          "dur_s": 0.1,
+          "cpu_s": 0.118,
+          "parallelism": 1.18
+        },
+        {
+          "key": "events parsed",
+          "label": "events parsed",
+          "at_s": 0.812,
+          "dur_s": 0.712,
+          "cpu_s": 5.622,
+          "parallelism": 7.896
+        },
+        {
+          "key": "clicks parsed",
+          "label": "clicks parsed",
+          "at_s": 0.964,
+          "dur_s": 0.152,
+          "cpu_s": 1.106,
+          "parallelism": 7.276
+        },
+        {
+          "key": "events deduped",
+          "label": "events deduped",
+          "at_s": 1.173,
+          "dur_s": 0.209,
+          "cpu_s": 1.47,
+          "parallelism": 7.033
+        },
+        {
+          "key": "sessions + attribution",
+          "label": "sessions + attribution",
+          "at_s": 1.459,
+          "dur_s": 0.286,
+          "cpu_s": 2.257,
+          "parallelism": 7.892
+        },
+        {
+          "key": "written",
+          "label": "written (2246306 user_daily rows)",
+          "at_s": 1.5,
+          "dur_s": 0.041,
+          "cpu_s": 0.267,
+          "parallelism": 6.512
+        }
+      ],
+      "time_real_s": 1.55,
+      "user_s": 10.08,
+      "sys_s": 0.8,
+      "max_rss_bytes": 6433161216,
+      "page_reclaims": 415285,
+      "page_faults": 0,
+      "block_in": 0,
+      "block_out": 0,
+      "vcsw": 3,
+      "ivcsw": 5630,
+      "instructions": 91749014102,
+      "cycles": 46159901437,
+      "peak_footprint_bytes": 4084585296,
+      "cpu_util": 0.8519
+    },
+    "window-timestamps": {
+      "returncode": 0,
+      "wall_s": 1.4961,
+      "ncpu": 8,
+      "stdout_bytes": 0,
+      "stderr_bytes": 272,
+      "phases": [
+        {
+          "key": "lookups",
+          "label": "lookups (1199028 linked ids)",
+          "at_s": 0.093,
+          "dur_s": 0.093,
+          "cpu_s": 0.112,
+          "parallelism": 1.204
+        },
+        {
+          "key": "events parsed",
+          "label": "events parsed",
+          "at_s": 0.737,
+          "dur_s": 0.644,
+          "cpu_s": 5.089,
+          "parallelism": 7.902
+        },
+        {
+          "key": "clicks parsed",
+          "label": "clicks parsed",
+          "at_s": 0.879,
+          "dur_s": 0.142,
+          "cpu_s": 1.049,
+          "parallelism": 7.387
+        },
+        {
+          "key": "events deduped",
+          "label": "events deduped",
+          "at_s": 1.078,
+          "dur_s": 0.199,
+          "cpu_s": 1.402,
+          "parallelism": 7.045
+        },
+        {
+          "key": "sessions + attribution",
+          "label": "sessions + attribution",
+          "at_s": 1.369,
+          "dur_s": 0.291,
+          "cpu_s": 2.234,
+          "parallelism": 7.677
+        },
+        {
+          "key": "written",
+          "label": "written (2246306 user_daily rows)",
+          "at_s": 1.411,
+          "dur_s": 0.042,
+          "cpu_s": 0.266,
+          "parallelism": 6.333
+        }
+      ],
+      "time_real_s": 1.46,
+      "user_s": 9.42,
+      "sys_s": 0.77,
+      "max_rss_bytes": 6461849600,
+      "page_reclaims": 417183,
+      "page_faults": 0,
+      "block_in": 0,
+      "block_out": 0,
+      "vcsw": 3,
+      "ivcsw": 4338,
+      "instructions": 79796440177,
+      "cycles": 42973218615,
+      "peak_footprint_bytes": 4058174288,
+      "cpu_util": 0.8514
+    }
+  },
+  "runs": {
+    "v1": [
+      {
+        "returncode": 0,
+        "wall_s": 1.5951,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 195,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.093,
+            "dur_s": 0.093
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.804,
+            "dur_s": 0.711
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.958,
+            "dur_s": 0.154
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.164,
+            "dur_s": 0.206
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.453,
+            "dur_s": 0.289
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.504,
+            "dur_s": 0.051
+          }
+        ],
+        "time_real_s": 1.59,
+        "user_s": 10.11,
+        "sys_s": 0.85,
+        "max_rss_bytes": 6479953920,
+        "page_reclaims": 417544,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 3,
+        "ivcsw": 6500,
+        "instructions": 91970397754,
+        "cycles": 46386689199,
+        "peak_footprint_bytes": 4082537320,
+        "cpu_util": 0.8589
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.6139,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 195,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.103,
+            "dur_s": 0.103
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.802,
+            "dur_s": 0.699
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.949,
+            "dur_s": 0.147
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.153,
+            "dur_s": 0.204
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.445,
+            "dur_s": 0.292
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.488,
+            "dur_s": 0.043
+          }
+        ],
+        "time_real_s": 1.56,
+        "user_s": 9.97,
+        "sys_s": 0.83,
+        "max_rss_bytes": 6453870592,
+        "page_reclaims": 415330,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 4,
+        "ivcsw": 4839,
+        "instructions": 91942052333,
+        "cycles": 45712734890,
+        "peak_footprint_bytes": 4077474640,
+        "cpu_util": 0.8365
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.6078,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 195,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.095,
+            "dur_s": 0.095
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.792,
+            "dur_s": 0.697
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.937,
+            "dur_s": 0.145
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.142,
+            "dur_s": 0.205
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.441,
+            "dur_s": 0.299
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.49,
+            "dur_s": 0.049
+          }
+        ],
+        "time_real_s": 1.57,
+        "user_s": 9.95,
+        "sys_s": 0.81,
+        "max_rss_bytes": 6465388544,
+        "page_reclaims": 416462,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 0,
+        "ivcsw": 3847,
+        "instructions": 91863074340,
+        "cycles": 45143915111,
+        "peak_footprint_bytes": 4081341240,
+        "cpu_util": 0.8365
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.6037,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 195,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.095,
+            "dur_s": 0.095
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.79,
+            "dur_s": 0.695
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.937,
+            "dur_s": 0.147
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.147,
+            "dur_s": 0.21
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.431,
+            "dur_s": 0.284
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.473,
+            "dur_s": 0.042
+          }
+        ],
+        "time_real_s": 1.55,
+        "user_s": 9.93,
+        "sys_s": 0.79,
+        "max_rss_bytes": 6447562752,
+        "page_reclaims": 415538,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 0,
+        "ivcsw": 3931,
+        "instructions": 91769290037,
+        "cycles": 45048404831,
+        "peak_footprint_bytes": 4064908112,
+        "cpu_util": 0.8356
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.5883,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 195,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.092,
+            "dur_s": 0.092
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.786,
+            "dur_s": 0.694
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.93,
+            "dur_s": 0.144
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.138,
+            "dur_s": 0.208
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.429,
+            "dur_s": 0.291
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.475,
+            "dur_s": 0.046
+          }
+        ],
+        "time_real_s": 1.55,
+        "user_s": 10.0,
+        "sys_s": 0.79,
+        "max_rss_bytes": 6465388544,
+        "page_reclaims": 416773,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 1,
+        "ivcsw": 4279,
+        "instructions": 91804092159,
+        "cycles": 45163291580,
+        "peak_footprint_bytes": 4084306792,
+        "cpu_util": 0.8492
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.608,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 195,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.1,
+            "dur_s": 0.1
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.805,
+            "dur_s": 0.705
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.952,
+            "dur_s": 0.147
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.163,
+            "dur_s": 0.211
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.457,
+            "dur_s": 0.294
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.501,
+            "dur_s": 0.044
+          }
+        ],
+        "time_real_s": 1.58,
+        "user_s": 10.12,
+        "sys_s": 0.82,
+        "max_rss_bytes": 6467387392,
+        "page_reclaims": 416323,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 1,
+        "ivcsw": 4822,
+        "instructions": 91811076661,
+        "cycles": 45777852228,
+        "peak_footprint_bytes": 4065792848,
+        "cpu_util": 0.8504
+      }
+    ],
+    "v2": [
+      {
+        "returncode": 0,
+        "wall_s": 1.5409,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 273,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.098,
+            "dur_s": 0.098,
+            "cpu_s": 0.116,
+            "parallelism": 1.184
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.788,
+            "dur_s": 0.69,
+            "cpu_s": 5.475,
+            "parallelism": 7.935
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.936,
+            "dur_s": 0.148,
+            "cpu_s": 1.076,
+            "parallelism": 7.27
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.151,
+            "dur_s": 0.215,
+            "cpu_s": 1.512,
+            "parallelism": 7.033
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.441,
+            "dur_s": 0.29,
+            "cpu_s": 2.234,
+            "parallelism": 7.703
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.483,
+            "dur_s": 0.042,
+            "cpu_s": 0.273,
+            "parallelism": 6.5
+          }
+        ],
+        "time_real_s": 1.53,
+        "user_s": 9.92,
+        "sys_s": 0.8,
+        "max_rss_bytes": 6471385088,
+        "page_reclaims": 417590,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 2,
+        "ivcsw": 5308,
+        "instructions": 91722147086,
+        "cycles": 45409327446,
+        "peak_footprint_bytes": 4096136040,
+        "cpu_util": 0.8696
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.5993,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 273,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.106,
+            "dur_s": 0.106,
+            "cpu_s": 0.125,
+            "parallelism": 1.179
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.817,
+            "dur_s": 0.711,
+            "cpu_s": 5.54,
+            "parallelism": 7.792
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.958,
+            "dur_s": 0.141,
+            "cpu_s": 1.07,
+            "parallelism": 7.589
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.16,
+            "dur_s": 0.202,
+            "cpu_s": 1.411,
+            "parallelism": 6.985
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.444,
+            "dur_s": 0.284,
+            "cpu_s": 2.234,
+            "parallelism": 7.866
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.487,
+            "dur_s": 0.043,
+            "cpu_s": 0.276,
+            "parallelism": 6.419
+          }
+        ],
+        "time_real_s": 1.54,
+        "user_s": 9.93,
+        "sys_s": 0.76,
+        "max_rss_bytes": 6473859072,
+        "page_reclaims": 415097,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 4,
+        "ivcsw": 6152,
+        "instructions": 91699588724,
+        "cycles": 45133365409,
+        "peak_footprint_bytes": 4158051176,
+        "cpu_util": 0.8355
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.6111,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 273,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.098,
+            "dur_s": 0.098,
+            "cpu_s": 0.117,
+            "parallelism": 1.194
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.823,
+            "dur_s": 0.725,
+            "cpu_s": 5.668,
+            "parallelism": 7.818
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.968,
+            "dur_s": 0.145,
+            "cpu_s": 1.093,
+            "parallelism": 7.538
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.179,
+            "dur_s": 0.211,
+            "cpu_s": 1.489,
+            "parallelism": 7.057
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.485,
+            "dur_s": 0.306,
+            "cpu_s": 2.258,
+            "parallelism": 7.379
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.528,
+            "dur_s": 0.043,
+            "cpu_s": 0.268,
+            "parallelism": 6.233
+          }
+        ],
+        "time_real_s": 1.58,
+        "user_s": 10.11,
+        "sys_s": 0.82,
+        "max_rss_bytes": 6457327616,
+        "page_reclaims": 415139,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 6,
+        "ivcsw": 5684,
+        "instructions": 91789720780,
+        "cycles": 46059978268,
+        "peak_footprint_bytes": 4074345296,
+        "cpu_util": 0.848
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.5463,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 273,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.096,
+            "dur_s": 0.096,
+            "cpu_s": 0.115,
+            "parallelism": 1.198
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.797,
+            "dur_s": 0.701,
+            "cpu_s": 5.515,
+            "parallelism": 7.867
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.939,
+            "dur_s": 0.142,
+            "cpu_s": 1.067,
+            "parallelism": 7.514
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.146,
+            "dur_s": 0.207,
+            "cpu_s": 1.449,
+            "parallelism": 7.0
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.431,
+            "dur_s": 0.285,
+            "cpu_s": 2.261,
+            "parallelism": 7.933
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.477,
+            "dur_s": 0.046,
+            "cpu_s": 0.285,
+            "parallelism": 6.196
+          }
+        ],
+        "time_real_s": 1.53,
+        "user_s": 9.93,
+        "sys_s": 0.8,
+        "max_rss_bytes": 6465601536,
+        "page_reclaims": 417298,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 3,
+        "ivcsw": 4607,
+        "instructions": 91700852427,
+        "cycles": 45053305823,
+        "peak_footprint_bytes": 4069659496,
+        "cpu_util": 0.8674
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.5972,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 273,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.096,
+            "dur_s": 0.096,
+            "cpu_s": 0.115,
+            "parallelism": 1.198
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.789,
+            "dur_s": 0.693,
+            "cpu_s": 5.487,
+            "parallelism": 7.918
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.94,
+            "dur_s": 0.151,
+            "cpu_s": 1.121,
+            "parallelism": 7.424
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.15,
+            "dur_s": 0.21,
+            "cpu_s": 1.478,
+            "parallelism": 7.038
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.458,
+            "dur_s": 0.308,
+            "cpu_s": 2.278,
+            "parallelism": 7.396
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.503,
+            "dur_s": 0.045,
+            "cpu_s": 0.288,
+            "parallelism": 6.4
+          }
+        ],
+        "time_real_s": 1.56,
+        "user_s": 10.02,
+        "sys_s": 0.79,
+        "max_rss_bytes": 6462783488,
+        "page_reclaims": 416847,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 2,
+        "ivcsw": 4436,
+        "instructions": 91680831860,
+        "cycles": 45085183181,
+        "peak_footprint_bytes": 4081832784,
+        "cpu_util": 0.846
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.6385,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 273,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.096,
+            "dur_s": 0.096,
+            "cpu_s": 0.115,
+            "parallelism": 1.198
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.829,
+            "dur_s": 0.733,
+            "cpu_s": 5.751,
+            "parallelism": 7.846
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.976,
+            "dur_s": 0.147,
+            "cpu_s": 1.102,
+            "parallelism": 7.497
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.185,
+            "dur_s": 0.209,
+            "cpu_s": 1.467,
+            "parallelism": 7.019
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.486,
+            "dur_s": 0.301,
+            "cpu_s": 2.275,
+            "parallelism": 7.558
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.529,
+            "dur_s": 0.043,
+            "cpu_s": 0.271,
+            "parallelism": 6.302
+          }
+        ],
+        "time_real_s": 1.58,
+        "user_s": 10.23,
+        "sys_s": 0.8,
+        "max_rss_bytes": 6477070336,
+        "page_reclaims": 416855,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 3,
+        "ivcsw": 6446,
+        "instructions": 91761900961,
+        "cycles": 46013747164,
+        "peak_footprint_bytes": 4103099216,
+        "cpu_util": 0.8415
+      }
+    ],
+    "window-timestamps": [
+      {
+        "returncode": 0,
+        "wall_s": 1.4888,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 272,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.1,
+            "dur_s": 0.1,
+            "cpu_s": 0.119,
+            "parallelism": 1.19
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.735,
+            "dur_s": 0.635,
+            "cpu_s": 5.015,
+            "parallelism": 7.898
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.873,
+            "dur_s": 0.138,
+            "cpu_s": 1.026,
+            "parallelism": 7.435
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.076,
+            "dur_s": 0.203,
+            "cpu_s": 1.425,
+            "parallelism": 7.02
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.36,
+            "dur_s": 0.284,
+            "cpu_s": 2.244,
+            "parallelism": 7.901
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.404,
+            "dur_s": 0.044,
+            "cpu_s": 0.281,
+            "parallelism": 6.386
+          }
+        ],
+        "time_real_s": 1.45,
+        "user_s": 9.37,
+        "sys_s": 0.78,
+        "max_rss_bytes": 6466584576,
+        "page_reclaims": 416661,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 2,
+        "ivcsw": 4197,
+        "instructions": 79820874621,
+        "cycles": 42977697489,
+        "peak_footprint_bytes": 4069233488,
+        "cpu_util": 0.8522
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.5059,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 272,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.11,
+            "dur_s": 0.11,
+            "cpu_s": 0.13,
+            "parallelism": 1.182
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.751,
+            "dur_s": 0.641,
+            "cpu_s": 5.052,
+            "parallelism": 7.881
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.888,
+            "dur_s": 0.137,
+            "cpu_s": 1.018,
+            "parallelism": 7.431
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.097,
+            "dur_s": 0.209,
+            "cpu_s": 1.447,
+            "parallelism": 6.923
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.38,
+            "dur_s": 0.283,
+            "cpu_s": 2.238,
+            "parallelism": 7.908
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.426,
+            "dur_s": 0.046,
+            "cpu_s": 0.277,
+            "parallelism": 6.022
+          }
+        ],
+        "time_real_s": 1.47,
+        "user_s": 9.4,
+        "sys_s": 0.79,
+        "max_rss_bytes": 6450511872,
+        "page_reclaims": 416774,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 6,
+        "ivcsw": 4624,
+        "instructions": 79827405377,
+        "cycles": 43019779672,
+        "peak_footprint_bytes": 4076180280,
+        "cpu_util": 0.8459
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.5012,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 272,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.096,
+            "dur_s": 0.096,
+            "cpu_s": 0.115,
+            "parallelism": 1.198
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.737,
+            "dur_s": 0.641,
+            "cpu_s": 5.037,
+            "parallelism": 7.858
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.879,
+            "dur_s": 0.142,
+            "cpu_s": 1.051,
+            "parallelism": 7.401
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.088,
+            "dur_s": 0.209,
+            "cpu_s": 1.482,
+            "parallelism": 7.091
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.374,
+            "dur_s": 0.286,
+            "cpu_s": 2.247,
+            "parallelism": 7.857
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.417,
+            "dur_s": 0.043,
+            "cpu_s": 0.275,
+            "parallelism": 6.395
+          }
+        ],
+        "time_real_s": 1.47,
+        "user_s": 9.44,
+        "sys_s": 0.8,
+        "max_rss_bytes": 6469074944,
+        "page_reclaims": 417626,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 2,
+        "ivcsw": 4353,
+        "instructions": 79813728069,
+        "cycles": 43029492862,
+        "peak_footprint_bytes": 4067300176,
+        "cpu_util": 0.8526
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.5017,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 272,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.094,
+            "dur_s": 0.094,
+            "cpu_s": 0.113,
+            "parallelism": 1.202
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.728,
+            "dur_s": 0.634,
+            "cpu_s": 4.991,
+            "parallelism": 7.872
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.872,
+            "dur_s": 0.144,
+            "cpu_s": 1.051,
+            "parallelism": 7.299
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.079,
+            "dur_s": 0.207,
+            "cpu_s": 1.462,
+            "parallelism": 7.063
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.378,
+            "dur_s": 0.299,
+            "cpu_s": 2.349,
+            "parallelism": 7.856
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.423,
+            "dur_s": 0.045,
+            "cpu_s": 0.276,
+            "parallelism": 6.133
+          }
+        ],
+        "time_real_s": 1.47,
+        "user_s": 9.52,
+        "sys_s": 0.76,
+        "max_rss_bytes": 6464012288,
+        "page_reclaims": 415742,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 7,
+        "ivcsw": 4197,
+        "instructions": 79760309507,
+        "cycles": 43118857359,
+        "peak_footprint_bytes": 4081587048,
+        "cpu_util": 0.8557
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.4782,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 272,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.094,
+            "dur_s": 0.094,
+            "cpu_s": 0.112,
+            "parallelism": 1.191
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.736,
+            "dur_s": 0.642,
+            "cpu_s": 5.008,
+            "parallelism": 7.801
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.872,
+            "dur_s": 0.136,
+            "cpu_s": 1.041,
+            "parallelism": 7.654
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.082,
+            "dur_s": 0.21,
+            "cpu_s": 1.47,
+            "parallelism": 7.0
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.366,
+            "dur_s": 0.284,
+            "cpu_s": 2.251,
+            "parallelism": 7.926
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.408,
+            "dur_s": 0.042,
+            "cpu_s": 0.266,
+            "parallelism": 6.333
+          }
+        ],
+        "time_real_s": 1.46,
+        "user_s": 9.43,
+        "sys_s": 0.76,
+        "max_rss_bytes": 6465798144,
+        "page_reclaims": 415424,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 6,
+        "ivcsw": 3912,
+        "instructions": 79753772903,
+        "cycles": 42799334408,
+        "peak_footprint_bytes": 4079211368,
+        "cpu_util": 0.8617
+      },
+      {
+        "returncode": 0,
+        "wall_s": 1.5506,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 273,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.1,
+            "dur_s": 0.1,
+            "cpu_s": 0.12,
+            "parallelism": 1.2
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.774,
+            "dur_s": 0.674,
+            "cpu_s": 5.287,
+            "parallelism": 7.844
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.916,
+            "dur_s": 0.142,
+            "cpu_s": 1.06,
+            "parallelism": 7.465
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.133,
+            "dur_s": 0.217,
+            "cpu_s": 1.506,
+            "parallelism": 6.94
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.439,
+            "dur_s": 0.306,
+            "cpu_s": 2.304,
+            "parallelism": 7.529
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.481,
+            "dur_s": 0.042,
+            "cpu_s": 0.271,
+            "parallelism": 6.452
+          }
+        ],
+        "time_real_s": 1.53,
+        "user_s": 9.75,
+        "sys_s": 0.83,
+        "max_rss_bytes": 6455951360,
+        "page_reclaims": 416646,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 2,
+        "ivcsw": 4964,
+        "instructions": 79931186923,
+        "cycles": 44088448058,
+        "peak_footprint_bytes": 4072018768,
+        "cpu_util": 0.8529
+      }
+    ]
+  },
+  "summary": {
+    "v1": {
+      "wall_s": {
+        "n": 6,
+        "median": 1.60575,
+        "mean": 1.6028,
+        "min": 1.5883,
+        "max": 1.6139,
+        "p90": 1.6139,
+        "stdev": 0.00944,
+        "cv": 0.0059,
+        "samples": [
+          1.5951,
+          1.6139,
+          1.6078,
+          1.6037,
+          1.5883,
+          1.608
+        ]
+      },
+      "user_s": {
+        "n": 6,
+        "median": 9.985,
+        "mean": 10.013333,
+        "min": 9.93,
+        "max": 10.12,
+        "p90": 10.12,
+        "stdev": 0.082138,
+        "cv": 0.0082,
+        "samples": [
+          10.11,
+          9.97,
+          9.95,
+          9.93,
+          10.0,
+          10.12
+        ]
+      },
+      "sys_s": {
+        "n": 6,
+        "median": 0.815,
+        "mean": 0.815,
+        "min": 0.79,
+        "max": 0.85,
+        "p90": 0.85,
+        "stdev": 0.023452,
+        "cv": 0.0288,
+        "samples": [
+          0.85,
+          0.83,
+          0.81,
+          0.79,
+          0.79,
+          0.82
+        ]
+      },
+      "cpu_util": {
+        "n": 6,
+        "median": 0.84285,
+        "mean": 0.844517,
+        "min": 0.8356,
+        "max": 0.8589,
+        "p90": 0.8589,
+        "stdev": 0.00971,
+        "cv": 0.0115,
+        "samples": [
+          0.8589,
+          0.8365,
+          0.8365,
+          0.8356,
+          0.8492,
+          0.8504
+        ]
+      },
+      "max_rss_bytes": {
+        "n": 6,
+        "median": 6465388544.0,
+        "mean": 6463258624.0,
+        "min": 6447562752,
+        "max": 6479953920,
+        "p90": 6479953920,
+        "stdev": 11307946.717346,
+        "cv": 0.0017,
+        "samples": [
+          6479953920,
+          6453870592,
+          6465388544,
+          6447562752,
+          6465388544,
+          6467387392
+        ]
+      },
+      "peak_footprint_bytes": {
+        "n": 6,
+        "median": 4079407940.0,
+        "mean": 4076060158.666667,
+        "min": 4064908112,
+        "max": 4084306792,
+        "p90": 4084306792,
+        "stdev": 8598104.104341,
+        "cv": 0.0021,
+        "samples": [
+          4082537320,
+          4077474640,
+          4081341240,
+          4064908112,
+          4084306792,
+          4065792848
+        ]
+      },
+      "page_reclaims": {
+        "n": 6,
+        "median": 416392.5,
+        "mean": 416328.333333,
+        "min": 415330,
+        "max": 417544,
+        "p90": 417544,
+        "stdev": 814.219299,
+        "cv": 0.002,
+        "samples": [
+          417544,
+          415330,
+          416462,
+          415538,
+          416773,
+          416323
+        ]
+      },
+      "page_faults": {
+        "n": 6,
+        "median": 0.0,
+        "mean": 0.0,
+        "min": 0,
+        "max": 0,
+        "p90": 0,
+        "stdev": 0.0,
+        "cv": null,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "vcsw": {
+        "n": 6,
+        "median": 1.0,
+        "mean": 1.5,
+        "min": 0,
+        "max": 4,
+        "p90": 4,
+        "stdev": 1.643168,
+        "cv": 1.6432,
+        "samples": [
+          3,
+          4,
+          0,
+          0,
+          1,
+          1
+        ]
+      },
+      "ivcsw": {
+        "n": 6,
+        "median": 4550.5,
+        "mean": 4703.0,
+        "min": 3847,
+        "max": 6500,
+        "p90": 6500,
+        "stdev": 976.766298,
+        "cv": 0.2147,
+        "samples": [
+          6500,
+          4839,
+          3847,
+          3931,
+          4279,
+          4822
+        ]
+      },
+      "instructions": {
+        "n": 6,
+        "median": 91837075500.5,
+        "mean": 91859997214.0,
+        "min": 91769290037,
+        "max": 91970397754,
+        "p90": 91970397754,
+        "stdev": 80842041.204442,
+        "cv": 0.0009,
+        "samples": [
+          91970397754,
+          91942052333,
+          91863074340,
+          91769290037,
+          91804092159,
+          91811076661
+        ]
+      },
+      "cycles": {
+        "n": 6,
+        "median": 45438013235.0,
+        "mean": 45538814639.833336,
+        "min": 45048404831,
+        "max": 46386689199,
+        "p90": 46386689199,
+        "stdev": 518409775.562916,
+        "cv": 0.0114,
+        "samples": [
+          46386689199,
+          45712734890,
+          45143915111,
+          45048404831,
+          45163291580,
+          45777852228
+        ]
+      },
+      "stdout_bytes": {
+        "n": 6,
+        "median": 0.0,
+        "mean": 0.0,
+        "min": 0,
+        "max": 0,
+        "p90": 0,
+        "stdev": 0.0,
+        "cv": null,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "instructions_per_row": {
+        "n": 6,
+        "median": 4269.934251,
+        "mean": 4270.999989,
+        "min": 4266.782589,
+        "max": 4276.133025,
+        "p90": 4276.133025,
+        "stdev": 3.758724,
+        "cv": 0.0009,
+        "samples": [
+          4276.133025,
+          4274.815114,
+          4271.143059,
+          4266.782589,
+          4268.400702,
+          4268.725444
+        ]
+      },
+      "cycles_per_row": {
+        "n": 6,
+        "median": 2112.625298,
+        "mean": 2117.312026,
+        "min": 2094.510585,
+        "max": 2156.733671,
+        "p90": 2156.733671,
+        "stdev": 24.10329,
+        "cv": 0.0114,
+        "samples": [
+          2156.733671,
+          2125.39839,
+          2098.951304,
+          2094.510585,
+          2099.852206,
+          2128.425999
+        ]
+      },
+      "ipc": {
+        "n": 6,
+        "median": 2.022008,
+        "mean": 2.017384,
+        "min": 1.982689,
+        "max": 2.037126,
+        "p90": 2.037126,
+        "stdev": 0.021501,
+        "cv": 0.0106,
+        "samples": [
+          1.982689,
+          2.011301,
+          2.034894,
+          2.037126,
+          2.032715,
+          2.005579
+        ]
+      },
+      "last_mark_s": {
+        "n": 6,
+        "median": 1.489,
+        "mean": 1.4885,
+        "min": 1.473,
+        "max": 1.504,
+        "p90": 1.504,
+        "stdev": 0.012818,
+        "cv": 0.0086,
+        "samples": [
+          1.504,
+          1.488,
+          1.49,
+          1.473,
+          1.475,
+          1.501
+        ]
+      },
+      "phases": {
+        "lookups": {
+          "n": 6,
+          "median": 0.095,
+          "mean": 0.096333,
+          "min": 0.092,
+          "max": 0.103,
+          "p90": 0.103,
+          "stdev": 0.004274,
+          "cv": 0.045,
+          "samples": [
+            0.093,
+            0.103,
+            0.095,
+            0.095,
+            0.092,
+            0.1
+          ]
+        },
+        "events parsed": {
+          "n": 6,
+          "median": 0.698,
+          "mean": 0.700167,
+          "min": 0.694,
+          "max": 0.711,
+          "p90": 0.711,
+          "stdev": 0.006585,
+          "cv": 0.0094,
+          "samples": [
+            0.711,
+            0.699,
+            0.697,
+            0.695,
+            0.694,
+            0.705
+          ]
+        },
+        "clicks parsed": {
+          "n": 6,
+          "median": 0.147,
+          "mean": 0.147333,
+          "min": 0.144,
+          "max": 0.154,
+          "p90": 0.154,
+          "stdev": 0.003502,
+          "cv": 0.0238,
+          "samples": [
+            0.154,
+            0.147,
+            0.145,
+            0.147,
+            0.144,
+            0.147
+          ]
+        },
+        "events deduped": {
+          "n": 6,
+          "median": 0.207,
+          "mean": 0.207333,
+          "min": 0.204,
+          "max": 0.211,
+          "p90": 0.211,
+          "stdev": 0.002805,
+          "cv": 0.0135,
+          "samples": [
+            0.206,
+            0.204,
+            0.205,
+            0.21,
+            0.208,
+            0.211
+          ]
+        },
+        "sessions + attribution": {
+          "n": 6,
+          "median": 0.2915,
+          "mean": 0.2915,
+          "min": 0.284,
+          "max": 0.299,
+          "p90": 0.299,
+          "stdev": 0.00501,
+          "cv": 0.0172,
+          "samples": [
+            0.289,
+            0.292,
+            0.299,
+            0.284,
+            0.291,
+            0.294
+          ]
+        },
+        "written": {
+          "n": 6,
+          "median": 0.045,
+          "mean": 0.045833,
+          "min": 0.042,
+          "max": 0.051,
+          "p90": 0.051,
+          "stdev": 0.003545,
+          "cv": 0.0788,
+          "samples": [
+            0.051,
+            0.043,
+            0.049,
+            0.042,
+            0.046,
+            0.044
+          ]
+        },
+        "(after last mark: exit/unmap + spawn)": {
+          "n": 6,
+          "median": 0.11555,
+          "mean": 0.1143,
+          "min": 0.0911,
+          "max": 0.1307,
+          "p90": 0.1307,
+          "stdev": 0.014201,
+          "cv": 0.1229,
+          "samples": [
+            0.0911,
+            0.1259,
+            0.1178,
+            0.1307,
+            0.1133,
+            0.107
+          ]
+        }
+      }
+    },
+    "v2": {
+      "wall_s": {
+        "n": 6,
+        "median": 1.59825,
+        "mean": 1.588883,
+        "min": 1.5409,
+        "max": 1.6385,
+        "p90": 1.6385,
+        "stdev": 0.038076,
+        "cv": 0.0238,
+        "samples": [
+          1.5409,
+          1.5993,
+          1.6111,
+          1.5463,
+          1.5972,
+          1.6385
+        ]
+      },
+      "user_s": {
+        "n": 6,
+        "median": 9.975,
+        "mean": 10.023333,
+        "min": 9.92,
+        "max": 10.23,
+        "p90": 10.23,
+        "stdev": 0.125167,
+        "cv": 0.0125,
+        "samples": [
+          9.92,
+          9.93,
+          10.11,
+          9.93,
+          10.02,
+          10.23
+        ]
+      },
+      "sys_s": {
+        "n": 6,
+        "median": 0.8,
+        "mean": 0.795,
+        "min": 0.76,
+        "max": 0.82,
+        "p90": 0.82,
+        "stdev": 0.019748,
+        "cv": 0.0247,
+        "samples": [
+          0.8,
+          0.76,
+          0.82,
+          0.8,
+          0.79,
+          0.8
+        ]
+      },
+      "cpu_util": {
+        "n": 6,
+        "median": 0.847,
+        "mean": 0.851333,
+        "min": 0.8355,
+        "max": 0.8696,
+        "p90": 0.8696,
+        "stdev": 0.013991,
+        "cv": 0.0165,
+        "samples": [
+          0.8696,
+          0.8355,
+          0.848,
+          0.8674,
+          0.846,
+          0.8415
+        ]
+      },
+      "max_rss_bytes": {
+        "n": 6,
+        "median": 6468493312.0,
+        "mean": 6468004522.666667,
+        "min": 6457327616,
+        "max": 6477070336,
+        "p90": 6477070336,
+        "stdev": 7415157.788525,
+        "cv": 0.0011,
+        "samples": [
+          6471385088,
+          6473859072,
+          6457327616,
+          6465601536,
+          6462783488,
+          6477070336
+        ]
+      },
+      "peak_footprint_bytes": {
+        "n": 6,
+        "median": 4088984412.0,
+        "mean": 4097187334.666667,
+        "min": 4069659496,
+        "max": 4158051176,
+        "p90": 4158051176,
+        "stdev": 32421491.642142,
+        "cv": 0.0079,
+        "samples": [
+          4096136040,
+          4158051176,
+          4074345296,
+          4069659496,
+          4081832784,
+          4103099216
+        ]
+      },
+      "page_reclaims": {
+        "n": 6,
+        "median": 416851.0,
+        "mean": 416471.0,
+        "min": 415097,
+        "max": 417590,
+        "p90": 417590,
+        "stdev": 1085.08267,
+        "cv": 0.0026,
+        "samples": [
+          417590,
+          415097,
+          415139,
+          417298,
+          416847,
+          416855
+        ]
+      },
+      "page_faults": {
+        "n": 6,
+        "median": 0.0,
+        "mean": 0.0,
+        "min": 0,
+        "max": 0,
+        "p90": 0,
+        "stdev": 0.0,
+        "cv": null,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "vcsw": {
+        "n": 6,
+        "median": 3.0,
+        "mean": 3.333333,
+        "min": 2,
+        "max": 6,
+        "p90": 6,
+        "stdev": 1.505545,
+        "cv": 0.5018,
+        "samples": [
+          2,
+          4,
+          6,
+          3,
+          2,
+          3
+        ]
+      },
+      "ivcsw": {
+        "n": 6,
+        "median": 5496.0,
+        "mean": 5438.833333,
+        "min": 4436,
+        "max": 6446,
+        "p90": 6446,
+        "stdev": 812.137529,
+        "cv": 0.1478,
+        "samples": [
+          5308,
+          6152,
+          5684,
+          4607,
+          4436,
+          6446
+        ]
+      },
+      "instructions": {
+        "n": 6,
+        "median": 91711499756.5,
+        "mean": 91725840306.33333,
+        "min": 91680831860,
+        "max": 91789720780,
+        "p90": 91789720780,
+        "stdev": 41794797.612187,
+        "cv": 0.0005,
+        "samples": [
+          91722147086,
+          91699588724,
+          91789720780,
+          91700852427,
+          91680831860,
+          91761900961
+        ]
+      },
+      "cycles": {
+        "n": 6,
+        "median": 45271346427.5,
+        "mean": 45459151215.166664,
+        "min": 45053305823,
+        "max": 46059978268,
+        "p90": 46059978268,
+        "stdev": 465134644.221169,
+        "cv": 0.0103,
+        "samples": [
+          45409327446,
+          45133365409,
+          46059978268,
+          45053305823,
+          45085183181,
+          46013747164
+        ]
+      },
+      "stdout_bytes": {
+        "n": 6,
+        "median": 0.0,
+        "mean": 0.0,
+        "min": 0,
+        "max": 0,
+        "p90": 0,
+        "stdev": 0.0,
+        "cv": null,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "instructions_per_row": {
+        "n": 6,
+        "median": 4264.095649,
+        "mean": 4264.762408,
+        "min": 4262.669755,
+        "max": 4267.732509,
+        "p90": 4267.732509,
+        "stdev": 1.943235,
+        "cv": 0.0005,
+        "samples": [
+          4264.590693,
+          4263.54185,
+          4267.732509,
+          4263.600605,
+          4262.669755,
+          4266.439036
+        ]
+      },
+      "cycles_per_row": {
+        "n": 6,
+        "median": 2104.876181,
+        "mean": 2113.608102,
+        "min": 2094.738455,
+        "max": 2141.543356,
+        "p90": 2141.543356,
+        "stdev": 21.62628,
+        "cv": 0.0103,
+        "samples": [
+          2111.291562,
+          2098.460799,
+          2141.543356,
+          2094.738455,
+          2096.220582,
+          2139.393856
+        ]
+      },
+      "ipc": {
+        "n": 6,
+        "median": 2.025822,
+        "mean": 2.017932,
+        "min": 1.99283,
+        "max": 2.035386,
+        "p90": 2.035386,
+        "stdev": 0.019666,
+        "cv": 0.0097,
+        "samples": [
+          2.019897,
+          2.031747,
+          1.99283,
+          2.035386,
+          2.033502,
+          1.994228
+        ]
+      },
+      "last_mark_s": {
+        "n": 6,
+        "median": 1.495,
+        "mean": 1.501167,
+        "min": 1.477,
+        "max": 1.529,
+        "p90": 1.529,
+        "stdev": 0.02286,
+        "cv": 0.0153,
+        "samples": [
+          1.483,
+          1.487,
+          1.528,
+          1.477,
+          1.503,
+          1.529
+        ]
+      },
+      "phases": {
+        "lookups": {
+          "n": 6,
+          "median": 0.097,
+          "mean": 0.098333,
+          "min": 0.096,
+          "max": 0.106,
+          "p90": 0.106,
+          "stdev": 0.003882,
+          "cv": 0.04,
+          "samples": [
+            0.098,
+            0.106,
+            0.098,
+            0.096,
+            0.096,
+            0.096
+          ],
+          "cpu_s": {
+            "n": 6,
+            "median": 0.1155,
+            "mean": 0.117167,
+            "min": 0.115,
+            "max": 0.125,
+            "p90": 0.125,
+            "stdev": 0.00392,
+            "cv": 0.0339,
+            "samples": [
+              0.116,
+              0.125,
+              0.117,
+              0.115,
+              0.115,
+              0.115
+            ]
+          },
+          "parallelism": {
+            "n": 6,
+            "median": 1.196,
+            "mean": 1.191833,
+            "min": 1.179,
+            "max": 1.198,
+            "p90": 1.198,
+            "stdev": 0.008305,
+            "cv": 0.0069,
+            "samples": [
+              1.184,
+              1.179,
+              1.194,
+              1.198,
+              1.198,
+              1.198
+            ]
+          }
+        },
+        "events parsed": {
+          "n": 6,
+          "median": 0.706,
+          "mean": 0.708833,
+          "min": 0.69,
+          "max": 0.733,
+          "p90": 0.733,
+          "stdev": 0.017417,
+          "cv": 0.0247,
+          "samples": [
+            0.69,
+            0.711,
+            0.725,
+            0.701,
+            0.693,
+            0.733
+          ],
+          "cpu_s": {
+            "n": 6,
+            "median": 5.5275,
+            "mean": 5.572667,
+            "min": 5.475,
+            "max": 5.751,
+            "p90": 5.751,
+            "stdev": 0.1115,
+            "cv": 0.0202,
+            "samples": [
+              5.475,
+              5.54,
+              5.668,
+              5.515,
+              5.487,
+              5.751
+            ]
+          },
+          "parallelism": {
+            "n": 6,
+            "median": 7.8565,
+            "mean": 7.862667,
+            "min": 7.792,
+            "max": 7.935,
+            "p90": 7.935,
+            "stdev": 0.05582,
+            "cv": 0.0071,
+            "samples": [
+              7.935,
+              7.792,
+              7.818,
+              7.867,
+              7.918,
+              7.846
+            ]
+          }
+        },
+        "clicks parsed": {
+          "n": 6,
+          "median": 0.146,
+          "mean": 0.145667,
+          "min": 0.141,
+          "max": 0.151,
+          "p90": 0.151,
+          "stdev": 0.003777,
+          "cv": 0.0259,
+          "samples": [
+            0.148,
+            0.141,
+            0.145,
+            0.142,
+            0.151,
+            0.147
+          ],
+          "cpu_s": {
+            "n": 6,
+            "median": 1.0845,
+            "mean": 1.088167,
+            "min": 1.067,
+            "max": 1.121,
+            "p90": 1.121,
+            "stdev": 0.021066,
+            "cv": 0.0194,
+            "samples": [
+              1.076,
+              1.07,
+              1.093,
+              1.067,
+              1.121,
+              1.102
+            ]
+          },
+          "parallelism": {
+            "n": 6,
+            "median": 7.5055,
+            "mean": 7.472,
+            "min": 7.27,
+            "max": 7.589,
+            "p90": 7.589,
+            "stdev": 0.112732,
+            "cv": 0.015,
+            "samples": [
+              7.27,
+              7.589,
+              7.538,
+              7.514,
+              7.424,
+              7.497
+            ]
+          }
+        },
+        "events deduped": {
+          "n": 6,
+          "median": 0.2095,
+          "mean": 0.209,
+          "min": 0.202,
+          "max": 0.215,
+          "p90": 0.215,
+          "stdev": 0.004336,
+          "cv": 0.0207,
+          "samples": [
+            0.215,
+            0.202,
+            0.211,
+            0.207,
+            0.21,
+            0.209
+          ],
+          "cpu_s": {
+            "n": 6,
+            "median": 1.4725,
+            "mean": 1.467667,
+            "min": 1.411,
+            "max": 1.512,
+            "p90": 1.512,
+            "stdev": 0.034892,
+            "cv": 0.0237,
+            "samples": [
+              1.512,
+              1.411,
+              1.489,
+              1.449,
+              1.478,
+              1.467
+            ]
+          },
+          "parallelism": {
+            "n": 6,
+            "median": 7.026,
+            "mean": 7.022,
+            "min": 6.985,
+            "max": 7.057,
+            "p90": 7.057,
+            "stdev": 0.026321,
+            "cv": 0.0037,
+            "samples": [
+              7.033,
+              6.985,
+              7.057,
+              7.0,
+              7.038,
+              7.019
+            ]
+          }
+        },
+        "sessions + attribution": {
+          "n": 6,
+          "median": 0.2955,
+          "mean": 0.295667,
+          "min": 0.284,
+          "max": 0.308,
+          "p90": 0.308,
+          "stdev": 0.010671,
+          "cv": 0.0361,
+          "samples": [
+            0.29,
+            0.284,
+            0.306,
+            0.285,
+            0.308,
+            0.301
+          ],
+          "cpu_s": {
+            "n": 6,
+            "median": 2.2595,
+            "mean": 2.256667,
+            "min": 2.234,
+            "max": 2.278,
+            "p90": 2.278,
+            "stdev": 0.01918,
+            "cv": 0.0085,
+            "samples": [
+              2.234,
+              2.234,
+              2.258,
+              2.261,
+              2.278,
+              2.275
+            ]
+          },
+          "parallelism": {
+            "n": 6,
+            "median": 7.6305,
+            "mean": 7.639167,
+            "min": 7.379,
+            "max": 7.933,
+            "p90": 7.933,
+            "stdev": 0.234636,
+            "cv": 0.0307,
+            "samples": [
+              7.703,
+              7.866,
+              7.379,
+              7.933,
+              7.396,
+              7.558
+            ]
+          }
+        },
+        "written": {
+          "n": 6,
+          "median": 0.043,
+          "mean": 0.043667,
+          "min": 0.042,
+          "max": 0.046,
+          "p90": 0.046,
+          "stdev": 0.001506,
+          "cv": 0.035,
+          "samples": [
+            0.042,
+            0.043,
+            0.043,
+            0.046,
+            0.045,
+            0.043
+          ],
+          "cpu_s": {
+            "n": 6,
+            "median": 0.2745,
+            "mean": 0.276833,
+            "min": 0.268,
+            "max": 0.288,
+            "p90": 0.288,
+            "stdev": 0.007985,
+            "cv": 0.0291,
+            "samples": [
+              0.273,
+              0.276,
+              0.268,
+              0.285,
+              0.288,
+              0.271
+            ]
+          },
+          "parallelism": {
+            "n": 6,
+            "median": 6.351,
+            "mean": 6.341667,
+            "min": 6.196,
+            "max": 6.5,
+            "p90": 6.5,
+            "stdev": 0.117519,
+            "cv": 0.0185,
+            "samples": [
+              6.5,
+              6.419,
+              6.233,
+              6.196,
+              6.4,
+              6.302
+            ]
+          }
+        },
+        "(after last mark: exit/unmap + spawn)": {
+          "n": 6,
+          "median": 0.08865,
+          "mean": 0.087717,
+          "min": 0.0579,
+          "max": 0.1123,
+          "p90": 0.1123,
+          "stdev": 0.021773,
+          "cv": 0.2456,
+          "samples": [
+            0.0579,
+            0.1123,
+            0.0831,
+            0.0693,
+            0.0942,
+            0.1095
+          ]
+        }
+      }
+    },
+    "window-timestamps": {
+      "wall_s": {
+        "n": 6,
+        "median": 1.50145,
+        "mean": 1.5044,
+        "min": 1.4782,
+        "max": 1.5506,
+        "p90": 1.5506,
+        "stdev": 0.024836,
+        "cv": 0.0165,
+        "samples": [
+          1.4888,
+          1.5059,
+          1.5012,
+          1.5017,
+          1.4782,
+          1.5506
+        ]
+      },
+      "user_s": {
+        "n": 6,
+        "median": 9.435,
+        "mean": 9.485,
+        "min": 9.37,
+        "max": 9.75,
+        "p90": 9.75,
+        "stdev": 0.139248,
+        "cv": 0.0148,
+        "samples": [
+          9.37,
+          9.4,
+          9.44,
+          9.52,
+          9.43,
+          9.75
+        ]
+      },
+      "sys_s": {
+        "n": 6,
+        "median": 0.785,
+        "mean": 0.786667,
+        "min": 0.76,
+        "max": 0.83,
+        "p90": 0.83,
+        "stdev": 0.026583,
+        "cv": 0.0339,
+        "samples": [
+          0.78,
+          0.79,
+          0.8,
+          0.76,
+          0.76,
+          0.83
+        ]
+      },
+      "cpu_util": {
+        "n": 6,
+        "median": 0.85275,
+        "mean": 0.8535,
+        "min": 0.8459,
+        "max": 0.8617,
+        "p90": 0.8617,
+        "stdev": 0.005152,
+        "cv": 0.006,
+        "samples": [
+          0.8522,
+          0.8459,
+          0.8526,
+          0.8557,
+          0.8617,
+          0.8529
+        ]
+      },
+      "max_rss_bytes": {
+        "n": 6,
+        "median": 6464905216.0,
+        "mean": 6461988864.0,
+        "min": 6450511872,
+        "max": 6469074944,
+        "p90": 6469074944,
+        "stdev": 7184855.701733,
+        "cv": 0.0011,
+        "samples": [
+          6466584576,
+          6450511872,
+          6469074944,
+          6464012288,
+          6465798144,
+          6455951360
+        ]
+      },
+      "peak_footprint_bytes": {
+        "n": 6,
+        "median": 4074099524.0,
+        "mean": 4074255188.0,
+        "min": 4067300176,
+        "max": 4081587048,
+        "p90": 4081587048,
+        "stdev": 5667752.776666,
+        "cv": 0.0014,
+        "samples": [
+          4069233488,
+          4076180280,
+          4067300176,
+          4081587048,
+          4079211368,
+          4072018768
+        ]
+      },
+      "page_reclaims": {
+        "n": 6,
+        "median": 416653.5,
+        "mean": 416478.833333,
+        "min": 415424,
+        "max": 417626,
+        "p90": 417626,
+        "stdev": 789.916557,
+        "cv": 0.0019,
+        "samples": [
+          416661,
+          416774,
+          417626,
+          415742,
+          415424,
+          416646
+        ]
+      },
+      "page_faults": {
+        "n": 6,
+        "median": 0.0,
+        "mean": 0.0,
+        "min": 0,
+        "max": 0,
+        "p90": 0,
+        "stdev": 0.0,
+        "cv": null,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "vcsw": {
+        "n": 6,
+        "median": 4.0,
+        "mean": 4.166667,
+        "min": 2,
+        "max": 7,
+        "p90": 7,
+        "stdev": 2.401388,
+        "cv": 0.6003,
+        "samples": [
+          2,
+          6,
+          2,
+          7,
+          6,
+          2
+        ]
+      },
+      "ivcsw": {
+        "n": 6,
+        "median": 4275.0,
+        "mean": 4374.5,
+        "min": 3912,
+        "max": 4964,
+        "p90": 4964,
+        "stdev": 370.713231,
+        "cv": 0.0867,
+        "samples": [
+          4197,
+          4624,
+          4353,
+          4197,
+          3912,
+          4964
+        ]
+      },
+      "instructions": {
+        "n": 6,
+        "median": 79817301345.0,
+        "mean": 79817879566.66667,
+        "min": 79753772903,
+        "max": 79931186923,
+        "p90": 79931186923,
+        "stdev": 63842743.427247,
+        "cv": 0.0008,
+        "samples": [
+          79820874621,
+          79827405377,
+          79813728069,
+          79760309507,
+          79753772903,
+          79931186923
+        ]
+      },
+      "cycles": {
+        "n": 6,
+        "median": 43024636267.0,
+        "mean": 43172268308.0,
+        "min": 42799334408,
+        "max": 44088448058,
+        "p90": 44088448058,
+        "stdev": 461045154.675401,
+        "cv": 0.0107,
+        "samples": [
+          42977697489,
+          43019779672,
+          43029492862,
+          43118857359,
+          42799334408,
+          44088448058
+        ]
+      },
+      "stdout_bytes": {
+        "n": 6,
+        "median": 0.0,
+        "mean": 0.0,
+        "min": 0,
+        "max": 0,
+        "p90": 0,
+        "stdev": 0.0,
+        "cv": null,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "instructions_per_row": {
+        "n": 6,
+        "median": 3711.078854,
+        "mean": 3711.105738,
+        "min": 3708.12512,
+        "max": 3716.373926,
+        "p90": 3716.373926,
+        "stdev": 2.968347,
+        "cv": 0.0008,
+        "samples": [
+          3711.244992,
+          3711.548637,
+          3710.912715,
+          3708.429037,
+          3708.12512,
+          3716.373926
+        ]
+      },
+      "cycles_per_row": {
+        "n": 6,
+        "median": 2000.41614,
+        "mean": 2007.280242,
+        "min": 1989.940805,
+        "max": 2049.877715,
+        "p90": 2049.877715,
+        "stdev": 21.436141,
+        "cv": 0.0107,
+        "samples": [
+          1998.233737,
+          2000.190334,
+          2000.641945,
+          2004.796918,
+          1989.940805,
+          2049.877715
+        ]
+      },
+      "ipc": {
+        "n": 6,
+        "median": 1.855229,
+        "mean": 1.848985,
+        "min": 1.812973,
+        "max": 1.863435,
+        "p90": 1.863435,
+        "stdev": 0.018183,
+        "cv": 0.0098,
+        "samples": [
+          1.857263,
+          1.855598,
+          1.854861,
+          1.849778,
+          1.863435,
+          1.812973
+        ]
+      },
+      "last_mark_s": {
+        "n": 6,
+        "median": 1.42,
+        "mean": 1.4265,
+        "min": 1.404,
+        "max": 1.481,
+        "p90": 1.481,
+        "stdev": 0.028005,
+        "cv": 0.0197,
+        "samples": [
+          1.404,
+          1.426,
+          1.417,
+          1.423,
+          1.408,
+          1.481
+        ]
+      },
+      "phases": {
+        "lookups": {
+          "n": 6,
+          "median": 0.098,
+          "mean": 0.099,
+          "min": 0.094,
+          "max": 0.11,
+          "p90": 0.11,
+          "stdev": 0.006033,
+          "cv": 0.0616,
+          "samples": [
+            0.1,
+            0.11,
+            0.096,
+            0.094,
+            0.094,
+            0.1
+          ],
+          "cpu_s": {
+            "n": 6,
+            "median": 0.117,
+            "mean": 0.118167,
+            "min": 0.112,
+            "max": 0.13,
+            "p90": 0.13,
+            "stdev": 0.006616,
+            "cv": 0.0565,
+            "samples": [
+              0.119,
+              0.13,
+              0.115,
+              0.113,
+              0.112,
+              0.12
+            ]
+          },
+          "parallelism": {
+            "n": 6,
+            "median": 1.1945,
+            "mean": 1.193833,
+            "min": 1.182,
+            "max": 1.202,
+            "p90": 1.202,
+            "stdev": 0.007548,
+            "cv": 0.0063,
+            "samples": [
+              1.19,
+              1.182,
+              1.198,
+              1.202,
+              1.191,
+              1.2
+            ]
+          }
+        },
+        "events parsed": {
+          "n": 6,
+          "median": 0.641,
+          "mean": 0.6445,
+          "min": 0.634,
+          "max": 0.674,
+          "p90": 0.674,
+          "stdev": 0.014843,
+          "cv": 0.0232,
+          "samples": [
+            0.635,
+            0.641,
+            0.641,
+            0.634,
+            0.642,
+            0.674
+          ],
+          "cpu_s": {
+            "n": 6,
+            "median": 5.026,
+            "mean": 5.065,
+            "min": 4.991,
+            "max": 5.287,
+            "p90": 5.287,
+            "stdev": 0.110871,
+            "cv": 0.0221,
+            "samples": [
+              5.015,
+              5.052,
+              5.037,
+              4.991,
+              5.008,
+              5.287
+            ]
+          },
+          "parallelism": {
+            "n": 6,
+            "median": 7.865,
+            "mean": 7.859,
+            "min": 7.801,
+            "max": 7.898,
+            "p90": 7.898,
+            "stdev": 0.033953,
+            "cv": 0.0043,
+            "samples": [
+              7.898,
+              7.881,
+              7.858,
+              7.872,
+              7.801,
+              7.844
+            ]
+          }
+        },
+        "clicks parsed": {
+          "n": 6,
+          "median": 0.14,
+          "mean": 0.139833,
+          "min": 0.136,
+          "max": 0.144,
+          "p90": 0.144,
+          "stdev": 0.003251,
+          "cv": 0.0232,
+          "samples": [
+            0.138,
+            0.137,
+            0.142,
+            0.144,
+            0.136,
+            0.142
+          ],
+          "cpu_s": {
+            "n": 6,
+            "median": 1.046,
+            "mean": 1.041167,
+            "min": 1.018,
+            "max": 1.06,
+            "p90": 1.06,
+            "stdev": 0.016216,
+            "cv": 0.0155,
+            "samples": [
+              1.026,
+              1.018,
+              1.051,
+              1.051,
+              1.041,
+              1.06
+            ]
+          },
+          "parallelism": {
+            "n": 6,
+            "median": 7.433,
+            "mean": 7.4475,
+            "min": 7.299,
+            "max": 7.654,
+            "p90": 7.654,
+            "stdev": 0.116268,
+            "cv": 0.0156,
+            "samples": [
+              7.435,
+              7.431,
+              7.401,
+              7.299,
+              7.654,
+              7.465
+            ]
+          }
+        },
+        "events deduped": {
+          "n": 6,
+          "median": 0.209,
+          "mean": 0.209167,
+          "min": 0.203,
+          "max": 0.217,
+          "p90": 0.217,
+          "stdev": 0.004579,
+          "cv": 0.0219,
+          "samples": [
+            0.203,
+            0.209,
+            0.209,
+            0.207,
+            0.21,
+            0.217
+          ],
+          "cpu_s": {
+            "n": 6,
+            "median": 1.466,
+            "mean": 1.465333,
+            "min": 1.425,
+            "max": 1.506,
+            "p90": 1.506,
+            "stdev": 0.028026,
+            "cv": 0.0191,
+            "samples": [
+              1.425,
+              1.447,
+              1.482,
+              1.462,
+              1.47,
+              1.506
+            ]
+          },
+          "parallelism": {
+            "n": 6,
+            "median": 7.01,
+            "mean": 7.006167,
+            "min": 6.923,
+            "max": 7.091,
+            "p90": 7.091,
+            "stdev": 0.066258,
+            "cv": 0.0095,
+            "samples": [
+              7.02,
+              6.923,
+              7.091,
+              7.063,
+              7.0,
+              6.94
+            ]
+          }
+        },
+        "sessions + attribution": {
+          "n": 6,
+          "median": 0.285,
+          "mean": 0.290333,
+          "min": 0.283,
+          "max": 0.306,
+          "p90": 0.306,
+          "stdev": 0.00973,
+          "cv": 0.0341,
+          "samples": [
+            0.284,
+            0.283,
+            0.286,
+            0.299,
+            0.284,
+            0.306
+          ],
+          "cpu_s": {
+            "n": 6,
+            "median": 2.249,
+            "mean": 2.272167,
+            "min": 2.238,
+            "max": 2.349,
+            "p90": 2.349,
+            "stdev": 0.044629,
+            "cv": 0.0198,
+            "samples": [
+              2.244,
+              2.238,
+              2.247,
+              2.349,
+              2.251,
+              2.304
+            ]
+          },
+          "parallelism": {
+            "n": 6,
+            "median": 7.879,
+            "mean": 7.8295,
+            "min": 7.529,
+            "max": 7.926,
+            "p90": 7.926,
+            "stdev": 0.149897,
+            "cv": 0.019,
+            "samples": [
+              7.901,
+              7.908,
+              7.857,
+              7.856,
+              7.926,
+              7.529
+            ]
+          }
+        },
+        "written": {
+          "n": 6,
+          "median": 0.0435,
+          "mean": 0.043667,
+          "min": 0.042,
+          "max": 0.046,
+          "p90": 0.046,
+          "stdev": 0.001633,
+          "cv": 0.0375,
+          "samples": [
+            0.044,
+            0.046,
+            0.043,
+            0.045,
+            0.042,
+            0.042
+          ],
+          "cpu_s": {
+            "n": 6,
+            "median": 0.2755,
+            "mean": 0.274333,
+            "min": 0.266,
+            "max": 0.281,
+            "p90": 0.281,
+            "stdev": 0.005203,
+            "cv": 0.0189,
+            "samples": [
+              0.281,
+              0.277,
+              0.275,
+              0.276,
+              0.266,
+              0.271
+            ]
+          },
+          "parallelism": {
+            "n": 6,
+            "median": 6.3595,
+            "mean": 6.286833,
+            "min": 6.022,
+            "max": 6.452,
+            "p90": 6.452,
+            "stdev": 0.170145,
+            "cv": 0.0268,
+            "samples": [
+              6.386,
+              6.022,
+              6.395,
+              6.133,
+              6.333,
+              6.452
+            ]
+          }
+        },
+        "(after last mark: exit/unmap + spawn)": {
+          "n": 6,
+          "median": 0.0793,
+          "mean": 0.0779,
+          "min": 0.0696,
+          "max": 0.0848,
+          "p90": 0.0848,
+          "stdev": 0.006635,
+          "cv": 0.0837,
+          "samples": [
+            0.0848,
+            0.0799,
+            0.0842,
+            0.0787,
+            0.0702,
+            0.0696
+          ]
+        }
+      }
+    }
+  },
+  "initial_loaded_block": {
+    "dataset": "seed-42",
+    "ncpu": 8,
+    "events_lines": 21507843,
+    "load_before": {
+      "load1": 8.23,
+      "load5": 5.25,
+      "load15": 4.61,
+      "cpu_busy_pct": 13.5,
+      "top": [
+        {
+          "pcpu": 100.0,
+          "comm": "rustc"
+        },
+        {
+          "pcpu": 8.7,
+          "comm": "fseventsd"
+        },
+        {
+          "pcpu": 3.3,
+          "comm": "Browser Helper (Aperitif Renderer)"
+        },
+        {
+          "pcpu": 3.3,
+          "comm": "Browser Helper (Aperitif Renderer)"
+        },
+        {
+          "pcpu": 2.8,
+          "comm": "Browser Helper (Aperitif)"
+        }
+      ]
+    },
+    "orders": [
+      [
+        "v1",
+        "v2",
+        "window-timestamps"
+      ],
+      [
+        "v1",
+        "window-timestamps",
+        "v2"
+      ],
+      [
+        "v2",
+        "v1",
+        "window-timestamps"
+      ],
+      [
+        "v2",
+        "window-timestamps",
+        "v1"
+      ],
+      [
+        "window-timestamps",
+        "v1",
+        "v2"
+      ],
+      [
+        "window-timestamps",
+        "v2",
+        "v1"
+      ]
+    ],
+    "shas": {
+      "v1": "3e4866243a5aeea488703ef14ea01e21ebd4d434",
+      "v2": "953af436f8aa1f8cf4b0771b8451effe961f738a",
+      "window-timestamps": "d1da46eb91f9a002250640b228f660480665c262"
+    },
+    "warmups": {
+      "v1": {
+        "returncode": 0,
+        "wall_s": 1.8648,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 195,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.101,
+            "dur_s": 0.101
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.997,
+            "dur_s": 0.896
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 1.149,
+            "dur_s": 0.152
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.361,
+            "dur_s": 0.212
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.668,
+            "dur_s": 0.307
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.719,
+            "dur_s": 0.051
+          }
+        ],
+        "time_real_s": 1.8,
+        "user_s": 10.35,
+        "sys_s": 1.12,
+        "max_rss_bytes": 6472581120,
+        "page_reclaims": 378240,
+        "page_faults": 38334,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 10,
+        "ivcsw": 31016,
+        "instructions": 93168170130,
+        "cycles": 48489999224,
+        "peak_footprint_bytes": 4086043472,
+        "cpu_util": 0.7688
+      },
+      "v2": {
+        "returncode": 0,
+        "wall_s": 1.64,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 273,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.101,
+            "dur_s": 0.101,
+            "cpu_s": 0.121,
+            "parallelism": 1.198
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.823,
+            "dur_s": 0.722,
+            "cpu_s": 5.688,
+            "parallelism": 7.878
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.974,
+            "dur_s": 0.151,
+            "cpu_s": 1.111,
+            "parallelism": 7.358
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.187,
+            "dur_s": 0.213,
+            "cpu_s": 1.462,
+            "parallelism": 6.864
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.479,
+            "dur_s": 0.292,
+            "cpu_s": 2.306,
+            "parallelism": 7.897
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.529,
+            "dur_s": 0.05,
+            "cpu_s": 0.288,
+            "parallelism": 5.76
+          }
+        ],
+        "time_real_s": 1.58,
+        "user_s": 10.21,
+        "sys_s": 0.81,
+        "max_rss_bytes": 6459457536,
+        "page_reclaims": 416312,
+        "page_faults": 94,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 1,
+        "ivcsw": 4909,
+        "instructions": 91746307167,
+        "cycles": 46540167921,
+        "peak_footprint_bytes": 4076278584,
+        "cpu_util": 0.8399
+      },
+      "window-timestamps": {
+        "returncode": 0,
+        "wall_s": 1.5436,
+        "ncpu": 8,
+        "stdout_bytes": 0,
+        "stderr_bytes": 273,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.107,
+            "dur_s": 0.107,
+            "cpu_s": 0.125,
+            "parallelism": 1.168
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.763,
+            "dur_s": 0.656,
+            "cpu_s": 5.182,
+            "parallelism": 7.899
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.904,
+            "dur_s": 0.141,
+            "cpu_s": 1.057,
+            "parallelism": 7.496
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 1.114,
+            "dur_s": 0.21,
+            "cpu_s": 1.447,
+            "parallelism": 6.89
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.426,
+            "dur_s": 0.312,
+            "cpu_s": 2.294,
+            "parallelism": 7.353
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 1.468,
+            "dur_s": 0.042,
+            "cpu_s": 0.271,
+            "parallelism": 6.452
+          }
+        ],
+        "time_real_s": 1.52,
+        "user_s": 9.64,
+        "sys_s": 0.78,
+        "max_rss_bytes": 6457769984,
+        "page_reclaims": 416754,
+        "page_faults": 0,
+        "block_in": 0,
+        "block_out": 0,
+        "vcsw": 1,
+        "ivcsw": 4377,
+        "instructions": 79791162197,
+        "cycles": 43925744182,
+        "peak_footprint_bytes": 4082357048,
+        "cpu_util": 0.8438
+      }
+    },
+    "runs": {
+      "v1": [
+        {
+          "returncode": 0,
+          "wall_s": 1.6556,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 195,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.102,
+              "dur_s": 0.102
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.815,
+              "dur_s": 0.713
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.964,
+              "dur_s": 0.149
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.174,
+              "dur_s": 0.21
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.486,
+              "dur_s": 0.312
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.532,
+              "dur_s": 0.046
+            }
+          ],
+          "time_real_s": 1.62,
+          "user_s": 10.32,
+          "sys_s": 0.85,
+          "max_rss_bytes": 6450266112,
+          "page_reclaims": 416682,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 4,
+          "ivcsw": 7194,
+          "instructions": 91864278617,
+          "cycles": 47182379339,
+          "peak_footprint_bytes": 4089189200,
+          "cpu_util": 0.8434
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.8446,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 195,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.133,
+              "dur_s": 0.133
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.977,
+              "dur_s": 0.844
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.156,
+              "dur_s": 0.179
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.376,
+              "dur_s": 0.22
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.691,
+              "dur_s": 0.315
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.745,
+              "dur_s": 0.054
+            }
+          ],
+          "time_real_s": 1.83,
+          "user_s": 11.33,
+          "sys_s": 0.95,
+          "max_rss_bytes": 6472335360,
+          "page_reclaims": 417464,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 10,
+          "ivcsw": 16585,
+          "instructions": 92072116732,
+          "cycles": 51514292352,
+          "peak_footprint_bytes": 4083520312,
+          "cpu_util": 0.8322
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.7617,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 195,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.104,
+              "dur_s": 0.104
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.857,
+              "dur_s": 0.753
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.032,
+              "dur_s": 0.175
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.253,
+              "dur_s": 0.221
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.578,
+              "dur_s": 0.325
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.623,
+              "dur_s": 0.045
+            }
+          ],
+          "time_real_s": 1.71,
+          "user_s": 10.82,
+          "sys_s": 0.9,
+          "max_rss_bytes": 6457606144,
+          "page_reclaims": 414576,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 2,
+          "ivcsw": 14152,
+          "instructions": 91933595527,
+          "cycles": 49125877249,
+          "peak_footprint_bytes": 4078015312,
+          "cpu_util": 0.8316
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.6476,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 195,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.104,
+              "dur_s": 0.104
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.823,
+              "dur_s": 0.719
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.973,
+              "dur_s": 0.15
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.184,
+              "dur_s": 0.211
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.479,
+              "dur_s": 0.295
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.523,
+              "dur_s": 0.044
+            }
+          ],
+          "time_real_s": 1.61,
+          "user_s": 10.24,
+          "sys_s": 0.8,
+          "max_rss_bytes": 6476922880,
+          "page_reclaims": 415760,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 3,
+          "ivcsw": 3712,
+          "instructions": 91733043046,
+          "cycles": 46208405941,
+          "peak_footprint_bytes": 4069839720,
+          "cpu_util": 0.8376
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.6453,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 195,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.098,
+              "dur_s": 0.098
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.811,
+              "dur_s": 0.713
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.964,
+              "dur_s": 0.153
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.178,
+              "dur_s": 0.214
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.488,
+              "dur_s": 0.31
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.532,
+              "dur_s": 0.044
+            }
+          ],
+          "time_real_s": 1.61,
+          "user_s": 10.21,
+          "sys_s": 0.83,
+          "max_rss_bytes": 6482673664,
+          "page_reclaims": 419696,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 3,
+          "ivcsw": 4256,
+          "instructions": 91843064609,
+          "cycles": 45935355542,
+          "peak_footprint_bytes": 4101477200,
+          "cpu_util": 0.8387
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.6377,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 195,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.109,
+              "dur_s": 0.109
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.84,
+              "dur_s": 0.731
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.998,
+              "dur_s": 0.158
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.21,
+              "dur_s": 0.212
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.507,
+              "dur_s": 0.297
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.551,
+              "dur_s": 0.044
+            }
+          ],
+          "time_real_s": 1.61,
+          "user_s": 10.39,
+          "sys_s": 0.8,
+          "max_rss_bytes": 6490554368,
+          "page_reclaims": 415039,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 2,
+          "ivcsw": 5131,
+          "instructions": 91525535131,
+          "cycles": 46791223262,
+          "peak_footprint_bytes": 4152152936,
+          "cpu_util": 0.8541
+        }
+      ],
+      "v2": [
+        {
+          "returncode": 0,
+          "wall_s": 1.6939,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 273,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.105,
+              "dur_s": 0.105,
+              "cpu_s": 0.123,
+              "parallelism": 1.171
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.851,
+              "dur_s": 0.746,
+              "cpu_s": 5.854,
+              "parallelism": 7.847
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.018,
+              "dur_s": 0.167,
+              "cpu_s": 1.215,
+              "parallelism": 7.275
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.233,
+              "dur_s": 0.215,
+              "cpu_s": 1.486,
+              "parallelism": 6.912
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.539,
+              "dur_s": 0.306,
+              "cpu_s": 2.386,
+              "parallelism": 7.797
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.583,
+              "dur_s": 0.044,
+              "cpu_s": 0.274,
+              "parallelism": 6.227
+            }
+          ],
+          "time_real_s": 1.64,
+          "user_s": 10.54,
+          "sys_s": 0.84,
+          "max_rss_bytes": 6451806208,
+          "page_reclaims": 414864,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 9,
+          "ivcsw": 12012,
+          "instructions": 91773904741,
+          "cycles": 47882925691,
+          "peak_footprint_bytes": 4081849192,
+          "cpu_util": 0.8398
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.7519,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 273,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.111,
+              "dur_s": 0.111,
+              "cpu_s": 0.13,
+              "parallelism": 1.171
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.871,
+              "dur_s": 0.76,
+              "cpu_s": 5.939,
+              "parallelism": 7.814
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.051,
+              "dur_s": 0.18,
+              "cpu_s": 1.34,
+              "parallelism": 7.444
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.283,
+              "dur_s": 0.232,
+              "cpu_s": 1.564,
+              "parallelism": 6.741
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.623,
+              "dur_s": 0.34,
+              "cpu_s": 2.531,
+              "parallelism": 7.444
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.67,
+              "dur_s": 0.047,
+              "cpu_s": 0.294,
+              "parallelism": 6.255
+            }
+          ],
+          "time_real_s": 1.73,
+          "user_s": 10.93,
+          "sys_s": 0.92,
+          "max_rss_bytes": 6497468416,
+          "page_reclaims": 418493,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 4,
+          "ivcsw": 13607,
+          "instructions": 91909869746,
+          "cycles": 49495693418,
+          "peak_footprint_bytes": 4084847440,
+          "cpu_util": 0.8455
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.6941,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 273,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.128,
+              "dur_s": 0.128,
+              "cpu_s": 0.147,
+              "parallelism": 1.148
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.884,
+              "dur_s": 0.756,
+              "cpu_s": 5.943,
+              "parallelism": 7.861
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.033,
+              "dur_s": 0.149,
+              "cpu_s": 1.13,
+              "parallelism": 7.584
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.244,
+              "dur_s": 0.211,
+              "cpu_s": 1.484,
+              "parallelism": 7.033
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.543,
+              "dur_s": 0.299,
+              "cpu_s": 2.356,
+              "parallelism": 7.88
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.587,
+              "dur_s": 0.044,
+              "cpu_s": 0.278,
+              "parallelism": 6.318
+            }
+          ],
+          "time_real_s": 1.64,
+          "user_s": 10.56,
+          "sys_s": 0.81,
+          "max_rss_bytes": 6452051968,
+          "page_reclaims": 414383,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 3,
+          "ivcsw": 9814,
+          "instructions": 91671618175,
+          "cycles": 47607832102,
+          "peak_footprint_bytes": 4060894008,
+          "cpu_util": 0.8389
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.6041,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 273,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.109,
+              "dur_s": 0.109,
+              "cpu_s": 0.127,
+              "parallelism": 1.165
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.823,
+              "dur_s": 0.714,
+              "cpu_s": 5.636,
+              "parallelism": 7.894
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.975,
+              "dur_s": 0.152,
+              "cpu_s": 1.117,
+              "parallelism": 7.349
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.192,
+              "dur_s": 0.217,
+              "cpu_s": 1.512,
+              "parallelism": 6.968
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.492,
+              "dur_s": 0.3,
+              "cpu_s": 2.368,
+              "parallelism": 7.893
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.537,
+              "dur_s": 0.045,
+              "cpu_s": 0.286,
+              "parallelism": 6.356
+            }
+          ],
+          "time_real_s": 1.59,
+          "user_s": 10.27,
+          "sys_s": 0.82,
+          "max_rss_bytes": 6472826880,
+          "page_reclaims": 416817,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 6,
+          "ivcsw": 4468,
+          "instructions": 91746022638,
+          "cycles": 46244912743,
+          "peak_footprint_bytes": 4090925880,
+          "cpu_util": 0.8642
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.6026,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 273,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.096,
+              "dur_s": 0.096,
+              "cpu_s": 0.113,
+              "parallelism": 1.177
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.805,
+              "dur_s": 0.709,
+              "cpu_s": 5.615,
+              "parallelism": 7.92
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.955,
+              "dur_s": 0.15,
+              "cpu_s": 1.106,
+              "parallelism": 7.373
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.165,
+              "dur_s": 0.21,
+              "cpu_s": 1.459,
+              "parallelism": 6.948
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.468,
+              "dur_s": 0.303,
+              "cpu_s": 2.343,
+              "parallelism": 7.733
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.513,
+              "dur_s": 0.045,
+              "cpu_s": 0.29,
+              "parallelism": 6.444
+            }
+          ],
+          "time_real_s": 1.57,
+          "user_s": 10.18,
+          "sys_s": 0.8,
+          "max_rss_bytes": 6460178432,
+          "page_reclaims": 416148,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 5,
+          "ivcsw": 3935,
+          "instructions": 91621170694,
+          "cycles": 45908795954,
+          "peak_footprint_bytes": 4088124216,
+          "cpu_util": 0.8564
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.6437,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 273,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.099,
+              "dur_s": 0.099,
+              "cpu_s": 0.118,
+              "parallelism": 1.192
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.813,
+              "dur_s": 0.714,
+              "cpu_s": 5.627,
+              "parallelism": 7.881
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.964,
+              "dur_s": 0.151,
+              "cpu_s": 1.103,
+              "parallelism": 7.305
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.176,
+              "dur_s": 0.212,
+              "cpu_s": 1.476,
+              "parallelism": 6.962
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.504,
+              "dur_s": 0.328,
+              "cpu_s": 2.415,
+              "parallelism": 7.363
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.553,
+              "dur_s": 0.049,
+              "cpu_s": 0.294,
+              "parallelism": 6.0
+            }
+          ],
+          "time_real_s": 1.61,
+          "user_s": 10.27,
+          "sys_s": 0.81,
+          "max_rss_bytes": 6449561600,
+          "page_reclaims": 415702,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 6,
+          "ivcsw": 4864,
+          "instructions": 91650325792,
+          "cycles": 46353090694,
+          "peak_footprint_bytes": 4093580136,
+          "cpu_util": 0.8426
+        }
+      ],
+      "window-timestamps": [
+        {
+          "returncode": 0,
+          "wall_s": 1.697,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 273,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.106,
+              "dur_s": 0.106,
+              "cpu_s": 0.125,
+              "parallelism": 1.179
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.841,
+              "dur_s": 0.735,
+              "cpu_s": 5.746,
+              "parallelism": 7.818
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.986,
+              "dur_s": 0.145,
+              "cpu_s": 1.086,
+              "parallelism": 7.49
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.207,
+              "dur_s": 0.221,
+              "cpu_s": 1.518,
+              "parallelism": 6.869
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.543,
+              "dur_s": 0.336,
+              "cpu_s": 2.587,
+              "parallelism": 7.699
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.6,
+              "dur_s": 0.057,
+              "cpu_s": 0.312,
+              "parallelism": 5.474
+            }
+          ],
+          "time_real_s": 1.66,
+          "user_s": 10.49,
+          "sys_s": 0.93,
+          "max_rss_bytes": 6473875456,
+          "page_reclaims": 417060,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 5,
+          "ivcsw": 14498,
+          "instructions": 80012210904,
+          "cycles": 47826724111,
+          "peak_footprint_bytes": 4094727016,
+          "cpu_util": 0.8412
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.841,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 273,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.128,
+              "dur_s": 0.128,
+              "cpu_s": 0.148,
+              "parallelism": 1.156
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.921,
+              "dur_s": 0.793,
+              "cpu_s": 6.163,
+              "parallelism": 7.772
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.099,
+              "dur_s": 0.178,
+              "cpu_s": 1.309,
+              "parallelism": 7.354
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.344,
+              "dur_s": 0.245,
+              "cpu_s": 1.682,
+              "parallelism": 6.865
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.685,
+              "dur_s": 0.341,
+              "cpu_s": 2.512,
+              "parallelism": 7.367
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.735,
+              "dur_s": 0.05,
+              "cpu_s": 0.303,
+              "parallelism": 6.06
+            }
+          ],
+          "time_real_s": 1.79,
+          "user_s": 11.16,
+          "sys_s": 0.99,
+          "max_rss_bytes": 6461177856,
+          "page_reclaims": 415176,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 1,
+          "ivcsw": 17123,
+          "instructions": 80066895219,
+          "cycles": 50709007684,
+          "peak_footprint_bytes": 4074001232,
+          "cpu_util": 0.825
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.6625,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 273,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.12,
+              "dur_s": 0.12,
+              "cpu_s": 0.139,
+              "parallelism": 1.158
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.85,
+              "dur_s": 0.73,
+              "cpu_s": 5.611,
+              "parallelism": 7.686
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.994,
+              "dur_s": 0.144,
+              "cpu_s": 1.081,
+              "parallelism": 7.507
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.205,
+              "dur_s": 0.211,
+              "cpu_s": 1.475,
+              "parallelism": 6.991
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.512,
+              "dur_s": 0.307,
+              "cpu_s": 2.428,
+              "parallelism": 7.909
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.557,
+              "dur_s": 0.045,
+              "cpu_s": 0.287,
+              "parallelism": 6.378
+            }
+          ],
+          "time_real_s": 1.61,
+          "user_s": 10.22,
+          "sys_s": 0.85,
+          "max_rss_bytes": 6476742656,
+          "page_reclaims": 417009,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 3,
+          "ivcsw": 11284,
+          "instructions": 79827289994,
+          "cycles": 46109328313,
+          "peak_footprint_bytes": 4076999504,
+          "cpu_util": 0.8324
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.5554,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 273,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.101,
+              "dur_s": 0.101,
+              "cpu_s": 0.12,
+              "parallelism": 1.188
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.766,
+              "dur_s": 0.665,
+              "cpu_s": 5.244,
+              "parallelism": 7.886
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.907,
+              "dur_s": 0.141,
+              "cpu_s": 1.058,
+              "parallelism": 7.504
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.122,
+              "dur_s": 0.215,
+              "cpu_s": 1.506,
+              "parallelism": 7.005
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.44,
+              "dur_s": 0.318,
+              "cpu_s": 2.357,
+              "parallelism": 7.412
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.482,
+              "dur_s": 0.042,
+              "cpu_s": 0.27,
+              "parallelism": 6.429
+            }
+          ],
+          "time_real_s": 1.53,
+          "user_s": 9.8,
+          "sys_s": 0.79,
+          "max_rss_bytes": 6463143936,
+          "page_reclaims": 416559,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 7,
+          "ivcsw": 3846,
+          "instructions": 79764239086,
+          "cycles": 43927658942,
+          "peak_footprint_bytes": 4065383248,
+          "cpu_util": 0.8511
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.5957,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 273,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.101,
+              "dur_s": 0.101,
+              "cpu_s": 0.12,
+              "parallelism": 1.188
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.765,
+              "dur_s": 0.664,
+              "cpu_s": 5.234,
+              "parallelism": 7.883
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.91,
+              "dur_s": 0.145,
+              "cpu_s": 1.085,
+              "parallelism": 7.483
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.126,
+              "dur_s": 0.216,
+              "cpu_s": 1.506,
+              "parallelism": 6.972
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.44,
+              "dur_s": 0.314,
+              "cpu_s": 2.386,
+              "parallelism": 7.599
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.485,
+              "dur_s": 0.045,
+              "cpu_s": 0.287,
+              "parallelism": 6.378
+            }
+          ],
+          "time_real_s": 1.54,
+          "user_s": 9.85,
+          "sys_s": 0.81,
+          "max_rss_bytes": 6473465856,
+          "page_reclaims": 416892,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 7,
+          "ivcsw": 5086,
+          "instructions": 79834044334,
+          "cycles": 44471421845,
+          "peak_footprint_bytes": 4099363664,
+          "cpu_util": 0.8351
+        },
+        {
+          "returncode": 0,
+          "wall_s": 1.5437,
+          "ncpu": 8,
+          "stdout_bytes": 0,
+          "stderr_bytes": 273,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.103,
+              "dur_s": 0.103,
+              "cpu_s": 0.124,
+              "parallelism": 1.204
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.76,
+              "dur_s": 0.657,
+              "cpu_s": 5.19,
+              "parallelism": 7.9
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.9,
+              "dur_s": 0.14,
+              "cpu_s": 1.058,
+              "parallelism": 7.557
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.109,
+              "dur_s": 0.209,
+              "cpu_s": 1.469,
+              "parallelism": 7.029
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.422,
+              "dur_s": 0.313,
+              "cpu_s": 2.346,
+              "parallelism": 7.495
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.464,
+              "dur_s": 0.042,
+              "cpu_s": 0.272,
+              "parallelism": 6.476
+            }
+          ],
+          "time_real_s": 1.52,
+          "user_s": 9.72,
+          "sys_s": 0.78,
+          "max_rss_bytes": 6462226432,
+          "page_reclaims": 416219,
+          "page_faults": 0,
+          "block_in": 0,
+          "block_out": 0,
+          "vcsw": 3,
+          "ivcsw": 3525,
+          "instructions": 79705392108,
+          "cycles": 43569941214,
+          "peak_footprint_bytes": 4088632168,
+          "cpu_util": 0.8503
+        }
+      ]
+    },
+    "summary": {
+      "v1": {
+        "wall_s": {
+          "n": 6,
+          "median": 1.6516,
+          "mean": 1.69875,
+          "min": 1.6377,
+          "max": 1.8446,
+          "p90": 1.8446,
+          "stdev": 0.085202,
+          "cv": 0.0516,
+          "samples": [
+            1.6556,
+            1.8446,
+            1.7617,
+            1.6476,
+            1.6453,
+            1.6377
+          ]
+        },
+        "user_s": {
+          "n": 6,
+          "median": 10.355,
+          "mean": 10.551667,
+          "min": 10.21,
+          "max": 11.33,
+          "p90": 11.33,
+          "stdev": 0.440791,
+          "cv": 0.0426,
+          "samples": [
+            10.32,
+            11.33,
+            10.82,
+            10.24,
+            10.21,
+            10.39
+          ]
+        },
+        "sys_s": {
+          "n": 6,
+          "median": 0.84,
+          "mean": 0.855,
+          "min": 0.8,
+          "max": 0.95,
+          "p90": 0.95,
+          "stdev": 0.059582,
+          "cv": 0.0709,
+          "samples": [
+            0.85,
+            0.95,
+            0.9,
+            0.8,
+            0.83,
+            0.8
+          ]
+        },
+        "cpu_util": {
+          "n": 6,
+          "median": 0.83815,
+          "mean": 0.8396,
+          "min": 0.8316,
+          "max": 0.8541,
+          "p90": 0.8541,
+          "stdev": 0.008346,
+          "cv": 0.01,
+          "samples": [
+            0.8434,
+            0.8322,
+            0.8316,
+            0.8376,
+            0.8387,
+            0.8541
+          ]
+        },
+        "max_rss_bytes": {
+          "n": 6,
+          "median": 6474629120.0,
+          "mean": 6471726421.333333,
+          "min": 6450266112,
+          "max": 6490554368,
+          "p90": 6490554368,
+          "stdev": 15242275.389931,
+          "cv": 0.0024,
+          "samples": [
+            6450266112,
+            6472335360,
+            6457606144,
+            6476922880,
+            6482673664,
+            6490554368
+          ]
+        },
+        "peak_footprint_bytes": {
+          "n": 6,
+          "median": 4086354756.0,
+          "mean": 4095699113.333333,
+          "min": 4069839720,
+          "max": 4152152936,
+          "p90": 4152152936,
+          "stdev": 29639661.286513,
+          "cv": 0.0073,
+          "samples": [
+            4089189200,
+            4083520312,
+            4078015312,
+            4069839720,
+            4101477200,
+            4152152936
+          ]
+        },
+        "page_reclaims": {
+          "n": 6,
+          "median": 416221.0,
+          "mean": 416536.166667,
+          "min": 414576,
+          "max": 419696,
+          "p90": 419696,
+          "stdev": 1873.653374,
+          "cv": 0.0045,
+          "samples": [
+            416682,
+            417464,
+            414576,
+            415760,
+            419696,
+            415039
+          ]
+        },
+        "page_faults": {
+          "n": 6,
+          "median": 0.0,
+          "mean": 0.0,
+          "min": 0,
+          "max": 0,
+          "p90": 0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "vcsw": {
+          "n": 6,
+          "median": 3.0,
+          "mean": 4.0,
+          "min": 2,
+          "max": 10,
+          "p90": 10,
+          "stdev": 3.03315,
+          "cv": 1.0111,
+          "samples": [
+            4,
+            10,
+            2,
+            3,
+            3,
+            2
+          ]
+        },
+        "ivcsw": {
+          "n": 6,
+          "median": 6162.5,
+          "mean": 8505.0,
+          "min": 3712,
+          "max": 16585,
+          "p90": 16585,
+          "stdev": 5500.99002,
+          "cv": 0.8927,
+          "samples": [
+            7194,
+            16585,
+            14152,
+            3712,
+            4256,
+            5131
+          ]
+        },
+        "instructions": {
+          "n": 6,
+          "median": 91853671613.0,
+          "mean": 91828605610.33333,
+          "min": 91525535131,
+          "max": 92072116732,
+          "p90": 92072116732,
+          "stdev": 185895720.32159,
+          "cv": 0.002,
+          "samples": [
+            91864278617,
+            92072116732,
+            91933595527,
+            91733043046,
+            91843064609,
+            91525535131
+          ]
+        },
+        "cycles": {
+          "n": 6,
+          "median": 46986801300.5,
+          "mean": 47792922280.833336,
+          "min": 45935355542,
+          "max": 51514292352,
+          "p90": 51514292352,
+          "stdev": 2143024684.05327,
+          "cv": 0.0456,
+          "samples": [
+            47182379339,
+            51514292352,
+            49125877249,
+            46208405941,
+            45935355542,
+            46791223262
+          ]
+        },
+        "stdout_bytes": {
+          "n": 6,
+          "median": 0.0,
+          "mean": 0.0,
+          "min": 0,
+          "max": 0,
+          "p90": 0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "instructions_per_row": {
+          "n": 6,
+          "median": 4270.705882,
+          "mean": 4269.540447,
+          "min": 4255.449286,
+          "max": 4280.862415,
+          "p90": 4280.862415,
+          "stdev": 8.64316,
+          "cv": 0.002,
+          "samples": [
+            4271.199051,
+            4280.862415,
+            4274.421918,
+            4265.097297,
+            4270.212713,
+            4255.449286
+          ]
+        },
+        "cycles_per_row": {
+          "n": 6,
+          "median": 2184.635684,
+          "mean": 2222.11601,
+          "min": 2135.749063,
+          "max": 2395.139873,
+          "p90": 2395.139873,
+          "stdev": 99.639219,
+          "cv": 0.0456,
+          "samples": [
+            2193.72902,
+            2395.139873,
+            2284.091308,
+            2148.444451,
+            2135.749063,
+            2175.542348
+          ]
+        },
+        "ipc": {
+          "n": 6,
+          "median": 1.951522,
+          "mean": 1.924391,
+          "min": 1.787312,
+          "max": 1.999398,
+          "p90": 1.999398,
+          "stdev": 0.080544,
+          "cv": 0.0413,
+          "samples": [
+            1.947004,
+            1.787312,
+            1.871388,
+            1.985203,
+            1.999398,
+            1.956041
+          ]
+        },
+        "last_mark_s": {
+          "n": 6,
+          "median": 1.5415,
+          "mean": 1.584333,
+          "min": 1.523,
+          "max": 1.745,
+          "p90": 1.745,
+          "stdev": 0.086786,
+          "cv": 0.0563,
+          "samples": [
+            1.532,
+            1.745,
+            1.623,
+            1.523,
+            1.532,
+            1.551
+          ]
+        },
+        "phases": {
+          "lookups": {
+            "n": 6,
+            "median": 0.104,
+            "mean": 0.108333,
+            "min": 0.098,
+            "max": 0.133,
+            "p90": 0.133,
+            "stdev": 0.012596,
+            "cv": 0.1211,
+            "samples": [
+              0.102,
+              0.133,
+              0.104,
+              0.104,
+              0.098,
+              0.109
+            ]
+          },
+          "events parsed": {
+            "n": 6,
+            "median": 0.725,
+            "mean": 0.7455,
+            "min": 0.713,
+            "max": 0.844,
+            "p90": 0.844,
+            "stdev": 0.050564,
+            "cv": 0.0697,
+            "samples": [
+              0.713,
+              0.844,
+              0.753,
+              0.719,
+              0.713,
+              0.731
+            ]
+          },
+          "clicks parsed": {
+            "n": 6,
+            "median": 0.1555,
+            "mean": 0.160667,
+            "min": 0.149,
+            "max": 0.179,
+            "p90": 0.179,
+            "stdev": 0.013095,
+            "cv": 0.0842,
+            "samples": [
+              0.149,
+              0.179,
+              0.175,
+              0.15,
+              0.153,
+              0.158
+            ]
+          },
+          "events deduped": {
+            "n": 6,
+            "median": 0.213,
+            "mean": 0.214667,
+            "min": 0.21,
+            "max": 0.221,
+            "p90": 0.221,
+            "stdev": 0.004719,
+            "cv": 0.0222,
+            "samples": [
+              0.21,
+              0.22,
+              0.221,
+              0.211,
+              0.214,
+              0.212
+            ]
+          },
+          "sessions + attribution": {
+            "n": 6,
+            "median": 0.311,
+            "mean": 0.309,
+            "min": 0.295,
+            "max": 0.325,
+            "p90": 0.325,
+            "stdev": 0.011331,
+            "cv": 0.0364,
+            "samples": [
+              0.312,
+              0.315,
+              0.325,
+              0.295,
+              0.31,
+              0.297
+            ]
+          },
+          "written": {
+            "n": 6,
+            "median": 0.0445,
+            "mean": 0.046167,
+            "min": 0.044,
+            "max": 0.054,
+            "p90": 0.054,
+            "stdev": 0.00392,
+            "cv": 0.0881,
+            "samples": [
+              0.046,
+              0.054,
+              0.045,
+              0.044,
+              0.044,
+              0.044
+            ]
+          },
+          "(after last mark: exit/unmap + spawn)": {
+            "n": 6,
+            "median": 0.11845,
+            "mean": 0.114417,
+            "min": 0.0867,
+            "max": 0.1387,
+            "p90": 0.1387,
+            "stdev": 0.018797,
+            "cv": 0.1587,
+            "samples": [
+              0.1236,
+              0.0996,
+              0.1387,
+              0.1246,
+              0.1133,
+              0.0867
+            ]
+          }
+        }
+      },
+      "v2": {
+        "wall_s": {
+          "n": 6,
+          "median": 1.6688,
+          "mean": 1.66505,
+          "min": 1.6026,
+          "max": 1.7519,
+          "p90": 1.7519,
+          "stdev": 0.058805,
+          "cv": 0.0352,
+          "samples": [
+            1.6939,
+            1.7519,
+            1.6941,
+            1.6041,
+            1.6026,
+            1.6437
+          ]
+        },
+        "user_s": {
+          "n": 6,
+          "median": 10.405,
+          "mean": 10.458333,
+          "min": 10.18,
+          "max": 10.93,
+          "p90": 10.93,
+          "stdev": 0.278526,
+          "cv": 0.0268,
+          "samples": [
+            10.54,
+            10.93,
+            10.56,
+            10.27,
+            10.18,
+            10.27
+          ]
+        },
+        "sys_s": {
+          "n": 6,
+          "median": 0.815,
+          "mean": 0.833333,
+          "min": 0.8,
+          "max": 0.92,
+          "p90": 0.92,
+          "stdev": 0.044572,
+          "cv": 0.0547,
+          "samples": [
+            0.84,
+            0.92,
+            0.81,
+            0.82,
+            0.8,
+            0.81
+          ]
+        },
+        "cpu_util": {
+          "n": 6,
+          "median": 0.84405,
+          "mean": 0.8479,
+          "min": 0.8389,
+          "max": 0.8642,
+          "p90": 0.8642,
+          "stdev": 0.010182,
+          "cv": 0.0121,
+          "samples": [
+            0.8398,
+            0.8455,
+            0.8389,
+            0.8642,
+            0.8564,
+            0.8426
+          ]
+        },
+        "max_rss_bytes": {
+          "n": 6,
+          "median": 6456115200.0,
+          "mean": 6463982250.666667,
+          "min": 6449561600,
+          "max": 6497468416,
+          "p90": 6497468416,
+          "stdev": 18507093.766453,
+          "cv": 0.0029,
+          "samples": [
+            6451806208,
+            6497468416,
+            6452051968,
+            6472826880,
+            6460178432,
+            6449561600
+          ]
+        },
+        "peak_footprint_bytes": {
+          "n": 6,
+          "median": 4086485828.0,
+          "mean": 4083370145.333333,
+          "min": 4060894008,
+          "max": 4093580136,
+          "p90": 4093580136,
+          "stdev": 11778002.136792,
+          "cv": 0.0029,
+          "samples": [
+            4081849192,
+            4084847440,
+            4060894008,
+            4090925880,
+            4088124216,
+            4093580136
+          ]
+        },
+        "page_reclaims": {
+          "n": 6,
+          "median": 415925.0,
+          "mean": 416067.833333,
+          "min": 414383,
+          "max": 418493,
+          "p90": 418493,
+          "stdev": 1474.504855,
+          "cv": 0.0035,
+          "samples": [
+            414864,
+            418493,
+            414383,
+            416817,
+            416148,
+            415702
+          ]
+        },
+        "page_faults": {
+          "n": 6,
+          "median": 0.0,
+          "mean": 0.0,
+          "min": 0,
+          "max": 0,
+          "p90": 0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "vcsw": {
+          "n": 6,
+          "median": 5.5,
+          "mean": 5.5,
+          "min": 3,
+          "max": 9,
+          "p90": 9,
+          "stdev": 2.073644,
+          "cv": 0.377,
+          "samples": [
+            9,
+            4,
+            3,
+            6,
+            5,
+            6
+          ]
+        },
+        "ivcsw": {
+          "n": 6,
+          "median": 7339.0,
+          "mean": 8116.666667,
+          "min": 3935,
+          "max": 13607,
+          "p90": 13607,
+          "stdev": 4232.665055,
+          "cv": 0.5767,
+          "samples": [
+            12012,
+            13607,
+            9814,
+            4468,
+            3935,
+            4864
+          ]
+        },
+        "instructions": {
+          "n": 6,
+          "median": 91708820406.5,
+          "mean": 91728818631.0,
+          "min": 91621170694,
+          "max": 91909869746,
+          "p90": 91909869746,
+          "stdev": 105952194.593387,
+          "cv": 0.0012,
+          "samples": [
+            91773904741,
+            91909869746,
+            91671618175,
+            91746022638,
+            91621170694,
+            91650325792
+          ]
+        },
+        "cycles": {
+          "n": 6,
+          "median": 46980461398.0,
+          "mean": 47248875100.333336,
+          "min": 45908795954,
+          "max": 49495693418,
+          "p90": 49495693418,
+          "stdev": 1355377812.211967,
+          "cv": 0.0288,
+          "samples": [
+            47882925691,
+            49495693418,
+            47607832102,
+            46244912743,
+            45908795954,
+            46353090694
+          ]
+        },
+        "stdout_bytes": {
+          "n": 6,
+          "median": 0.0,
+          "mean": 0.0,
+          "min": 0,
+          "max": 0,
+          "p90": 0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "instructions_per_row": {
+          "n": 6,
+          "median": 4263.971074,
+          "mean": 4264.900884,
+          "min": 4259.895829,
+          "max": 4273.318796,
+          "p90": 4273.318796,
+          "stdev": 4.926212,
+          "cv": 0.0012,
+          "samples": [
+            4266.997148,
+            4273.318796,
+            4262.241368,
+            4265.700779,
+            4259.895829,
+            4261.251386
+          ]
+        },
+        "cycles_per_row": {
+          "n": 6,
+          "median": 2184.340912,
+          "mean": 2196.820718,
+          "min": 2134.514184,
+          "max": 2301.285788,
+          "p90": 2301.285788,
+          "stdev": 63.01784,
+          "cv": 0.0288,
+          "samples": [
+            2226.300689,
+            2301.285788,
+            2213.510304,
+            2150.141822,
+            2134.514184,
+            2155.17152
+          ]
+        },
+        "ipc": {
+          "n": 6,
+          "median": 1.951389,
+          "mean": 1.942662,
+          "min": 1.856927,
+          "max": 1.995721,
+          "p90": 1.995721,
+          "stdev": 0.052976,
+          "cv": 0.0271,
+          "samples": [
+            1.916631,
+            1.856927,
+            1.925558,
+            1.983916,
+            1.995721,
+            1.977221
+          ]
+        },
+        "last_mark_s": {
+          "n": 6,
+          "median": 1.568,
+          "mean": 1.573833,
+          "min": 1.513,
+          "max": 1.67,
+          "p90": 1.67,
+          "stdev": 0.054766,
+          "cv": 0.0349,
+          "samples": [
+            1.583,
+            1.67,
+            1.587,
+            1.537,
+            1.513,
+            1.553
+          ]
+        },
+        "phases": {
+          "lookups": {
+            "n": 6,
+            "median": 0.107,
+            "mean": 0.108,
+            "min": 0.096,
+            "max": 0.128,
+            "p90": 0.128,
+            "stdev": 0.011349,
+            "cv": 0.1061,
+            "samples": [
+              0.105,
+              0.111,
+              0.128,
+              0.109,
+              0.096,
+              0.099
+            ],
+            "cpu_s": {
+              "n": 6,
+              "median": 0.125,
+              "mean": 0.126333,
+              "min": 0.113,
+              "max": 0.147,
+              "p90": 0.147,
+              "stdev": 0.011827,
+              "cv": 0.0946,
+              "samples": [
+                0.123,
+                0.13,
+                0.147,
+                0.127,
+                0.113,
+                0.118
+              ]
+            },
+            "parallelism": {
+              "n": 6,
+              "median": 1.171,
+              "mean": 1.170667,
+              "min": 1.148,
+              "max": 1.192,
+              "p90": 1.192,
+              "stdev": 0.014431,
+              "cv": 0.0123,
+              "samples": [
+                1.171,
+                1.171,
+                1.148,
+                1.165,
+                1.177,
+                1.192
+              ]
+            }
+          },
+          "events parsed": {
+            "n": 6,
+            "median": 0.73,
+            "mean": 0.733167,
+            "min": 0.709,
+            "max": 0.76,
+            "p90": 0.76,
+            "stdev": 0.023345,
+            "cv": 0.032,
+            "samples": [
+              0.746,
+              0.76,
+              0.756,
+              0.714,
+              0.709,
+              0.714
+            ],
+            "cpu_s": {
+              "n": 6,
+              "median": 5.745,
+              "mean": 5.769,
+              "min": 5.615,
+              "max": 5.943,
+              "p90": 5.943,
+              "stdev": 0.159981,
+              "cv": 0.0278,
+              "samples": [
+                5.854,
+                5.939,
+                5.943,
+                5.636,
+                5.615,
+                5.627
+              ]
+            },
+            "parallelism": {
+              "n": 6,
+              "median": 7.871,
+              "mean": 7.8695,
+              "min": 7.814,
+              "max": 7.92,
+              "p90": 7.92,
+              "stdev": 0.03726,
+              "cv": 0.0047,
+              "samples": [
+                7.847,
+                7.814,
+                7.861,
+                7.894,
+                7.92,
+                7.881
+              ]
+            }
+          },
+          "clicks parsed": {
+            "n": 6,
+            "median": 0.1515,
+            "mean": 0.158167,
+            "min": 0.149,
+            "max": 0.18,
+            "p90": 0.18,
+            "stdev": 0.012608,
+            "cv": 0.0832,
+            "samples": [
+              0.167,
+              0.18,
+              0.149,
+              0.152,
+              0.15,
+              0.151
+            ],
+            "cpu_s": {
+              "n": 6,
+              "median": 1.1235,
+              "mean": 1.1685,
+              "min": 1.103,
+              "max": 1.34,
+              "p90": 1.34,
+              "stdev": 0.093708,
+              "cv": 0.0834,
+              "samples": [
+                1.215,
+                1.34,
+                1.13,
+                1.117,
+                1.106,
+                1.103
+              ]
+            },
+            "parallelism": {
+              "n": 6,
+              "median": 7.361,
+              "mean": 7.388333,
+              "min": 7.275,
+              "max": 7.584,
+              "p90": 7.584,
+              "stdev": 0.11221,
+              "cv": 0.0152,
+              "samples": [
+                7.275,
+                7.444,
+                7.584,
+                7.349,
+                7.373,
+                7.305
+              ]
+            }
+          },
+          "events deduped": {
+            "n": 6,
+            "median": 0.2135,
+            "mean": 0.216167,
+            "min": 0.21,
+            "max": 0.232,
+            "p90": 0.232,
+            "stdev": 0.008183,
+            "cv": 0.0383,
+            "samples": [
+              0.215,
+              0.232,
+              0.211,
+              0.217,
+              0.21,
+              0.212
+            ],
+            "cpu_s": {
+              "n": 6,
+              "median": 1.485,
+              "mean": 1.496833,
+              "min": 1.459,
+              "max": 1.564,
+              "p90": 1.564,
+              "stdev": 0.037118,
+              "cv": 0.025,
+              "samples": [
+                1.486,
+                1.564,
+                1.484,
+                1.512,
+                1.459,
+                1.476
+              ]
+            },
+            "parallelism": {
+              "n": 6,
+              "median": 6.955,
+              "mean": 6.927333,
+              "min": 6.741,
+              "max": 7.033,
+              "p90": 7.033,
+              "stdev": 0.099402,
+              "cv": 0.0143,
+              "samples": [
+                6.912,
+                6.741,
+                7.033,
+                6.968,
+                6.948,
+                6.962
+              ]
+            }
+          },
+          "sessions + attribution": {
+            "n": 6,
+            "median": 0.3045,
+            "mean": 0.312667,
+            "min": 0.299,
+            "max": 0.34,
+            "p90": 0.34,
+            "stdev": 0.017131,
+            "cv": 0.0563,
+            "samples": [
+              0.306,
+              0.34,
+              0.299,
+              0.3,
+              0.303,
+              0.328
+            ],
+            "cpu_s": {
+              "n": 6,
+              "median": 2.377,
+              "mean": 2.399833,
+              "min": 2.343,
+              "max": 2.531,
+              "p90": 2.531,
+              "stdev": 0.068979,
+              "cv": 0.029,
+              "samples": [
+                2.386,
+                2.531,
+                2.356,
+                2.368,
+                2.343,
+                2.415
+              ]
+            },
+            "parallelism": {
+              "n": 6,
+              "median": 7.765,
+              "mean": 7.685,
+              "min": 7.363,
+              "max": 7.893,
+              "p90": 7.893,
+              "stdev": 0.227113,
+              "cv": 0.0292,
+              "samples": [
+                7.797,
+                7.444,
+                7.88,
+                7.893,
+                7.733,
+                7.363
+              ]
+            }
+          },
+          "written": {
+            "n": 6,
+            "median": 0.045,
+            "mean": 0.045667,
+            "min": 0.044,
+            "max": 0.049,
+            "p90": 0.049,
+            "stdev": 0.001966,
+            "cv": 0.0437,
+            "samples": [
+              0.044,
+              0.047,
+              0.044,
+              0.045,
+              0.045,
+              0.049
+            ],
+            "cpu_s": {
+              "n": 6,
+              "median": 0.288,
+              "mean": 0.286,
+              "min": 0.274,
+              "max": 0.294,
+              "p90": 0.294,
+              "stdev": 0.00839,
+              "cv": 0.0291,
+              "samples": [
+                0.274,
+                0.294,
+                0.278,
+                0.286,
+                0.29,
+                0.294
+              ]
+            },
+            "parallelism": {
+              "n": 6,
+              "median": 6.2865,
+              "mean": 6.266667,
+              "min": 6.0,
+              "max": 6.444,
+              "p90": 6.444,
+              "stdev": 0.151581,
+              "cv": 0.0241,
+              "samples": [
+                6.227,
+                6.255,
+                6.318,
+                6.356,
+                6.444,
+                6.0
+              ]
+            }
+          },
+          "(after last mark: exit/unmap + spawn)": {
+            "n": 6,
+            "median": 0.09015,
+            "mean": 0.091217,
+            "min": 0.0671,
+            "max": 0.1109,
+            "p90": 0.1109,
+            "stdev": 0.016193,
+            "cv": 0.1796,
+            "samples": [
+              0.1109,
+              0.0819,
+              0.1071,
+              0.0671,
+              0.0896,
+              0.0907
+            ]
+          }
+        }
+      },
+      "window-timestamps": {
+        "wall_s": {
+          "n": 6,
+          "median": 1.6291,
+          "mean": 1.649217,
+          "min": 1.5437,
+          "max": 1.841,
+          "p90": 1.841,
+          "stdev": 0.111391,
+          "cv": 0.0684,
+          "samples": [
+            1.697,
+            1.841,
+            1.6625,
+            1.5554,
+            1.5957,
+            1.5437
+          ]
+        },
+        "user_s": {
+          "n": 6,
+          "median": 10.035,
+          "mean": 10.206667,
+          "min": 9.72,
+          "max": 11.16,
+          "p90": 11.16,
+          "stdev": 0.551132,
+          "cv": 0.0549,
+          "samples": [
+            10.49,
+            11.16,
+            10.22,
+            9.8,
+            9.85,
+            9.72
+          ]
+        },
+        "sys_s": {
+          "n": 6,
+          "median": 0.83,
+          "mean": 0.858333,
+          "min": 0.78,
+          "max": 0.99,
+          "p90": 0.99,
+          "stdev": 0.084479,
+          "cv": 0.1018,
+          "samples": [
+            0.93,
+            0.99,
+            0.85,
+            0.79,
+            0.81,
+            0.78
+          ]
+        },
+        "cpu_util": {
+          "n": 6,
+          "median": 0.83815,
+          "mean": 0.839183,
+          "min": 0.825,
+          "max": 0.8511,
+          "p90": 0.8511,
+          "stdev": 0.01033,
+          "cv": 0.0123,
+          "samples": [
+            0.8412,
+            0.825,
+            0.8324,
+            0.8511,
+            0.8351,
+            0.8503
+          ]
+        },
+        "max_rss_bytes": {
+          "n": 6,
+          "median": 6468304896.0,
+          "mean": 6468438698.666667,
+          "min": 6461177856,
+          "max": 6476742656,
+          "p90": 6476742656,
+          "stdev": 6973276.899904,
+          "cv": 0.0011,
+          "samples": [
+            6473875456,
+            6461177856,
+            6476742656,
+            6463143936,
+            6473465856,
+            6462226432
+          ]
+        },
+        "peak_footprint_bytes": {
+          "n": 6,
+          "median": 4082815836.0,
+          "mean": 4083184472.0,
+          "min": 4065383248,
+          "max": 4099363664,
+          "p90": 4099363664,
+          "stdev": 13146431.222427,
+          "cv": 0.0032,
+          "samples": [
+            4094727016,
+            4074001232,
+            4076999504,
+            4065383248,
+            4099363664,
+            4088632168
+          ]
+        },
+        "page_reclaims": {
+          "n": 6,
+          "median": 416725.5,
+          "mean": 416485.833333,
+          "min": 415176,
+          "max": 417060,
+          "p90": 417060,
+          "stdev": 715.619848,
+          "cv": 0.0017,
+          "samples": [
+            417060,
+            415176,
+            417009,
+            416559,
+            416892,
+            416219
+          ]
+        },
+        "page_faults": {
+          "n": 6,
+          "median": 0.0,
+          "mean": 0.0,
+          "min": 0,
+          "max": 0,
+          "p90": 0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "vcsw": {
+          "n": 6,
+          "median": 4.0,
+          "mean": 4.333333,
+          "min": 1,
+          "max": 7,
+          "p90": 7,
+          "stdev": 2.42212,
+          "cv": 0.6055,
+          "samples": [
+            5,
+            1,
+            3,
+            7,
+            7,
+            3
+          ]
+        },
+        "ivcsw": {
+          "n": 6,
+          "median": 8185.0,
+          "mean": 9227.0,
+          "min": 3525,
+          "max": 17123,
+          "p90": 17123,
+          "stdev": 5881.791428,
+          "cv": 0.7186,
+          "samples": [
+            14498,
+            17123,
+            11284,
+            3846,
+            5086,
+            3525
+          ]
+        },
+        "instructions": {
+          "n": 6,
+          "median": 79830667164.0,
+          "mean": 79868345274.16667,
+          "min": 79705392108,
+          "max": 80066895219,
+          "p90": 80066895219,
+          "stdev": 141685089.790618,
+          "cv": 0.0018,
+          "samples": [
+            80012210904,
+            80066895219,
+            79827289994,
+            79764239086,
+            79834044334,
+            79705392108
+          ]
+        },
+        "cycles": {
+          "n": 6,
+          "median": 45290375079.0,
+          "mean": 46102347018.166664,
+          "min": 43569941214,
+          "max": 50709007684,
+          "p90": 50709007684,
+          "stdev": 2756704985.77447,
+          "cv": 0.0609,
+          "samples": [
+            47826724111,
+            50709007684,
+            46109328313,
+            43927658942,
+            44471421845,
+            43569941214
+          ]
+        },
+        "stdout_bytes": {
+          "n": 6,
+          "median": 0.0,
+          "mean": 0.0,
+          "min": 0,
+          "max": 0,
+          "p90": 0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "instructions_per_row": {
+          "n": 6,
+          "median": 3711.700293,
+          "mean": 3713.452124,
+          "min": 3705.875671,
+          "max": 3722.683638,
+          "p90": 3722.683638,
+          "stdev": 6.587601,
+          "cv": 0.0018,
+          "samples": [
+            3720.141109,
+            3722.683638,
+            3711.543273,
+            3708.611742,
+            3711.857313,
+            3705.875671
+          ]
+        },
+        "cycles_per_row": {
+          "n": 6,
+          "median": 2105.760911,
+          "mean": 2143.513276,
+          "min": 2025.769912,
+          "max": 2357.69843,
+          "p90": 2357.69843,
+          "stdev": 128.172081,
+          "cv": 0.0609,
+          "samples": [
+            2223.687615,
+            2357.69843,
+            2143.837869,
+            2042.401878,
+            2067.683953,
+            2025.769912
+          ]
+        },
+        "ipc": {
+          "n": 6,
+          "median": 1.763219,
+          "mean": 1.737254,
+          "min": 1.578948,
+          "max": 1.829367,
+          "p90": 1.829367,
+          "stdev": 0.097202,
+          "cv": 0.0551,
+          "samples": [
+            1.67296,
+            1.578948,
+            1.731261,
+            1.815809,
+            1.795176,
+            1.829367
+          ]
+        },
+        "last_mark_s": {
+          "n": 6,
+          "median": 1.521,
+          "mean": 1.553833,
+          "min": 1.464,
+          "max": 1.735,
+          "p90": 1.735,
+          "stdev": 0.102889,
+          "cv": 0.0676,
+          "samples": [
+            1.6,
+            1.735,
+            1.557,
+            1.482,
+            1.485,
+            1.464
+          ]
+        },
+        "phases": {
+          "lookups": {
+            "n": 6,
+            "median": 0.1045,
+            "mean": 0.109833,
+            "min": 0.101,
+            "max": 0.128,
+            "p90": 0.128,
+            "stdev": 0.011409,
+            "cv": 0.1092,
+            "samples": [
+              0.106,
+              0.128,
+              0.12,
+              0.101,
+              0.101,
+              0.103
+            ],
+            "cpu_s": {
+              "n": 6,
+              "median": 0.1245,
+              "mean": 0.129333,
+              "min": 0.12,
+              "max": 0.148,
+              "p90": 0.148,
+              "stdev": 0.011518,
+              "cv": 0.0925,
+              "samples": [
+                0.125,
+                0.148,
+                0.139,
+                0.12,
+                0.12,
+                0.124
+              ]
+            },
+            "parallelism": {
+              "n": 6,
+              "median": 1.1835,
+              "mean": 1.178833,
+              "min": 1.156,
+              "max": 1.204,
+              "p90": 1.204,
+              "stdev": 0.018745,
+              "cv": 0.0158,
+              "samples": [
+                1.179,
+                1.156,
+                1.158,
+                1.188,
+                1.188,
+                1.204
+              ]
+            }
+          },
+          "events parsed": {
+            "n": 6,
+            "median": 0.6975,
+            "mean": 0.707333,
+            "min": 0.657,
+            "max": 0.793,
+            "p90": 0.793,
+            "stdev": 0.054445,
+            "cv": 0.0781,
+            "samples": [
+              0.735,
+              0.793,
+              0.73,
+              0.665,
+              0.664,
+              0.657
+            ],
+            "cpu_s": {
+              "n": 6,
+              "median": 5.4275,
+              "mean": 5.531333,
+              "min": 5.19,
+              "max": 6.163,
+              "p90": 6.163,
+              "stdev": 0.384424,
+              "cv": 0.0708,
+              "samples": [
+                5.746,
+                6.163,
+                5.611,
+                5.244,
+                5.234,
+                5.19
+              ]
+            },
+            "parallelism": {
+              "n": 6,
+              "median": 7.8505,
+              "mean": 7.824167,
+              "min": 7.686,
+              "max": 7.9,
+              "p90": 7.9,
+              "stdev": 0.083528,
+              "cv": 0.0106,
+              "samples": [
+                7.818,
+                7.772,
+                7.686,
+                7.886,
+                7.883,
+                7.9
+              ]
+            }
+          },
+          "clicks parsed": {
+            "n": 6,
+            "median": 0.1445,
+            "mean": 0.148833,
+            "min": 0.14,
+            "max": 0.178,
+            "p90": 0.178,
+            "stdev": 0.014442,
+            "cv": 0.0999,
+            "samples": [
+              0.145,
+              0.178,
+              0.144,
+              0.141,
+              0.145,
+              0.14
+            ],
+            "cpu_s": {
+              "n": 6,
+              "median": 1.083,
+              "mean": 1.112833,
+              "min": 1.058,
+              "max": 1.309,
+              "p90": 1.309,
+              "stdev": 0.096957,
+              "cv": 0.0895,
+              "samples": [
+                1.086,
+                1.309,
+                1.081,
+                1.058,
+                1.085,
+                1.058
+              ]
+            },
+            "parallelism": {
+              "n": 6,
+              "median": 7.497,
+              "mean": 7.4825,
+              "min": 7.354,
+              "max": 7.557,
+              "p90": 7.557,
+              "stdev": 0.06809,
+              "cv": 0.0091,
+              "samples": [
+                7.49,
+                7.354,
+                7.507,
+                7.504,
+                7.483,
+                7.557
+              ]
+            }
+          },
+          "events deduped": {
+            "n": 6,
+            "median": 0.2155,
+            "mean": 0.2195,
+            "min": 0.209,
+            "max": 0.245,
+            "p90": 0.245,
+            "stdev": 0.013172,
+            "cv": 0.0611,
+            "samples": [
+              0.221,
+              0.245,
+              0.211,
+              0.215,
+              0.216,
+              0.209
+            ],
+            "cpu_s": {
+              "n": 6,
+              "median": 1.506,
+              "mean": 1.526,
+              "min": 1.469,
+              "max": 1.682,
+              "p90": 1.682,
+              "stdev": 0.078804,
+              "cv": 0.0523,
+              "samples": [
+                1.518,
+                1.682,
+                1.475,
+                1.506,
+                1.506,
+                1.469
+              ]
+            },
+            "parallelism": {
+              "n": 6,
+              "median": 6.9815,
+              "mean": 6.955167,
+              "min": 6.865,
+              "max": 7.029,
+              "p90": 7.029,
+              "stdev": 0.070791,
+              "cv": 0.0101,
+              "samples": [
+                6.869,
+                6.865,
+                6.991,
+                7.005,
+                6.972,
+                7.029
+              ]
+            }
+          },
+          "sessions + attribution": {
+            "n": 6,
+            "median": 0.316,
+            "mean": 0.3215,
+            "min": 0.307,
+            "max": 0.341,
+            "p90": 0.341,
+            "stdev": 0.013722,
+            "cv": 0.0434,
+            "samples": [
+              0.336,
+              0.341,
+              0.307,
+              0.318,
+              0.314,
+              0.313
+            ],
+            "cpu_s": {
+              "n": 6,
+              "median": 2.407,
+              "mean": 2.436,
+              "min": 2.346,
+              "max": 2.587,
+              "p90": 2.587,
+              "stdev": 0.095375,
+              "cv": 0.0396,
+              "samples": [
+                2.587,
+                2.512,
+                2.428,
+                2.357,
+                2.386,
+                2.346
+              ]
+            },
+            "parallelism": {
+              "n": 6,
+              "median": 7.547,
+              "mean": 7.580167,
+              "min": 7.367,
+              "max": 7.909,
+              "p90": 7.909,
+              "stdev": 0.201782,
+              "cv": 0.0267,
+              "samples": [
+                7.699,
+                7.367,
+                7.909,
+                7.412,
+                7.599,
+                7.495
+              ]
+            }
+          },
+          "written": {
+            "n": 6,
+            "median": 0.045,
+            "mean": 0.046833,
+            "min": 0.042,
+            "max": 0.057,
+            "p90": 0.057,
+            "stdev": 0.005776,
+            "cv": 0.1284,
+            "samples": [
+              0.057,
+              0.05,
+              0.045,
+              0.042,
+              0.045,
+              0.042
+            ],
+            "cpu_s": {
+              "n": 6,
+              "median": 0.287,
+              "mean": 0.2885,
+              "min": 0.27,
+              "max": 0.312,
+              "p90": 0.312,
+              "stdev": 0.016622,
+              "cv": 0.0579,
+              "samples": [
+                0.312,
+                0.303,
+                0.287,
+                0.27,
+                0.287,
+                0.272
+              ]
+            },
+            "parallelism": {
+              "n": 6,
+              "median": 6.378,
+              "mean": 6.199167,
+              "min": 5.474,
+              "max": 6.476,
+              "p90": 6.476,
+              "stdev": 0.384358,
+              "cv": 0.0603,
+              "samples": [
+                5.474,
+                6.06,
+                6.378,
+                6.429,
+                6.378,
+                6.476
+              ]
+            }
+          },
+          "(after last mark: exit/unmap + spawn)": {
+            "n": 6,
+            "median": 0.10125,
+            "mean": 0.095383,
+            "min": 0.0734,
+            "max": 0.1107,
+            "p90": 0.1107,
+            "stdev": 0.015372,
+            "cv": 0.1518,
+            "samples": [
+              0.097,
+              0.106,
+              0.1055,
+              0.0734,
+              0.1107,
+              0.0797
+            ]
+          }
+        }
+      }
+    }
+  }
+}
