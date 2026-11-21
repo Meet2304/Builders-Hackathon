@@ -105,7 +105,9 @@ marked provisional.
   mode and page size. Changing THP for a second measurement requires a separately configured VM because
   the setting is shared by containers.
 - The cold-cache probe attempts macOS `purge` without sudo and records one informational 20M run if successful.
-  Permission errors are recorded as unavailable.
+  Permission errors are recorded as unavailable. For a Linux follow-up, `probe_linux(..., cold=True)` evicts
+  each input file from the named-volume page cache and checks zero resident input bytes with `fincore` before
+  launching the candidate. See the v2 report for both measurements.
 - Binary size, image sizes, clean image build time, native build time, tracked repo size, stdout bytes, max threads.
 
 ## Memory: which number is gated

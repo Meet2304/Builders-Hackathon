@@ -825,6 +825,14 @@ def render_md(r: dict) -> str:
             L.append("- Unavailable")
         for attempt in proxy["attempts"]:
             L.append(f"- {attempt['dataset']}: {attempt['error'].strip().splitlines()[-1] if attempt['error'].strip() else 'unavailable'}")
+        if cold_linux := proxy.get("cold"):
+            if cold_linux["status"] == "ok":
+                s = cold_linux["sample"]
+                L.append(f"- Linux cold {cold_linux['dataset']}: {fmt_s(s['process_wall_s'])}, "
+                         f"{s['minor_faults']:,} minor and {s['major_faults']:,} major faults. "
+                         f"`fincore` reported {cold_linux['resident_input_bytes_before']:,} resident input bytes before launch.")
+            else:
+                L.append("- Linux cold sample unavailable.")
     if cold := p.get("cold_cache"):
         L += ["", "## Cold cache", ""]
         if cold["status"] == "ok":

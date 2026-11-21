@@ -20,7 +20,7 @@ printf 'eval_page_bytes '
 getconf PAGESIZE
 exec /usr/bin/time -f 'eval_time %e %R %F %M' /app/sessions
 """
-COLD_PREP = """\
+COLD_PREP = r"""
 set -eu
 sync -f /data
 find /data -type f -exec sh -ec '
