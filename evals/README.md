@@ -44,7 +44,7 @@ average before it starts. A block is flagged `noisy` when the machine was > 12 %
 | native build (cached per sha) | ✓ | ✓ |
 | fixtures, native (36) | ✓ | ✓ |
 | differential vs cached reference: dev (+ published answer), seeds 2–6, 15, 62, and seed-62-20m | ✓ | ✓ |
-| fuzz/adversarial suite, also under each supported debug knob | 150 seeds | 1000 seeds |
+| fuzz/adversarial suite, also under supported debug knobs | 150 seeds | 1000 seeds plus boundary and rejection checks |
 | 1M (dev) timing | 1 warm-up + 3 | 1 + 5 |
 | 20M (seed-42) timing + oracle diff + determinism | 1 + 5 | 1 + 5 |
 | 60M (seed-43) timing + invariants + consistency + determinism | 0 + 1 | 1 + 3 |
@@ -160,6 +160,9 @@ For binaries that expose the debug environment variables, Eval reruns dev and th
 The settings force 4-bit hashes, 97-byte chunks, 1 and 4,096 partitions, and disable fast paths. Each setting must
 match the default canonical hash on dev and strict cases. Debug variables absent from the release binary are marked
 `n/a`. The v2 fast-path switch is currently a no-op pending the first fast path.
+The full profile also tests 0-bit hashes, 3 and 255 partitions, 1- and 4,096-byte chunks on the dialect subset,
+and rejection of malformed numeric knob values and out-of-range partition counts. It reads both empty-output
+fixtures twice each under default and one-partition settings and compares their canonical hashes to the published fixture answers.
 
 **Self-test** (`make eval-selftest`, results in `results/_selftest.md`): 37 one-line mutants of the reference,
 each a plausible fast-path bug, plus 2 equivalent "control" mutants. With 300 seeds the fuzz suite kills all 37,
@@ -181,6 +184,7 @@ invariants.
   In the full profile the baseline binary is re-run interleaved with the candidate, so both are measured under
   the same conditions. If either median is below 0.5 s, Gate C needs 11 successful interleaved pairs, and a
   candidate below 0.5 s needs 11 primary timed samples.
+  Use `--ab-runs 11` with `evals/run.py --profile full` to require 11 pairs at slower times as well.
 - **Verdict:** REJECT (A or B fails) / HOLD (C fails, or something wasn't run: provisional) / SUBMIT-READY.
 
 **Calibration:** after a submission, add `{version, board_s}` to `calibration.json` and run
