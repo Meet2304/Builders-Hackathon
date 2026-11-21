@@ -66,4 +66,6 @@ The eval framework computes the verdict and writes it to the result JSON.
 - `HOLD`: correct, but not enough faster.
 - `SUBMIT-READY`: all three gates pass. The Orchestrator notifies the user. **Only the user submits.**
 
+**Target to beat (as of 2026-11-21):** 0.28 s on the 20M practice board. The final uses the team's *best* (or chosen) commit, so extra correct submissions never hurt.
+
 Once real board times exist, Eval calibrates a local→scorer ratio, and Gate C plus the "beat the board" target use estimated scorer time.
