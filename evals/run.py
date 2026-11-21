@@ -30,9 +30,10 @@ from cache_reference import cached_ok  # noqa: E402
 from lib import gates  # noqa: E402
 from lib.build import build_image, build_native, docker_info, repo_size, resolve  # noqa: E402
 from lib.calibration import report as calibration_report  # noqa: E402
-from lib.common import (CONSISTENCY, DATA, EVALS, EXPECTED, REPO, WORK, canonical_hash, dataset_stats,  # noqa: E402
+from lib.common import (CONSISTENCY, DATA, EVALS, EXPECTED, FIXTURES, REPO, WORK, canonical_hash, dataset_stats,  # noqa: E402
                         diff_outputs, invariants, log, read_json, reference_sha, sha256_file, write_json)
-from lib.correct import DEBUG_CASES, check_output, fuzz_gen_sha, run_fixtures, run_fuzz, runner_cmd  # noqa: E402
+from lib.correct import (DEBUG_CASES, DIALECT_ONLY, EXTRA_DEBUG_CASES, INVALID_DEBUG_CASES, check_output,  # noqa: E402
+                         fuzz_gen_sha, run_fixtures, run_fuzz, runner_cmd)
 from lib.linux_proxy import probe_linux  # noqa: E402
 from lib.measure import load_snapshot, run_once, summarize, summarize_runs  # noqa: E402
 
@@ -181,7 +182,8 @@ class Eval:
         binary = self.binary.read_bytes()
         checks = c["debug_knobs"] = {}
         seeds = range(max(self.prof["fuzz_seeds"], 0))
-        for key, value in DEBUG_CASES:
+        full = self.a.profile == "full"
+        for key, value in DEBUG_CASES + (EXTRA_DEBUG_CASES if full else ()):
             label = f"{key}={value}"
             if key.encode() not in binary:
                 checks[label] = {"status": "n/a"}
@@ -189,8 +191,9 @@ class Eval:
             log(f"debug correctness: {label}")
             run = partial(self.run, extra_env={key: value})
             item = checks[label] = {"status": "not_run"}
+            dialect_only = (key, value) in DIALECT_ONLY
             expected = c["differential"].get("dev", {})
-            if expected.get("match"):
+            if not dialect_only and expected.get("match"):
                 out = self.runs_dir / "debug-dev"
                 shutil.rmtree(out, ignore_errors=True)
                 out.mkdir(parents=True)
@@ -208,13 +211,49 @@ class Eval:
                 finally:
                     shutil.rmtree(out, ignore_errors=True)
             if seeds and hasattr(self, "fuzz_hashes"):
-                item["fuzz"] = run_fuzz(run, seeds, default_hashes=self.fuzz_hashes)
+                item["fuzz"] = run_fuzz(run, seeds, default_hashes=self.fuzz_hashes,
+                                       focus="dialect" if dialect_only else None)
             strict = item.get("fuzz", {}).get("strict", {})
             dev = item.get("dev", {})
             if dev.get("match") is False or strict.get("failed"):
                 item["status"] = "fail"
-            elif dev.get("match") and strict and strict["passed"] > 0 and not strict["skipped"]:
+            elif (dialect_only or dev.get("match")) and strict and strict["passed"] > 0 and not strict["skipped"]:
                 item["status"] = "pass"
+        if full:
+            for key, value in INVALID_DEBUG_CASES:
+                if key.encode() not in binary:
+                    continue
+                log(f"debug correctness: rejecting {key}={value}")
+                out = self.runs_dir / "debug-invalid"
+                out.mkdir(parents=True, exist_ok=True)
+                label = f"reject {key}={value}"
+                checks[label] = self.reject_knob(key, value, out)
+        if full and b"SESSIONS_DEBUG_PARTS" in binary:
+            self.empty_outputs(checks)
+
+    def reject_knob(self, key, value, out):
+        p = self.run(FIXTURES / "E5" / "input", out, extra_env={key: value})
+        # A release build can use panic=abort. Python reports the signal as a negative exit status.
+        status = "pass" if p.returncode != 0 and f"{key}={value}:".encode() in p.stderr else "fail"
+        return {"status": status, "returncode": p.returncode, "stderr_tail": p.stderr.decode(errors="replace")[-400:]}
+
+    def empty_outputs(self, checks):
+        cases = ("E5", "E13")
+        modes = ({}, {"SESSIONS_DEBUG_PARTS": "1"})
+        item = checks["empty output fixtures with default and one partition"] = {"status": "not_run", "cases": {}}
+        for case in cases:
+            expected = canonical_hash(FIXTURES / case / "expected")
+            hashes = []
+            for mode in modes:
+                for _ in range(2):
+                    out = self.runs_dir / "debug-empty"
+                    shutil.rmtree(out, ignore_errors=True)
+                    out.mkdir(parents=True)
+                    p = self.run(FIXTURES / case / "input", out, extra_env=mode)
+                    hashes.append(canonical_hash(out)["hash"] if p.returncode == 0 and not p.stdout else None)
+            item["cases"][case] = {"expected": expected["hash"], "hashes": hashes}
+        item["status"] = "pass" if all(v["expected"] and set(v["hashes"]) == {v["expected"]}
+                                       for v in item["cases"].values()) else "fail"
 
     def perf_block(self, role, ncpu=8, runs=None, warmup=None, check=True, label=None):
         name = self.role(role)
@@ -542,7 +581,9 @@ class Eval:
             r = run_once(binary, DATA / name, out, scratch, 8)
             self.stdout_max = max(self.stdout_max, r["stdout_bytes"])
         cand, bl = [], []
-        runs = gates.FAST_RUNS if fast else AB_RUNS
+        runs = max(self.a.ab_runs or AB_RUNS, gates.FAST_RUNS if fast else AB_RUNS)
+        if self.a.ab_runs:
+            base["ab_required_pairs"] = self.a.ab_runs
         log(f"A/B: interleaving {runs} runs each of {self.a.version} and {base['version']} on {name}")
         i = 0
         while i < runs:
@@ -558,7 +599,7 @@ class Eval:
                 bl.append(pair[bbin])
             i += 1
             if i == AB_RUNS and not fast and any(gates.is_fast(summarize(x)) for x in (cand, bl)):
-                runs = gates.FAST_RUNS
+                runs = max(runs, gates.FAST_RUNS)
                 log(f"  A/B median under {gates.FAST_WALL_S}s; extending to {runs} pairs")
         shutil.rmtree(out, ignore_errors=True)
         base["ab_wall_s"] = summarize(bl)
@@ -784,6 +825,14 @@ def render_md(r: dict) -> str:
             L.append("- Unavailable")
         for attempt in proxy["attempts"]:
             L.append(f"- {attempt['dataset']}: {attempt['error'].strip().splitlines()[-1] if attempt['error'].strip() else 'unavailable'}")
+        if cold_linux := proxy.get("cold"):
+            if cold_linux["status"] == "ok":
+                s = cold_linux["sample"]
+                L.append(f"- Linux cold {cold_linux['dataset']}: {fmt_s(s['process_wall_s'])}, "
+                         f"{s['minor_faults']:,} minor and {s['major_faults']:,} major faults. "
+                         f"`fincore` reported {cold_linux['resident_input_bytes_before']:,} resident input bytes before launch.")
+            else:
+                L.append("- Linux cold sample unavailable.")
     if cold := p.get("cold_cache"):
         L += ["", "## Cold cache", ""]
         if cold["status"] == "ok":
@@ -864,10 +913,13 @@ def main():
     ap.add_argument("--rev", required=True, help="git ref to build (tag, branch, sha)")
     ap.add_argument("--profile", choices=list(PROFILES), default="quick")
     ap.add_argument("--fuzz-seeds", type=int, default=None, help="override the number of fuzz seeds")
+    ap.add_argument("--ab-runs", type=int, help="minimum interleaved A/B pairs in the full profile")
     ap.add_argument("--no-docker", action="store_true", help="skip container gates even in the full profile")
     ap.add_argument("--no-ledger", action="store_true", help="don't append to evals/ledger.md")
     ap.add_argument("--rebuild", action="store_true", help="rebuild the native binary even if cached")
     a = ap.parse_args()
+    if a.ab_runs is not None and (a.profile != "full" or a.ab_runs < AB_RUNS):
+        ap.error(f"--ab-runs requires the full profile and at least {AB_RUNS} pairs")
     Eval(a).main()
 
 
