@@ -1,10 +1,7 @@
 /target/
 /tools/generator/target/
 /data/
-/out/
+/out*/
 /.venv/
 __pycache__/
 .DS_Store
-/out-a/
-/out-b/
-/out-ref/
