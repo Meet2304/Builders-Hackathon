@@ -100,3 +100,24 @@ dashboard:       ## Generate the progress dashboard
 
 dashboard-watch: ## Regenerate the progress dashboard every 30 seconds
 	@while :; do $(MAKE) --no-print-directory dashboard || exit $$?; sleep 30; done
+
+# ---- Evaluation framework (evals/, owned by the Eval thread) -----------------
+VERSION ?=
+REV     ?= HEAD
+PROFILE ?= quick
+.PHONY: eval eval-compare eval-cache-ref eval-selftest eval-calibrate
+eval:            ## Evaluate a candidate: make eval VERSION=v2 REV=method/v2 PROFILE=quick|full
+	@test -n "$(VERSION)" || (echo "VERSION=... is required" && exit 2)
+	$(PY) evals/run.py --version $(VERSION) --rev $(REV) --profile $(PROFILE)
+
+eval-compare:    ## Per-metric deltas with significance: make eval-compare A=v1 B=v2
+	$(PY) evals/compare.py $(A) $(B)
+
+eval-cache-ref:  ## One-time: cache the reference's output for every oracle dataset (20M: ~4 min, 17 GB)
+	$(PY) evals/cache_reference.py
+
+eval-selftest:   ## Mutation self-test: how many reference mutants do fixtures and fuzz kill
+	$(PY) evals/fuzz/selftest.py
+
+eval-calibrate:  ## Recompute the local->scorer ratio from evals/calibration.json points
+	$(PY) evals/calibrate.py
