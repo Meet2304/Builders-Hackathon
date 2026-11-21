@@ -66,6 +66,10 @@ def gate_a(r: dict) -> dict:
                          f"{s['passed']}/{n} (seeds {fz['seeds'][0]}..{fz['seeds'][1] - 1})"
                          + (f"; failing seeds {[x['seed'] for x in s['failed']][:10]}" if s["failed"] else "")))
     det = c.get("determinism", {})
+    knobs = c.get("debug_knobs", {})
+    for name, item in knobs.items():
+        if item["status"] != "n/a":
+            out.append(check(name, item["status"], "dev and strict fuzz match the default canonical output"))
     if not det:
         out.append(check("deterministic canonical hash", "not_run"))
     else:

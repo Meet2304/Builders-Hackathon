@@ -13,14 +13,23 @@ from .common import (EVALS, FIXTURES, FUZZ_DATA, REPO, SCHEMAS, WORK, canonical,
                      load_table, log, read_json, reference_sha, run_reference, sha256_file, write_json)
 
 DOCKER_RUN = REPO / "scripts" / "docker_run.sh"
+DEBUG_CASES = (
+    ("SESSIONS_DEBUG_HASH_BITS", "4"),
+    ("SESSIONS_DEBUG_CHUNK", "97"),
+    ("SESSIONS_DEBUG_PARTS", "1"),
+    ("SESSIONS_DEBUG_PARTS", "4096"),
+    ("SESSIONS_DEBUG_NO_FAST", "1"),
+)
 
 
 def runner_cmd(binary: Path | None, image: dict | None):
     """A callable (data, out, ncpu) -> CompletedProcess for a native binary or a container image."""
-    def native(data: Path, out: Path, ncpu: int = 8, timeout: float = 120):
+    def native(data: Path, out: Path, ncpu: int = 8, timeout: float = 120, extra_env: dict | None = None):
         with tempfile.TemporaryDirectory(dir=WORK / "tmp") as scratch:
             env = dict(os.environ, DATA_DIR=str(data), OUTPUT_DIR=str(out), SCRATCH_DIR=scratch, NCPU=str(ncpu),
                        MEM_GB="24")
+            env = {k: v for k, v in env.items() if not k.startswith("SESSIONS_DEBUG_")}
+            env.update(extra_env or {})
             return subprocess.run([str(binary)], env=env, capture_output=True, timeout=timeout)
 
     def container(data: Path, out: Path, ncpu: int = 8, timeout: float = 600):
@@ -135,7 +144,8 @@ def ensure_fuzz_cases(seeds: range, jobs: int = 10) -> Path:
     return base
 
 
-def run_fuzz(run, seeds: range, jobs: int = 8) -> dict:
+def run_fuzz(run, seeds: range, jobs: int = 8, *, record_hashes: dict | None = None,
+             default_hashes: dict | None = None) -> dict:
     base = ensure_fuzz_cases(seeds)
     log(f"fuzz: running candidate on {len(seeds)} cases (NCPU cycles 1,2,4,8)")
 
@@ -154,6 +164,8 @@ def run_fuzz(run, seeds: range, jobs: int = 8) -> dict:
                 return seed, meta, {"match": False,
                                     "error": f"exit {p.returncode}: {p.stderr.decode('utf-8', 'replace')[-300:]}"}
             res = check_output(out, d / "expected", meta["expected_hash"])
+            if default_hashes is not None and res["match"] and default_hashes.get(seed) != res["hash"]:
+                res.update(match=False, error="canonical hash differs from default run")
             if p.stdout:
                 res["match"] = False
                 res["error"] = f"stdout {len(p.stdout)} bytes"
@@ -175,6 +187,8 @@ def run_fuzz(run, seeds: range, jobs: int = 8) -> dict:
             continue
         if res.get("match"):
             group["passed"] += 1
+            if record_hashes is not None:
+                record_hashes[seed] = res["hash"]
             continue
         f["failed"] += 1
         for t in meta["tags"]:

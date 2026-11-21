@@ -22,6 +22,7 @@ import subprocess
 import sys
 import time
 import traceback
+from functools import partial
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -31,7 +32,7 @@ from lib.build import build_image, build_native, docker_info, repo_size, resolve
 from lib.calibration import report as calibration_report  # noqa: E402
 from lib.common import (CONSISTENCY, DATA, EVALS, EXPECTED, REPO, WORK, canonical_hash, dataset_stats,  # noqa: E402
                         diff_outputs, invariants, log, read_json, reference_sha, sha256_file, write_json)
-from lib.correct import check_output, fuzz_gen_sha, run_fixtures, run_fuzz, runner_cmd  # noqa: E402
+from lib.correct import DEBUG_CASES, check_output, fuzz_gen_sha, run_fixtures, run_fuzz, runner_cmd  # noqa: E402
 from lib.measure import load_snapshot, run_once, summarize, summarize_runs  # noqa: E402
 
 SCHEMA_VERSION = 1
@@ -169,7 +170,49 @@ class Eval:
         n = self.prof["fuzz_seeds"]
         if n <= 0:
             return
-        self.r["correctness"]["fuzz"] = run_fuzz(self.run, range(0, n))
+        self.fuzz_hashes = {}
+        self.r["correctness"]["fuzz"] = run_fuzz(self.run, range(n), record_hashes=self.fuzz_hashes)
+
+    def debug_knobs(self):
+        c = self.r["correctness"]
+        # The release executable contains the names it looks up at runtime, even after stripping.
+        binary = self.binary.read_bytes()
+        checks = c["debug_knobs"] = {}
+        seeds = range(max(self.prof["fuzz_seeds"], 0))
+        for key, value in DEBUG_CASES:
+            label = f"{key}={value}"
+            if key.encode() not in binary:
+                checks[label] = {"status": "n/a"}
+                continue
+            log(f"debug correctness: {label}")
+            run = partial(self.run, extra_env={key: value})
+            item = checks[label] = {"status": "not_run"}
+            expected = c["differential"].get("dev", {})
+            if expected.get("match"):
+                out = self.runs_dir / "debug-dev"
+                shutil.rmtree(out, ignore_errors=True)
+                out.mkdir(parents=True)
+                try:
+                    p = run(DATA / "dev", out, timeout=300)
+                    self.stdout_max = max(self.stdout_max, len(p.stdout))
+                    if p.returncode:
+                        item["dev"] = {"match": False, "error": p.stderr.decode(errors="replace")[-300:]}
+                    else:
+                        result = check_output(out, EXPECTED / "dev", expected["hash"])
+                        result["match"] &= result["hash"] == expected["hash"] and not p.stdout
+                        item["dev"] = result
+                except subprocess.TimeoutExpired:
+                    item["dev"] = {"match": False, "error": "timeout"}
+                finally:
+                    shutil.rmtree(out, ignore_errors=True)
+            if seeds and hasattr(self, "fuzz_hashes"):
+                item["fuzz"] = run_fuzz(run, seeds, default_hashes=self.fuzz_hashes)
+            strict = item.get("fuzz", {}).get("strict", {})
+            dev = item.get("dev", {})
+            if dev.get("match") is False or strict.get("failed"):
+                item["status"] = "fail"
+            elif dev.get("match") and strict and strict["passed"] > 0 and not strict["skipped"]:
+                item["status"] = "pass"
 
     def perf_block(self, role, ncpu=8, runs=None, warmup=None, check=True, label=None):
         name = self.role(role)
@@ -543,6 +586,7 @@ class Eval:
             sys.exit(1)
         self.step("correctness", self.correctness_untimed)
         self.step("fuzz", self.fuzz)
+        self.step("debug knobs", self.debug_knobs)
         self.perf()
         self.step("probe", self.probe)
         if self.prof["thread_scaling"]:
@@ -607,6 +651,13 @@ def render_md(r: dict) -> str:
             f"{k} {'same hash' if v['deterministic'] else 'DIFFERENT hashes'} over {v['runs']} runs"
             f"{'' if v.get('byte_identical_files') else ' (files not byte-identical)'}" for k, v in
             c["determinism"].items())]
+    knobs = c.get("debug_knobs", {})
+    if knobs:
+        L += ["", "Debug knobs"]
+        if all(v["status"] == "n/a" for v in knobs.values()):
+            L.append("- n/a")
+        else:
+            L.extend(f"- `{name}`: {item['status']}" for name, item in knobs.items())
     L += ["", "## Performance (native, NCPU=8)", "",
           "| Dataset | Runs | Median | Min | p90 | Stdev | MB/s | Mev/s | CPU util | user/sys | Peak footprint | Max RSS (incl. file pages) | Noisy |",
           "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]

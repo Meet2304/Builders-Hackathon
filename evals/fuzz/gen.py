@@ -5,7 +5,7 @@
 
 Every case is small (tens to a few thousand rows) and dense in the corner cases
 of docs/rules.md. A seed picks a *focus* (dialect, timestamps, sessions, clicks,
-links, dedup, files, overflow, window, mixed) that raises the rate of that
+links, dedup, files, overflow, window, mixed, id-shapes) that raises the rate of that
 family; every family still appears at a base rate.
 
 Cases are `strict` (everything stays inside rules.md: these gate a submission)
@@ -55,6 +55,8 @@ class Gen:
         self.r = random.Random(seed * 7919 + 17)
         r = self.r
         self.focus = FOCI[seed % len(FOCI)] if seed < 10 * len(FOCI) else r.choice(FOCI)
+        if seed % 20 == 10:
+            self.focus = "id-shapes"
         self.tags: set[str] = {self.focus}
         self.robust: list[str] = []
         f = self.focus
@@ -113,6 +115,8 @@ class Gen:
         cats = r.sample(CATEGORIES, r.randint(2, 6))
         self.products = {f"p{i}": r.choice(cats) for i in range(1, r.randint(3, 40))}
         self.campaigns = {f"c_{i}": r.choice(CHANNELS) for i in range(1, r.randint(2, 30))}
+        if self.focus == "id-shapes" and len(self.campaigns) == 1:
+            self.campaigns["c_2"] = "email"
         self.camp_ids = list(self.campaigns)
 
     # ------------------------------------------------------------ ids
@@ -578,6 +582,22 @@ class Gen:
             self.clicks.append("click_id,user_id,campaign_id,ts")
             self.tags.add("header-like")
 
+    # ------------------------------------------------------------ ID shape
+    def emit_id_shapes(self):
+        prefix = "abcdefghij"
+        owners = (prefix, prefix + "x", prefix + "y", "A_bcdefghi")
+        # Leave the two suffix variants unlinked so truncation would merge distinct people.
+        self.links.append(f"{owners[0]},{owners[3]}")
+        ts = self.f1(self.ws + DAY)
+        product = next(iter(self.products))
+        for i, (eid, uid) in enumerate(zip(("0123456789", "0123456789x", "0123456789y", "_Z01234567"), owners)):
+            self.events.append((f"{eid},{uid},{ts},{ts},purchase,{product},{100 + i}", -1))
+        # Two campaigns at the same instant, with the winning ID differing after char 10.
+        first, second = list(self.campaigns)[:2]
+        self.clicks.extend([f"9876543210y,{owners[0]},{second},{ts}",
+                            f"9876543210x,{owners[3]},{first},{ts}",
+                            f"9876543210,{owners[2]},{second},{ts}"])
+
     # ------------------------------------------------------------ files
     def write(self, out: Path):
         r = self.r
@@ -633,6 +653,8 @@ class Gen:
         self.emit_links()
         self.emit_events()
         self.emit_clicks()
+        if self.focus == "id-shapes":
+            self.emit_id_shapes()
         self.write(out)
         return {"seed": self.seed, "focus": self.focus, "tags": sorted(self.tags),
                 "strict": not self.robust, "robust_reasons": sorted(set(self.robust)),
