@@ -92,11 +92,14 @@ diff-seed: release  ## Differential test: Rust vs reference on data/seed-$(SEED)
 clean:           ## Remove build outputs and run outputs (keeps data/)
 	cargo clean; rm -rf $(OUT) out-a out-b out-ref
 
-.PHONY: dashboard dashboard-watch
+.PHONY: dashboard dashboard-watch dashboard-snapshot
 
 dashboard:       ## Generate the progress dashboard
 	@if test -x .venv/bin/python; then .venv/bin/python docs/orchestration/dashboard/build.py; \
 	else python3 docs/orchestration/dashboard/build.py; fi
+
+dashboard-snapshot: ## Export the live-dashboard snapshot and print the sync batch (see docs/orchestration/dashboard/SYNC.md)
+	@python3 docs/orchestration/dashboard/export.py --plan docs/orchestration/dashboard/existing
 
 dashboard-watch: ## Regenerate the progress dashboard every 30 seconds
 	@while :; do $(MAKE) --no-print-directory dashboard || exit $$?; sleep 30; done
