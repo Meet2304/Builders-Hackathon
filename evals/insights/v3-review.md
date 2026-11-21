@@ -325,7 +325,7 @@ Each probe pins the decoded value **to the millisecond**:
 
 | Mutant | Caught in |
 | --- | --- |
-| Drop the day-digit high-nibble check (accepts `10-0 ` / `10-0\0` as day 00) | 4/5 |
+| Drop the day-digit high-nibble check (accepts `2026-10- 5` as day 05, `2026-10-1\0` as day 10) | 4/5 |
 | A clock ending `:59` decodes 1 ms late | 4/5 |
 | F3 mask keeps 6 high lanes instead of 5 | 5/5 |
 | A `-10:xx` offset decodes 1 ms late | 4/5 |
