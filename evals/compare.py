@@ -144,6 +144,14 @@ def compare(A: dict, B: dict) -> list[tuple[str, list]]:
     row(rows, "estimated board 20M", A.get("calibration", {}).get("estimated_scorer_20m_s"),
         B.get("calibration", {}).get("estimated_scorer_20m_s"))
     sections.append(("Resources and sizes", rows))
+    linux_a, linux_b = (r["perf"].get("linux_timing", {}).get("summary", {}) for r in (A, B))
+    if linux_a or linux_b:
+        rows = []
+        for key, label, unit in (("process_wall_s", "inside-container wall", "s"),
+                                 ("minor_faults_per_row", "minor faults / row", "x"),
+                                 ("major_faults_per_row", "major faults / row", "x")):
+            row(rows, label, linux_a.get(key), linux_b.get(key), unit)
+        sections.append(("Linux arm64 (20M)", rows))
     return sections
 
 

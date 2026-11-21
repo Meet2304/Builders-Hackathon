@@ -220,6 +220,21 @@ def gate_c(r: dict) -> dict:
                              f"delta {delta:.4f}s vs 2sd {2 * sd:.4f}s")]}
 
 
+def linux_signal(r: dict) -> dict:
+    timing = r["perf"]["linux_timing"]
+    b = timing.get("baseline_summary", {}).get("process_wall_s", {})
+    c = timing.get("summary", {}).get("process_wall_s", {})
+    if min(b.get("n", 0), c.get("n", 0)) < 5 or timing.get("baseline_sha") != (r.get("baseline") or {}).get("sha"):
+        return {"status": "unavailable", "detail": "no comparable paired Linux samples"}
+    delta = b["median"] - c["median"]
+    gain = delta / b["median"]
+    sd = pooled_sd(b, c)
+    significant = abs(delta) > GATE_C_SIGMAS * sd and abs(gain) >= GATE_C_MIN_GAIN
+    status = ("supports" if delta > 0 else "regression") if significant else "inconclusive"
+    return {"status": status, "gain": round(gain, 4), "pooled_sd_s": round(sd, 6), "pairs": b["n"],
+            "detail": f"{c['median']:.4f}s vs {b['median']:.4f}s ({gain:+.1%}, {b['n']} pairs)"}
+
+
 def verdict(r: dict) -> dict:
     v = _verdict(r)
     v["warnings"] = [w for g in r["gates"].values() for w in g.get("warnings", [])]

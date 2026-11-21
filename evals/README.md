@@ -9,20 +9,34 @@ scorer's limits, and is it worth a submission. Owned by the Eval thread. Gates a
 ```sh
 make eval VERSION=v2 REV=method/v2                 # quick profile, ~1 min (≤ 3 min)
 make eval VERSION=v2 REV=method/v2 PROFILE=full    # everything, incl. containers, ~10–15 min
+make eval VERSION=v2-linux REV=method/v2 PROFILE=linux # Linux first, plus native 20M comparison
 make eval-compare A=v1 B=v2                        # per-metric deltas with significance
 make eval-selftest                                 # mutation test of the fixtures + fuzz suite
 make eval-cache-ref                                # one-time reference caching (already done)
 ```
 
-or directly: `.venv/bin/python evals/run.py --version NAME --rev GIT_REF [--profile quick|full] [--fuzz-seeds N]
+or directly: `.venv/bin/python evals/run.py --version NAME --rev GIT_REF [--profile quick|full|linux] [--fuzz-seeds N]
 [--no-docker] [--no-ledger] [--rebuild]`.
 
 Outputs: `results/NAME.json` (machine-readable), `results/NAME.md` (summary), one row appended to
 [ledger.md](ledger.md). Progress is logged to stderr. Re-running a version name overwrites its result files
 and appends a new ledger row.
 
-**Only run timed evals on a quiet machine.** Each timed block records the instantaneous CPU-busy % and load
-average before it starts. A block is flagged `noisy` when the machine was > 12 % busy or the run-to-run CV is > 5 %.
+**Only run timed evals on a quiet machine.** Timing blocks record the instantaneous CPU-busy % and load average
+before they start. Native dataset blocks are flagged `noisy` when the machine was > 12 % busy or the CV is > 5 %.
+
+## Shared benchmark lock
+
+`quick`, `full`, `linux`, and the standalone `probe_linux` helper acquire `/tmp/builders-bench.lock` with
+an atomic `mkdir`. Launch these directly so they can acquire the lock themselves. The lock covers builds and
+all timing within the profile, including interleaved A/B and container runs. The `owner` file records the
+holder's PID, branch and start time. A waiter logs its identity and the known holder every 60 seconds.
+
+The runner removes `owner` and releases the directory with `rmdir` on completion, error, SIGINT or SIGTERM.
+It can recover a stale lock when the owner PID is confirmed dead. An ownerless directory may be held by
+Explorer or may be in the middle of acquisition, so the runner waits for it. Correctness-only commands such
+as `eval-selftest` do not acquire the benchmark lock. The orchestration protocol specifies
+`nice -n 19 cargo build --release -j 2` for builds outside a timed profile while another thread holds the lock.
 
 ## Isolation
 
@@ -53,10 +67,15 @@ average before it starts. A block is flagged `noisy` when the machine was > 12 %
 | interleaved A/B vs the Gate C baseline on 20M | 11 pairs if fast | 5 pairs, or 11 if fast |
 | arm64 image clean build (`--no-cache`, timed), fixtures + dev in the container, container overhead | | ✓ |
 | amd64 image (emulated, `X86_CPU=x86-64-v2`), fixtures + dev in the container | | ✓ |
-| Linux page-fault proxy and cold-cache run | | ✓ (where available) |
+| Linux named-volume 20M timing, or informational fallback probe | | ✓ |
+| cold-cache run | | ✓ (where available) |
 
 A quick run can REJECT, but it can't say SUBMIT-READY, because the container gates are `not_run`. Its verdict is
 marked provisional.
+
+The `linux` profile runs native correctness checks and 150 fuzz seeds, then measures 20M on arm64 Linux before
+measuring the same dataset natively. It includes native A/B when a baseline is available. It omits the 60M
+constraints and amd64 correctness gates, so its verdict is provisional when the measured gates pass.
 
 ## Metrics
 
@@ -98,6 +117,12 @@ marked provisional.
   the first five workers use P-cores. Worker residency is not measured.
 - Data-size scaling: time ratios 1M→20M→60M against event ratios, and ns/event per size.
 - Container overhead: arm64 container vs native on dev.
+- Linux timing (`linux` and `full`) measures the candidate process and its exit from inside the container,
+  with 8 CPUs, a 24 GiB cgroup limit and swap disabled. Staging into a named input volume and Docker startup
+  are outside the process clock. It takes one warm-up and five samples per version on the same 20M volume,
+  interleaved with the Gate C baseline when available. It extends to 11 pairs for sub-0.5 s medians, and
+  `--ab-runs` can request more pairs. The report puts these medians and minima next to the native data.
+  GNU time measures minor and major faults. Both are divided by physical event data lines, including dirty rows.
 - The Linux probe stages input in a temporary Docker named volume and uses GNU time for process wall time,
   minor and major faults, and RSS. The proxy tries 20M with VM memory headroom and falls back to dev (1M).
   It reports one warm-up and one measured run. Each process still incurs first-touch faults with warm input.
@@ -186,7 +211,10 @@ invariants.
   In the full profile the baseline binary is re-run interleaved with the candidate, so both are measured under
   the same conditions. If either median is below 0.5 s, Gate C needs 11 successful interleaved pairs, and a
   candidate below 0.5 s needs 11 primary timed samples.
-  Use `--ab-runs 11` with `evals/run.py --profile full` to require 11 pairs at slower times as well.
+  Use `--ab-runs 11` with `evals/run.py --profile full` or `--profile linux` to require 11 pairs at slower times.
+  The paired Linux comparison is a secondary signal on the same baseline. A gain or regression of at least 5%
+  and more than twice the pooled standard deviation is flagged in the corresponding direction. Smaller
+  differences are inconclusive. The existing native or calibrated comparison determines Gate C's verdict.
 - **Verdict:** REJECT (A or B fails) / HOLD (C fails, or something wasn't run: provisional) / SUBMIT-READY.
 
 **Calibration:** after a submission, add `{version, board_s}` to `calibration.json` and run
