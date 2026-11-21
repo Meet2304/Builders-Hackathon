@@ -58,6 +58,12 @@ use parquet::file::properties::WriterProperties;
 use rayon::prelude::*;
 use xxhash_rust::xxh3::xxh3_64;
 
+/// mimalloc: big aligned segments it asks THP for itself, so Linux takes ~20k page
+/// faults at 20M instead of ~970k with glibc (evals/insights/v2.md), and the exit tail
+/// drops to ~0. No logic change.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 type HashMap<K, V> = std::collections::HashMap<K, V, foldhash::fast::RandomState>;
 
 const DAY_MS: i64 = 86_400_000;
