@@ -39,23 +39,37 @@ def phase_key(label: str) -> str:
     return s or "phase"
 
 
+CPU_RE = re.compile(r"( \(|, | )cpu=([0-9]+(?:\.[0-9]+)?)s(\)?)$")
+
+
 def parse_phases(stderr: str) -> list[dict]:
-    """Cumulative marks '[  1.234s] phase (detail)' -> per-phase durations."""
-    marks = []
+    """Cumulative marks '[  1.234s] phase (detail) cpu=X.XXXs' -> per-phase durations.
+
+    The optional CPU value is cumulative process CPU time (user+sys).
+    A phase needs CPU at both ends of its interval to calculate a delta."""
+    out, prev, prev_cpu, seen = [], 0.0, 0.0, {}
     for line in stderr.splitlines():
         m = PHASE_RE.match(line)
-        if m:
-            marks.append((float(m.group(1)), m.group(2)))
-    out, prev, seen = [], 0.0, {}
-    for t, label in marks:
+        if not m:
+            continue
+        t, label = float(m.group(1)), m.group(2)
+        # Method puts the CPU time inside the existing detail parentheses.
+        c = CPU_RE.search(label)
+        cpu = float(c.group(2)) if c else None
+        if c:
+            label = label[:c.start()] + (c.group(3) if c.group(1) == ", " else "")
         key = phase_key(label)
         if key in seen:  # repeated names (e.g. per-file marks) get a suffix
             seen[key] += 1
             key = f"{key} #{seen[key]}"
         else:
             seen[key] = 1
-        out.append({"key": key, "label": label, "at_s": t, "dur_s": round(max(t - prev, 0.0), 6)})
-        prev = t
+        ph = {"key": key, "label": label, "at_s": t, "dur_s": round(max(t - prev, 0.0), 6)}
+        if cpu is not None and prev_cpu is not None and cpu >= prev_cpu:
+            ph["cpu_s"] = round(cpu - prev_cpu, 6)
+            ph["parallelism"] = round(ph["cpu_s"] / ph["dur_s"], 3) if ph["dur_s"] > 0 else None
+        out.append(ph)
+        prev, prev_cpu = t, cpu
     return out
 
 
@@ -92,7 +106,7 @@ def run_once(binary: Path, data: Path, out: Path, scratch: Path, ncpu: int, time
     """One run of the binary with the scorer's env vars. Output and scratch dirs are emptied first."""
     clean_dir(out)
     clean_dir(scratch)
-    env = {k: v for k, v in os.environ.items() if k not in ("RAYON_NUM_THREADS",)}
+    env = {k: v for k, v in os.environ.items() if k != "RAYON_NUM_THREADS" and not k.startswith("SESSIONS_DEBUG_")}
     env.update({"DATA_DIR": str(data), "OUTPUT_DIR": str(out), "SCRATCH_DIR": str(scratch), "NCPU": str(ncpu),
                 "MEM_GB": "24", "HOME": str(scratch)})
     if extra_env:
@@ -191,7 +205,7 @@ def welch_t(a: dict, b: dict) -> float | None:
     return (a["mean"] - b["mean"]) / se if se > 0 else (math.inf if a["mean"] != b["mean"] else 0.0)
 
 
-def summarize_runs(runs: list[dict]) -> dict:
+def summarize_runs(runs: list[dict], event_lines: int = 0) -> dict:
     ok = [r for r in runs if r.get("returncode") == 0]
     out = {"wall_s": summarize([r["wall_s"] for r in ok])}
     for k in ("user_s", "sys_s", "cpu_util", "max_rss_bytes", "peak_footprint_bytes", "page_reclaims",
@@ -199,15 +213,28 @@ def summarize_runs(runs: list[dict]) -> dict:
         vals = [r[k] for r in ok if r.get(k) is not None]
         if vals:
             out[k] = summarize(vals)
+    counters = {
+        "instructions_per_row": [r["instructions"] / event_lines for r in ok if event_lines and r.get("instructions")],
+        "cycles_per_row": [r["cycles"] / event_lines for r in ok if event_lines and r.get("cycles")],
+        "ipc": [r["instructions"] / r["cycles"] for r in ok if r.get("instructions") and r.get("cycles")],
+    }
+    out.update({key: summarize(values) for key, values in counters.items() if values})
     # phases: median duration per key, in first-seen order
-    order, per = [], {}
+    order, per, cpu, par = [], {}, {}, {}
     for r in ok:
         for ph in r.get("phases", []):
             if ph["key"] not in per:
                 order.append(ph["key"])
-                per[ph["key"]] = []
+                per[ph["key"]], cpu[ph["key"]], par[ph["key"]] = [], [], []
             per[ph["key"]].append(ph["dur_s"])
+            if ph.get("cpu_s") is not None:
+                cpu[ph["key"]].append(ph["cpu_s"])
+                par[ph["key"]].append(ph.get("parallelism"))
     phases = {k: summarize(per[k]) for k in order}
+    for k in order:  # per-phase CPU (from cpu= marks), when the candidate prints them
+        if cpu[k]:
+            phases[k]["cpu_s"] = summarize(cpu[k])
+            phases[k]["parallelism"] = summarize(par[k])
     if ok and phases:
         last = [r["phases"][-1]["at_s"] for r in ok if r.get("phases")]
         tail = [r["wall_s"] - r["phases"][-1]["at_s"] for r in ok if r.get("phases")]
