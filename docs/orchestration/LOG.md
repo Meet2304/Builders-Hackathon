@@ -123,3 +123,4 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - independent re-derivation of every claim (`evals/insights2/verification.md`); it starts with v4 `c9e1a0c`, `d89e2b5`, `a019739`
   - an x86 Cascade Lake scorer cost model, with per-phase board predictions and what AVX-512 is worth (`evals/insights2/scorer-model.md`)
   - a 60M final projection and the superlinear phases
+- **Orchestrator:** Explorer 2 skipped the ID packer (`explore/gemini-pack` has no commits) and went straight to the scan loop on `explore/gemini-scan`. **Method now owns the ID packer** (196 → 35 instructions per line).
