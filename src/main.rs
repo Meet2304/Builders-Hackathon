@@ -2051,27 +2051,43 @@ fn task_group(nchunks: usize, nb: usize, chunk: usize) -> usize {
     nchunks.div_ceil(max_tasks).min((MAX_TASK_BYTES / chunk).max(1)).max(1)
 }
 
+/// Reused dedup payload with a separate, cheaply reset occupancy array.
+#[derive(Default)]
+struct DedupScratch {
+    occupied: Vec<u8>,
+    slots: Vec<std::mem::MaybeUninit<(u64, u64)>>,
+}
+
 /// Dedup one eid partition: returns the drops (dest:16 | t:24 | seq:24) of every losing
 /// copy that produced a row.
-fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, tab: &mut Vec<(u64, u64)>) -> Vec<u64> {
+fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, scratch: &mut DedupScratch) -> Vec<u64> {
     let n: usize = ev.iter().map(|o| o.e[q].len()).sum();
     let mut drops = Vec::new();
     if n == 0 {
         return drops;
     }
     let cap = (2 * n).next_power_of_two();
-    tab.clear();
-    tab.resize(cap, (0, 0));
+    // Only occupancy needs resetting. Payload slots become readable after their
+    // occupancy byte is set during this partition's insertion pass.
+    scratch.occupied.clear();
+    scratch.occupied.resize(cap, 0);
+    scratch.slots.resize_with(cap, std::mem::MaybeUninit::uninit);
     let m = cap - 1;
     for (t, o) in ev.iter().enumerate() {
         for (i, en) in o.e[q].iter().enumerate() {
             let mut s = (mix(en.eid) & hmask) as usize & m;
             loop {
-                let slot = &mut tab[s];
-                if slot.0 == 0 {
-                    *slot = (en.eid, (t as u64) << 32 | i as u64);
-                    break;
-                }
+                // SAFETY: s is masked by cap - 1, and both arrays have cap
+                // elements. An occupied byte implies that this partition has
+                // initialized that payload; bytes are reset on every invocation.
+                let slot = unsafe {
+                    if *scratch.occupied.get_unchecked(s) == 0 {
+                        scratch.slots.get_unchecked_mut(s).write((en.eid, (t as u64) << 32 | i as u64));
+                        *scratch.occupied.get_unchecked_mut(s) = 1;
+                        break;
+                    }
+                    scratch.slots.get_unchecked_mut(s).assume_init_mut()
+                };
                 if slot.0 == en.eid {
                     let (wt, wi) = ((slot.1 >> 32) as usize, slot.1 as u32 as usize);
                     // strictly smaller ingest wins; on a tie the first copy stays
@@ -2849,7 +2865,7 @@ fn pipeline<'a, L: Layout>(
 
     // dedup per eid partition; the losers' drops go to their person partitions
     let drops: Vec<Vec<u64>> =
-        (0..nb).into_par_iter().map_init(Vec::new, |tab, q| dedup_part(&ev_out, q, hmask, tab)).collect();
+        (0..nb).into_par_iter().map_init(DedupScratch::default, |tab, q| dedup_part(&ev_out, q, hmask, tab)).collect();
     let mut drops_by: Vec<Vec<u64>> = (0..nb).map(|_| Vec::new()).collect();
     for &d in drops.iter().flatten() {
         drops_by[(d >> 48) as usize].push(d);
