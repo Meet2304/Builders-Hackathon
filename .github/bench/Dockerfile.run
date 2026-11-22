@@ -1,0 +1,5 @@
+# Same runtime stage as the repo Dockerfile; binary comes from the build job.
+FROM debian:bookworm-slim
+RUN useradd --uid 1000 --no-create-home --home-dir /scratch app
+COPY sessions /app/sessions
+CMD ["/app/sessions"]

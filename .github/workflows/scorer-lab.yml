@@ -1,0 +1,109 @@
+name: scorer-lab
+on:
+  push:
+    branches: ['lab/**']
+  workflow_dispatch: {}
+concurrency:
+  group: scorer-lab-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: v8,     ref: 2a9f52c9a86ef67b8530b7039101f3a239ba561e, cpu: x86-64-v2 }
+          - { name: v13,    ref: cdae2f64f1c889606bc16493c69ac3ea5a353ff1, cpu: x86-64-v2 }
+          - { name: v13_1,  ref: 1262b3ec84694800d3d6dc152b7f0803e2ab9c93, cpu: x86-64-v2 }
+          - { name: v13_1cl, ref: 1262b3ec84694800d3d6dc152b7f0803e2ab9c93, cpu: cascadelake }
+          - { name: lab,    ref: '', cpu: x86-64-v2 }
+          - { name: labstatic, ref: '', cpu: static }
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ matrix.ref }}' }
+      - uses: actions/checkout@v4
+        with: { path: labtree }
+      - id: key
+        run: echo "k=bin3-${{ matrix.name }}-${{ matrix.cpu }}-${{ hashFiles('src/**','Cargo.lock','Dockerfile','docker/**','labtree/.github/bench/Dockerfile.static') }}" >> $GITHUB_OUTPUT
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: bin
+          key: ${{ steps.key.outputs.k }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          set -eux
+          mkdir -p bin
+          if [ "${{ matrix.cpu }}" = static ]; then
+            docker build -f labtree/.github/bench/Dockerfile.static -o type=local,dest=bin .
+          else
+            docker build --build-arg X86_CPU=${{ matrix.cpu }} -t img .
+            id=$(docker create img); docker cp $id:/app/sessions bin/sessions; docker rm $id
+          fi
+          file bin/sessions; ls -la bin
+      - uses: actions/upload-artifact@v4
+        with: { name: 'bin-${{ matrix.name }}', path: bin/sessions, retention-days: 3 }
+
+  bench:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Machine
+        run: |
+          nproc; free -g; df -h / /mnt || true
+          grep -m1 'model name' /proc/cpuinfo
+          grep -o -m1 -w 'avx512f' /proc/cpuinfo && echo AVX512=yes || echo AVX512=no
+          ls -la /dev/kvm || true
+          cat /sys/kernel/mm/transparent_hugepage/enabled
+          docker version --format '{{.Server.Version}}'
+      - name: Install gVisor
+        run: |
+          set -eux
+          curl -fsSL https://gvisor.dev/archive.key | sudo gpg --dearmor -o /usr/share/keyrings/gvisor-archive-keyring.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/gvisor-archive-keyring.gpg] https://storage.googleapis.com/gvisor/releases release main" | sudo tee /etc/apt/sources.list.d/gvisor.list
+          sudo apt-get update -qq && sudo apt-get install -y -qq runsc
+          sudo runsc install
+          if [ -e /dev/kvm ]; then sudo chmod 666 /dev/kvm; sudo runsc install --runtime runsc-kvm -- --platform=kvm; fi
+          sudo systemctl restart docker
+          runsc --version
+          docker info --format '{{json .Runtimes}}'
+      - uses: actions/download-artifact@v4
+        with: { path: bins }
+      - name: Images
+        run: |
+          set -eux
+          docker pull -q debian:bookworm-slim
+          for d in bins/bin-*; do
+            n=${d#bins/bin-}; mkdir -p ctx/$n; cp $d/sessions ctx/$n/; chmod 755 ctx/$n/sessions
+            if [ $n = labstatic ]; then f=.github/bench/Dockerfile.scratch; else f=.github/bench/Dockerfile.run; fi
+            docker build -q -f $f -t ss:$n ctx/$n
+          done
+          docker images | grep ss
+      - uses: actions/cache@v4
+        id: data
+        with:
+          path: data/seed-42
+          key: data-seed42-20m-${{ hashFiles('tools/generator/src/**','tools/generator/Cargo.lock') }}
+      - name: Generate 20M
+        if: steps.data.outputs.cache-hit != 'true'
+        run: |
+          set -eux
+          (cd tools/generator && cargo build --release -q)
+          time tools/generator/target/release/generate --seed 42 --events 20000000 --clicks 5000000 --output data/seed-42
+          du -sh data/seed-42; ls -la data/seed-42
+      - name: Bench
+        run: bash .github/bench/bench.sh 2>&1 | tee bench.log
+      - name: Summary
+        if: always()
+        run: python3 .github/bench/summarize.py results.jsonl | tee -a $GITHUB_STEP_SUMMARY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results
+          path: |
+            results.jsonl
+            bench.log
+            logs/

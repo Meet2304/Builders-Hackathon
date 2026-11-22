@@ -1039,8 +1039,25 @@ fn for_each_record<'a, const N: usize>(buf: &'a [u8], start: usize, end: usize, 
     }
 }
 
+/// Lab knob SESSIONS_INPUT: unset = plain mmap, `populate` = MAP_POPULATE,
+/// `read` = read() into an anonymous buffer.
+enum InBuf {
+    M(Mmap),
+    V(Vec<u8>),
+}
+
+impl std::ops::Deref for InBuf {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        match self {
+            InBuf::M(m) => m,
+            InBuf::V(v) => v,
+        }
+    }
+}
+
 struct Input {
-    maps: Vec<Mmap>,
+    maps: Vec<InBuf>,
 }
 
 impl Input {
@@ -1055,7 +1072,8 @@ impl Input {
             Err(_) => Vec::new(),
         };
         paths.sort();
-        let maps: Vec<Option<Mmap>> = paths
+        let mode = env::var("SESSIONS_INPUT").unwrap_or_default();
+        let maps: Vec<Option<InBuf>> = paths
             .par_iter()
             .map(|p| {
                 let f = File::open(p).expect("open csv");
@@ -1063,12 +1081,18 @@ impl Input {
                 if len == 0 {
                     return None;
                 }
-                Some(unsafe {
-                    memmap2::MmapOptions::new()
-                        .len(len as usize)
-                        .map(&f)
-                        .expect("mmap csv")
-                })
+                if mode == "read" {
+                    let mut v = Vec::with_capacity(len as usize);
+                    use std::io::Read;
+                    (&f).read_to_end(&mut v).expect("read csv");
+                    return Some(InBuf::V(v));
+                }
+                let mut o = memmap2::MmapOptions::new();
+                o.len(len as usize);
+                if mode == "populate" {
+                    o.populate();
+                }
+                Some(InBuf::M(unsafe { o.map(&f).expect("mmap csv") }))
             })
             .collect();
         Input {

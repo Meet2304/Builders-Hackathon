@@ -1,0 +1,3 @@
+FROM scratch
+COPY sessions /app/sessions
+CMD ["/app/sessions"]
