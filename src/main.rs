@@ -2106,15 +2106,14 @@ struct Ctx<'a, 'l> {
     ndays: usize,
     ncamp: usize, // organic == ncamp
     base: i64,    // window_start - 7 days: the smallest ts of any kept row
-    wide: bool,   // ts - base may not fit 40 bits: sort on (person, ts) pairs
     ckb: u32,     // low bits of Ck::tc holding the campaign index
 }
 
 #[derive(Clone, Copy)]
 struct PCk {
-    k: u64,
     ts: i64,
     cid: u64,
+    loc: u32,
     camp: u32,
 }
 
@@ -2253,40 +2252,31 @@ fn tally_clicks(run: &[PCk], ids: &Ids) {
     CK_BUCKET[bucket].fetch_add(n as u64, Relaxed);
 }
 
-/// v5's sort: one `sort_unstable_by` over every click in the partition.
-fn sort_clicks_old<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[CkPart], p: usize, wide: bool) {
+/// Count clicks while resolving their dense person IDs. The counting-sort
+/// cursors become run ends, so attribution can reuse them directly.
+fn sort_clicks<L: Layout>(ctx: &Ctx, sc: &mut Scratch<L::Elem>, ck: &[CkPart], p: usize) {
+    let ids = &ctx.lk.ids;
     sc.cks.clear();
-    for part in ck {
-        for c in &part[p] {
-            if let Some(loc) = sc.persons.get(c.person) {
-                let ts = c.ts(ctx);
-                let k = if wide { loc as u64 } else { (loc as u64) << 40 | (ts - ctx.base) as u64 };
-                sc.cks.push(PCk { k, ts, cid: c.cid, camp: c.camp(ctx) });
-            }
-        }
-    }
-    sc.cks.sort_unstable_by(|a, b| a.k.cmp(&b.k).then(a.ts.cmp(&b.ts)).then_with(|| lk.ids.cmp(b.cid, a.cid)));
-}
-
-/// Counting sort by the dense person id, then a per-person sort by (ts, click_id desc).
-/// The person id is resolved once. The counting sort then runs on that flat list.
-fn sort_clicks_counted<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[CkPart], p: usize, wide: bool) {
-    let shift = if wide { 0 } else { 40 };
-    sc.cks.clear();
-    for part in ck {
-        for c in &part[p] {
-            if let Some(loc) = sc.persons.get(c.person) {
-                let k = if wide { loc as u64 } else { (loc as u64) << 40 };
-                sc.cks.push(PCk { k, ts: c.ts(ctx), cid: c.cid, camp: c.camp(ctx) });
-            }
-        }
-    }
-    let npeople = sc.persons.keys.len();
     sc.ck_at.clear();
-    sc.ck_at.resize(npeople, 0);
-    for c in &sc.cks {
-        sc.ck_at[(c.k >> shift) as usize] += 1;
+    sc.ck_at.resize(sc.persons.keys.len(), 0);
+    for part in ck {
+        for c in &part[p] {
+            if let Some(loc) = sc.persons.get(c.person) {
+                sc.ck_at[loc as usize] += 1;
+                sc.cks.push(PCk { loc, ts: c.ts(ctx), cid: c.cid, camp: c.camp(ctx) });
+            }
+        }
     }
+    if env_flags().2 {
+        sc.cks.sort_unstable_by(|a, b| a.loc.cmp(&b.loc).then_with(|| click_ord(a, b, ids)));
+        let mut end = 0;
+        for count in &mut sc.ck_at {
+            end += *count;
+            *count = end;
+        }
+        return;
+    }
+
     let mut sum = 0u32;
     for c in sc.ck_at.iter_mut() {
         let n = *c;
@@ -2294,9 +2284,9 @@ fn sort_clicks_counted<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::E
         sum += n;
     }
     sc.ck_spare.clear();
-    sc.ck_spare.resize(sc.cks.len(), PCk { k: 0, ts: 0, cid: 0, camp: 0 });
+    sc.ck_spare.resize(sc.cks.len(), PCk { loc: 0, ts: 0, cid: 0, camp: 0 });
     for c in &sc.cks {
-        let loc = (c.k >> shift) as usize;
+        let loc = c.loc as usize;
         let i = sc.ck_at[loc] as usize;
         sc.ck_at[loc] += 1;
         sc.ck_spare[i] = *c;
@@ -2308,9 +2298,9 @@ fn sort_clicks_counted<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::E
         let e = e as usize;
         if e > s0 {
             if tally {
-                tally_clicks(&sc.cks[s0..e], &lk.ids);
+                tally_clicks(&sc.cks[s0..e], ids);
             }
-            sort_click_run(&mut sc.cks[s0..e], &lk.ids);
+            sort_click_run(&mut sc.cks[s0..e], ids);
         }
         s0 = e;
     }
@@ -2398,31 +2388,20 @@ fn process_part<L: Layout>(
         }
         s0 = e;
     }
-    let wide = ctx.wide || sc.persons.keys.len() >= 1 << 24;
-    let shift = if wide { 0 } else { 40 };
     let click_t0 = insn_probe().then(hwi);
-    if env_flags().2 {
-        sort_clicks_old::<L>(ctx, lk, sc, ck, p, wide);
-    } else {
-        sort_clicks_counted::<L>(ctx, lk, sc, ck, p, wide);
-    }
+    sort_clicks::<L>(ctx, sc, ck, p);
     if let Some(t0) = click_t0 {
         CLICK_INSN.fetch_add(hwi().wrapping_sub(t0), Relaxed);
         CLICK_N.fetch_add(sc.cks.len() as u64, Relaxed);
     }
 
-    let Scratch { persons, evs, starts, cks, active, category_sales, .. } = sc;
+    let Scratch { persons, evs, starts, cks, ck_at, active, category_sales, .. } = sc;
     let mut ci = 0usize;
     let mut i = 0usize;
     for (loc, &j) in starts.iter().enumerate() {
         let j = j as usize;
         let person = persons.keys[loc].wrapping_mul(PART_INVERSE);
-        // Every stored click has a person in starts, and the sort groups those
-        // people in the same order. The cursor advances once per click.
-        let mut cj = ci;
-        while cj < cks.len() && cks[cj].k >> shift == loc as u64 {
-            cj += 1;
-        }
+        let cj = ck_at[loc] as usize;
         let clicks = &cks[ci..cj];
         if clicks.is_empty() {
             walk_person::<L, false>(ctx, acc, person, &evs[i..j], clicks, active, category_sales);
@@ -2962,13 +2941,12 @@ fn main() {
     let ndays = ((win.end - 1).div_euclid(DAY_MS) - first_day + 1).max(1) as usize;
     let ncamp = lk.camp_ids.len();
     let base = win.start.saturating_sub(WEEK_MS);
-    let wide = !(0..1i64 << 40).contains(&win.end.saturating_sub(base));
     // click rows pack (ts - base) above the campaign index's bits
     let ckb = (u64::BITS - (ncamp as u64).leading_zeros()).max(1);
     assert!((win.end.saturating_sub(base) as u64) >> (64 - ckb) == 0, "click window too wide to pack");
     win.ck_base = base;
     win.ckb = ckb;
-    let ctx = Ctx { lk: &lk, first_day, ndays, ncamp, base, wide, ckb };
+    let ctx = Ctx { lk: &lk, first_day, ndays, ncamp, base, ckb };
     let ncat = lk.cat_names.len();
     // 16 B rows unless a ts offset (ms) or a category index wouldn't fit them
     let compact = knobs.no_fast != 1 && win.end.saturating_sub(base) < 1i64 << 32 && ncat <= 256;
