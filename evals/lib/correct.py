@@ -13,6 +13,7 @@ from .common import (EVALS, FIXTURES, FUZZ_DATA, REPO, SCHEMAS, WORK, canonical,
                      load_table, log, read_json, reference_sha, run_reference, sha256_file, write_json)
 
 DOCKER_RUN = REPO / "scripts" / "docker_run.sh"
+WINDOWS_SEED0 = 100_000  # seeds from here get the "windows" focus (must match evals/fuzz/gen.py)
 DEBUG_CASES = (
     ("SESSIONS_DEBUG_HASH_BITS", "4"),
     ("SESSIONS_DEBUG_CHUNK", "97"),
@@ -37,6 +38,19 @@ INVALID_DEBUG_CASES = (
 )
 
 
+def docker_run_with_env(extra_env: dict) -> str:
+    """scripts/docker_run.sh with `-e K=V` added to the candidate's docker run (flags stay the canonical ones)."""
+    text = DOCKER_RUN.read_text()
+    anchor = '  "$IMAGE"\n'
+    if text.count(anchor) != 1 or not text.endswith(anchor):
+        raise RuntimeError("scripts/docker_run.sh changed shape: cannot add debug env to the container run")
+    for k, v in extra_env.items():
+        if not k.replace("_", "").isalnum() or not str(v).replace("-", "").isalnum():
+            raise ValueError(f"unsafe container env {k}={v}")
+    flags = "".join(f"  -e {k}={v} \\\n" for k, v in extra_env.items())
+    return text[: -len(anchor)] + flags + anchor
+
+
 def runner_cmd(binary: Path | None, image: dict | None):
     """A callable (data, out, ncpu) -> CompletedProcess for a native binary or a container image."""
     def native(data: Path, out: Path, ncpu: int = 8, timeout: float = 120, extra_env: dict | None = None):
@@ -47,11 +61,16 @@ def runner_cmd(binary: Path | None, image: dict | None):
             env.update(extra_env or {})
             return subprocess.run([str(binary)], env=env, capture_output=True, timeout=timeout)
 
-    def container(data: Path, out: Path, ncpu: int = 8, timeout: float = 600):
+    def container(data: Path, out: Path, ncpu: int = 8, timeout: float = 600, extra_env: dict | None = None):
         env = dict(os.environ, IMAGE=image["tag"], PLATFORM=image["platform"], CPUS=str(ncpu),
                    MEM=image.get("mem", "24g"))
-        return subprocess.run(["sh", str(DOCKER_RUN), str(data), str(out)], env=env, capture_output=True,
-                              timeout=timeout)
+        script = str(DOCKER_RUN)
+        with tempfile.TemporaryDirectory(dir=WORK / "tmp") as tmp:
+            if extra_env:
+                script = str(Path(tmp) / "docker_run_env.sh")
+                Path(script).write_text(docker_run_with_env(extra_env))
+            return subprocess.run(["sh", script, str(data), str(out)], env=env, capture_output=True,
+                                  timeout=timeout)
 
     (WORK / "tmp").mkdir(parents=True, exist_ok=True)
     return native if binary is not None else container

@@ -8,7 +8,18 @@
 - Gate A: dev MATCH amd64 container not run
 - Gate B: writes only to output/scratch (read-only container run) not run
 - Gate B: image builds from clean not run
+- predicted board 20M: 2.774s from 3,711 instr/row (26.8 G/s + 0.000s fixed); 4.916s from local wall (×3.10). Target: 0.28 s ⇒ 14 ns/row ⇒ ≤ 308–375 instructions/row (fixed 0.05–0.00 s, 26.8 G instr/s effective)
 - WARNING: 60M max RSS incl. file-backed (page-cache) pages is 16.26 GB > 16 GB: page cache counts against the scorer's cgroup, so reclaim pressure is possible near 24 GB
+
+## Predicted board time (20M practice)
+
+| Predictor | Predicted board | Input | Model |
+| --- | --- | --- | --- |
+| instructions (primary) | **2.774 s** | 3,711 instr/row | 0.000 s + instr/row × 20M / 26.75 G/s (rate, 1 point(s)) |
+| local wall | 4.916 s | 20M median | 0.000 s + 3.103 × local (ratio, 1 point(s)) |
+
+Target: 0.28 s ⇒ 14 ns/row ⇒ ≤ 308–375 instructions/row (fixed 0.05–0.00 s, 26.8 G instr/s effective).
+Primary prediction is above the 0.28 s target.
 
 Run 2026-11-21T18:25:01-0500 → 2026-11-21T18:25:49-0500, 47.7 s. Host: Apple M5 Pro, 15 CPUs. Evaluator 02e24a24450d.
 
@@ -133,7 +144,7 @@ Hardware counters (median): instructions/row 4,130.34, cycles/row 2,865.77, IPC 
 ## Constraints and sizes
 
 - threads max 9 (dev, NCPU=8); stdout max 0 bytes
-- binary 3.82 MB; images
+- binary 3.82 MB; images 
 - repo tracked 0.52 MB
 - native build 17.49s (cached)
 - probe on dev: sampled RSS max 0.31 GiB

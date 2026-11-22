@@ -138,6 +138,68 @@ def match(block):
     return "MATCH" if block["match"] is True else "DIFF"
 
 
+# ---------------------------------------------------------------- evals overlay
+EVALS_DIR = None  # set by --evals-ref: a merged copy of evals/ from the checkout plus git refs
+
+
+def evals_dir(root):
+    return EVALS_DIR or (root / "evals")
+
+
+def git_show(root, ref, path):
+    try:
+        out = subprocess.run(["git", "-C", str(root), "show", f"{ref}:{path}"], capture_output=True, timeout=20)
+        return out.stdout.decode("utf-8", "replace") if out.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def merge_evals(root, refs):
+    """Results committed on a branch (e.g. eval/framework) before they reach main.
+
+    Copies the checkout's evals/{results/*.json, ledger.md, submissions.json} to a temp dir, then for
+    each ref adds result files that are missing or newer (by `finished`), and takes the ledger and
+    submissions with more rows."""
+    import tempfile
+    out = Path(tempfile.mkdtemp(prefix="dash-evals-"))
+    (out / "results").mkdir()
+    src = root / "evals"
+    for p in (src / "results").glob("*.json") if (src / "results").is_dir() else []:
+        (out / "results" / p.name).write_text(read(p))
+    for name in ("ledger.md", "submissions.json"):
+        if (src / name).is_file():
+            (out / name).write_text(read(src / name))
+
+    def finished(text):
+        try:
+            return str(json.loads(text).get("finished") or "")
+        except (ValueError, AttributeError):
+            return ""
+
+    def subs_count(text):
+        try:
+            return len(json.loads(text).get("submissions") or [])
+        except (ValueError, AttributeError):
+            return -1
+    for ref in refs:
+        names = git(root, "ls-tree", "--name-only", f"{ref}:evals/results").splitlines()
+        for n in names:
+            if not n.endswith(".json"):
+                continue
+            text = git_show(root, ref, f"evals/results/{n}")
+            mine = out / "results" / n
+            if text and (not mine.is_file() or finished(text) > finished(read(mine))):
+                mine.write_text(text)
+                print(f"evals: {n} from {ref}", file=sys.stderr)
+        led = git_show(root, ref, "evals/ledger.md")
+        if led and len(list(md_rows(led))) > len(list(md_rows(read(out / "ledger.md")))):
+            (out / "ledger.md").write_text(led)
+        sub = git_show(root, ref, "evals/submissions.json")
+        if sub and subs_count(sub) > subs_count(read(out / "submissions.json")):
+            (out / "submissions.json").write_text(sub)
+    return out
+
+
 # ---------------------------------------------------------------- versions
 def from_result(r):
     c = r.get("correctness") or {}
@@ -170,7 +232,12 @@ def from_result(r):
         "fuzz": f"{int(fz_ok)}/{int(fz_tot)}" if fz_tot else None,
         "deterministic": ("yes" if all(det) else "no") if det else None,
         "median_1m_s": med("1M"),
-        "median_20m_s": med("20M"),
+        # The gate's number: the interleaved A/B median when the eval ran one (quiet-machine pairs
+        # against the baseline), else the timed block's median.
+        "median_20m_s": rnd(get(r, "baseline", "ab_candidate_wall_s", "median")) or med("20M"),
+        "median_20m_basis": "interleaved A/B" if num(get(r, "baseline", "ab_candidate_wall_s", "median")) else
+                            ("timed block" if med("20M") is not None else None),
+        "median_20m_block_s": med("20M"),
         "median_60m_s": med("60M"),
         "sd_20m_s": rnd(get(ds, "perf-20M", "summary", "wall_s", "stdev")),
         "runs_20m": get(ds, "perf-20M", "summary", "wall_s", "n"),
@@ -179,6 +246,9 @@ def from_result(r):
         "cpu_util_20m": rnd(get(ds, "perf-20M", "summary", "cpu_util", "median"), 3),
         "est_scorer_20m_s": rnd(get(r, "calibration", "estimated_scorer_20m_s")),
         "warnings": len(get(r, "verdict", "warnings") or []),
+        "instr_per_row_20m": (round(get(ds, "perf-20M", "summary", "instructions", "median") / get(ds, "perf-20M", "events_lines"))
+                              if num(get(ds, "perf-20M", "summary", "instructions", "median")) and num(get(ds, "perf-20M", "events_lines"))
+                              else None),
         "source": "evals/results",
     }
 
@@ -212,8 +282,24 @@ def from_log_row(row):
         "verdict": plain(row.get("Verdict")) or None,
         "median_20m_s": parse_float(row.get("20M median")),
         "median_60m_s": parse_float(row.get("60M")),
+        **log_submission(row),
         "source": "docs/orchestration/LOG.md",
     }
+
+
+def log_submission(row):
+    """`Submitted` = "**yes (BB-93D28A6B, Sat 19:23 ET)**" / "no"; `Board time` = "**1.9424 s** (...)" / "n/a"."""
+    sub_cell, board_cell = plain(row.get("Submitted")), plain(row.get("Board time"))
+    out = {}
+    if sub_cell:
+        out["submitted"] = "yes" if sub_cell.lower().startswith("yes") else "no"
+        m = re.search(r"\b([A-Z]{2,}-[0-9A-F]{6,})\b", sub_cell)
+        if m:
+            out["submission"] = m[1]
+    m = re.match(r"\s*([0-9]+(?:\.[0-9]+)?)\s*s\b", board_cell or "")
+    if m:
+        out["board_time_s"] = float(m[1])
+    return out
 
 
 def load_versions(root, log):
@@ -228,17 +314,17 @@ def load_versions(root, log):
             if v is not None and cur.get(k) is None:
                 cur[k] = v
     # Highest-fidelity source first; later ones only fill gaps.
-    for p in sorted((root / "evals/results").glob("*.json")):
+    for p in sorted((evals_dir(root) / "results").glob("*.json")):
         r = read_json(p)
         if isinstance(r, dict) and r.get("version"):
             merge(from_result(r))
-    ledger = list(md_rows(read(root / "evals/ledger.md")))
+    ledger = list(md_rows(read(evals_dir(root) / "ledger.md")))
     for row in reversed(ledger):  # newest row wins
         merge(from_ledger_row(row))
     for row in md_rows(section(log, "Version ledger")):
         merge(from_log_row(row))
 
-    subs = get(read_json(root / "evals/submissions.json"), "submissions") or []
+    subs = get(read_json(evals_dir(root) / "submissions.json"), "submissions") or []
     for s in subs if isinstance(subs, list) else []:
         if isinstance(s, dict) and s.get("version") in versions:
             v = versions[s["version"]]
@@ -253,14 +339,44 @@ def load_versions(root, log):
     for i, name in enumerate(ranked):
         versions[name].setdefault("submitted", "no")
         versions[name]["order"] = i
+    apply_calibration(root, versions)
     return versions
+
+
+def calibration_ratio(root, versions):
+    """board / local 20M. Prefer Eval's fit in evals/calibration.json; else the median ratio over
+    submitted versions that have both a board time and a local 20M median."""
+    cal = read_json(evals_dir(root) / "calibration.json") or read_json(root / "evals/calibration.json") or {}
+    fit = cal.get("fit") if isinstance(cal, dict) else None
+    for key in ("ratio", "ratio_scorer_over_local", "slope"):
+        if isinstance(fit, dict) and num(fit.get(key)) and not num(fit.get("intercept")):
+            return fit[key], f"evals/calibration.json ({fit.get('points', '?')} point(s))"
+    pts = sorted((v["board_time_s"] / v["median_20m_s"], n) for n, v in versions.items()
+                 if num(v.get("board_time_s")) and num(v.get("median_20m_s")))
+    if not pts:
+        return None, None
+    ratio, name = pts[len(pts) // 2]
+    v = versions[name]
+    return ratio, f"{name}: {v['board_time_s']} s board / {v['median_20m_s']:.3f} s local"
+
+
+def apply_calibration(root, versions):
+    ratio, basis = calibration_ratio(root, versions)
+    for v in versions.values():
+        if num(v.get("board_time_s")):
+            v["board_or_pred_s"], v["board_basis"] = v["board_time_s"], "board"
+        elif ratio and num(v.get("median_20m_s")):
+            v["pred_board_s"] = round(v["median_20m_s"] * ratio, 3)
+            v["board_or_pred_s"], v["board_basis"] = v["pred_board_s"], "predicted"
+    versions.setdefault("__calibration__", {})  # carrier, removed in build()
+    versions["__calibration__"] = {"ratio": round(ratio, 3) if ratio else None, "basis": basis}
 
 
 # ---------------------------------------------------------------- other parts
 def load_phases(root, versions):
     """Phase medians at 20M for the newest version that has them."""
     for name in sorted(versions, key=lambda n: versions[n]["order"], reverse=True):
-        r = read_json(root / f"evals/results/{name}.json")
+        r = read_json(evals_dir(root) / "results" / f"{name}.json")
         phases = get(r, "perf", "datasets", "perf-20M", "summary", "phases")
         wall = get(r, "perf", "datasets", "perf-20M", "summary", "wall_s", "median")
         if isinstance(phases, dict) and phases:
@@ -348,6 +464,18 @@ def load_git(root):
             "commits": commits or None, "branches": branches or None}
 
 
+def log_facts(log):
+    """Latest approximate rank and the instructions-per-row target, from LOG.md prose."""
+    out = {}
+    ranks = re.findall(r"[Rr]ank(?: is)? (?:around|about|~)\s*(\d+)", log)
+    if ranks:
+        out["rank"] = int(ranks[-1])
+    m = re.findall(r"(\d{2,4})\s*[–-]\s*(\d{2,4})\s*instructions per row", log)
+    if m:
+        out["instr_target_lo"], out["instr_target_hi"] = int(m[-1][0]), int(m[-1][1])
+    return out
+
+
 def target_s(root):
     t = read(root / "docs/orchestration/PROTOCOL.md")
     m = re.search(r"Target to beat[^\n]*?([0-9]+\.[0-9]+)\s*s\b", t)
@@ -370,11 +498,29 @@ def headline(versions, target, now, git_info):
         basis = est if est is not None else m20(best)
         out.update({"best_version": best["version"], "best_verdict": best.get("verdict"),
                     "best_median_20m_s": m20(best), "best_est_scorer_20m_s": est,
-                    "basis": "estimated scorer time" if est is not None else "local 20M median",
+                    "basis": "local 20M median" + (f", {best['median_20m_basis']}" if best.get("median_20m_basis") else ""),
                     "gap_s": round(basis - target, 4), "gap_x": round(basis / target, 2)})
         out["status"] = "ahead of target" if basis < target else "behind target"
     if latest:
         out.update({"latest_version": latest["version"], "latest_verdict": latest.get("verdict")})
+    if best and best.get("instr_per_row_20m"):
+        out["instr_per_row"] = best["instr_per_row_20m"]
+    if best and best.get("pred_board_s"):
+        out["best_pred_board_s"] = best["pred_board_s"]
+    # Board results win: the gap and status are measured on the board when we have a board time.
+    boarded = [v for v in versions.values() if num(v.get("board_time_s"))]
+    if boarded:
+        b = min(boarded, key=lambda v: v["board_time_s"])
+        out.update({"board_version": b["version"], "board_submission": b.get("submission"),
+                    "gap_s": round(b["board_time_s"] - target, 4), "gap_x": round(b["board_time_s"] / target, 2),
+                    "gap_basis": f"board time of {b['version']}",
+                    "status": "ahead of target" if b["board_time_s"] < target else "behind target"})
+    elif out.get("best_pred_board_s"):
+        p = out["best_pred_board_s"]
+        out.update({"gap_s": round(p - target, 4), "gap_x": round(p / target, 2),
+                    "gap_basis": f"predicted board time of {best['version']}"})
+    elif best:
+        out["gap_basis"] = "local 20M median"
     return out
 
 
@@ -383,8 +529,11 @@ def build(root):
     log = read(root / "docs/orchestration/LOG.md")
     now = dt.datetime.now(dt.timezone.utc).astimezone().isoformat(timespec="seconds")
     versions = load_versions(root, log)
+    cal = versions.pop("__calibration__", {})
     gi = load_git(root)
-    docs = {"headline": {"kind": "headline", **headline(versions, target_s(root), now, gi)}}
+    head = headline(versions, target_s(root), now, gi)
+    head.update({"calibration_x": cal.get("ratio"), "calibration_basis": cal.get("basis"), **log_facts(log)})
+    docs = {"headline": {"kind": "headline", **head}}
     for name, v in versions.items():
         docs[f"version-{slug(name)}"] = {"kind": "version", **v}
     for p in load_phases(root, versions):
@@ -396,7 +545,10 @@ def build(root):
     docs["insights"] = {"kind": "insights", **load_insights(root)}
     docs["git"] = {"kind": "git", **gi}
     # Drop nulls: the store keeps them, and absent reads the same on the page.
-    return {k: {f: x for f, x in d.items() if x is not None} for k, d in docs.items()}
+    # The page marks headline.best_board_s even before any submission, so it stays (as null).
+    keep = {"best_board_s"}
+    return {k: {f: x for f, x in d.items() if x is not None or (d.get("kind") == "headline" and f in keep)}
+            for k, d in docs.items()}
 
 
 def write_snapshot(docs, out_json, out_dir):
@@ -479,8 +631,14 @@ def main():
                     help="print ArtifactData batch writes; DIR = out_dir of a list of the store (omit DIR for a first sync)")
     ap.add_argument("--listing", type=Path, default=HERE / "existing" / "listing.txt",
                     help="text of the ArtifactData list result (ids + versions); renamed to *.used after use")
+    ap.add_argument("--evals-ref", action="append", default=[], metavar="REF",
+                    help="also read evals results/ledger/submissions committed on this git ref (repeatable), "
+                         "newest result wins; e.g. --evals-ref eval/framework")
     a = ap.parse_args()
     root = a.root.resolve()
+    global EVALS_DIR
+    if a.evals_ref:
+        EVALS_DIR = merge_evals(root, a.evals_ref)
     docs = build(root)
     out_json, snap_dir = HERE / "snapshot.json", HERE / "snapshot"
     write_snapshot(docs, out_json, snap_dir)

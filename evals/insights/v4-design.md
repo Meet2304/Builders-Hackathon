@@ -1,8 +1,7 @@
 # v4 design: what has to be true to beat 0.28 s on the board
 
-Analyst, 2026-11-21, written against `method/v3` @ `29b64bf` while Eval's v3 full eval runs. Every number marked
-**[est.]** is my estimate from v2's measured phase CPU, v3's dev numbers and code reading. Replace them with
-Eval's v3 phase marks when they land. Inputs: `evals/results/v2.json` and `.md`, `evals/explore/window-timestamps.md`,
+Analyst, 2026-11-21, written against `method/v3` @ `29b64bf` while Eval's v3 full eval runs. **Updated with v3's measured numbers**
+(`evals/results/v3.md`; analysis in `evals/insights/v3.md`). Only marks still flagged **[est.]** are estimates. Inputs: `evals/results/v2.json` and `.md`, `evals/explore/window-timestamps.md`,
 `evals/explore/allocator-bakeoff.md`, `evals/insights/v1.md` §4 and `v2.md` §4, and v3's source.
 
 ## 0. Headline
@@ -19,7 +18,7 @@ Eval's v3 phase marks when they land. Inputs: `evals/results/v2.json` and `.md`,
 2. **The budget: about 250 instructions per event line, all phases included, plus ≈ 35 ms of fixed cost.** That
    assumes the 8 vCPUs are 4 Cascade Lake cores × 2 hyperthreads at about 3 GHz. That's roughly 25 G instr/s
    for the whole box, and 30 GB/s of DRAM.
-   - v2 measured 4,264 instructions per line. v3 is ≈ 2,700 **[est.]**, so we need about 10× fewer.
+   - v2 measured 4,264 instructions per line. v3 measured 2,598, so we need about 5–10× fewer, depending on calibration (`v3.md` §3).
    - Four incremental moves take v3 to about 1,000–1,200. The last 4× needs the whole target architecture
      done tightly, not one trick.
 3. **The 0.28 s board time is practice, at about 20M events and 1.8 GB** (`docs/PLAN.md`: practice ≈ 20M, final
@@ -45,19 +44,19 @@ Eval's v3 phase marks when they land. Inputs: `evals/results/v2.json` and `.md`,
 
 Per-line columns are per **event** line. Clicks are amortised: about 0.24 clicks per event.
 
-| Phase | 20M budget (s) | Instr/event line budget | v2 measured instr/line ¹ | v3 expected instr/line **[est.]** | 60M budget (s) |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Fixed: exec, manifest, pool, open and mmap of ~110 files, `process::exit` | 0.008 | – | – | – | 0.010 |
-| Links + products + campaigns | 0.012 | 10 | 46 | 40 | 0.045 ² |
-| Events: SIMD classify + field split | 0.035 | 40 | | **≈ 550** ³ | 0.105 |
-| Events: decode (2 IDs, 2 timestamps, type, product, price) | 0.050 | 60 | 2,195 (all of events) | ≈ 450 | 0.150 |
-| Events: link probe + emit dedup entry and row | 0.025 | 25 | | ≈ 400 | 0.080 ² |
-| Clicks: parse, validate, probe, emit (≈ 100 instr per click) | 0.020 | 25 | 431 | ≈ 330 | 0.060 |
-| Dedup (side stream) | 0.012 | 15 | 585 | ≈ 185 | 0.040 |
-| Sessions + attribution (intern, sort, session loop, credit and assists) | 0.060 | 70 | 897 | ≈ 600 | 0.190 |
-| Output (Parquet, both tables) | 0.010 | 5 | 109 | ≈ 100 | 0.020 |
-| Barrier tails (≈ 6 phase barriers × ½ chunk) and serial glue | 0.015 | – | – | – | 0.020 |
-| **Total** | **0.247** | **≈ 250** | **4,264** | **≈ 2,700** | **≈ 0.72** |
+| Phase | 20M budget (s) | Instr/event line budget | v2 measured instr/line ¹ | v3 measured instr/line ⁴ | v3 wall 20M / 60M (local) | 60M budget (s) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Fixed: exec, manifest, pool, open and mmap of ~110 files, `process::exit` | 0.008 | – | – | – | tail 0.060 / 0.158 macOS; Linux 0.010 | 0.010 |
+| Links + products + campaigns | 0.012 | 10 | 46 | **100** | **0.054 / 0.216** (parallelism 2.9 / 3.5) | 0.045 ² |
+| Events: SIMD classify + field split | 0.035 | 40 | | **1,441 for all of events** (≈ 550 of it the split ³ [est.]) | **0.291 / 0.861** | 0.105 |
+| Events: decode (2 IDs, 2 timestamps, type, product, price) | 0.050 | 60 | 2,195 (all of events) | (in the 1,441) | | 0.150 |
+| Events: link probe + emit dedup entry and row | 0.025 | 25 | | (in the 1,441) | | 0.080 ² |
+| Clicks: parse, validate, probe, emit (≈ 100 instr per click) | 0.020 | 25 | 431 | 221 | 0.047 / 0.136 | 0.060 |
+| Dedup (side stream) | 0.012 | 15 | 585 | 153 | 0.033 / **0.137** (×4.2) | 0.040 |
+| Sessions + attribution (intern, sort, session loop, credit and assists) | 0.060 | 70 | 897 | 550 | 0.110 / **0.394** (×3.6) | 0.190 |
+| Output (Parquet, both tables) | 0.010 | 5 | 109 | 134 | 0.036 / 0.078 (Linux 20M 0.026) | 0.020 |
+| Barrier tails (≈ 6 phase barriers × ½ chunk) and serial glue | 0.015 | – | – | – | – | 0.020 |
+| **Total** | **0.247** | **≈ 250** | **4,264** | **2,598** | **0.624 / 1.970** (Linux 20M 0.545) | **≈ 0.72** |
 
 1. v2's measured total is 4,264 instr/line (Eval, 20M). I split it by v2's per-phase CPU shares (events 5.53, clicks 1.09,
    dedup 1.47, sessions 2.26, Parquet 0.28, lookups 0.12 core-s), assuming IPC is flat across phases.
@@ -65,7 +64,10 @@ Per-line columns are per **event** line. Clicks are amortised: about 0.24 clicks
    - The link table grows to ≈ 3.6M IDs, so probes become DRAM and TLB misses. Prefetching hides the
      latency, but the table needs THP.
    - With P fixed at 256, partitions are 3× larger and spill L2. Scale P with input (§2, G6).
-3. 79% of lines × ≈ 680 + 21% × ≈ 70.
+3. 79% of lines × ≈ 680 + 21% × ≈ 70. The 79% is now measured over all of seed-42: 79.02% of event lines
+   take the fallback.
+4. v3, Eval's full profile, native 20M: 55.9 G instructions over 21.51M event lines, IPC 3.17. Split by each phase's
+   share of measured CPU, assuming IPC is flat across phases.
 
 **Memory traffic budget.**
 - At 20M, the input is 1.75 GB.
@@ -73,7 +75,7 @@ Per-line columns are per **event** line. Clicks are amortised: about 0.24 clicks
   ≈ 0.1 s at 30 GB/s, overlapped with compute.
 - The parse phase alone needs ≈ 19 GB/s (109 B per line in 0.115 s). That fits, but only if rows stay compact.
 - v3 writes 44 B per event (16 B `EidEnt` + 4 B ref + 24 B `Row`) and then copies rows again into 24 B `PEv`.
-  That's ≈ 4.5 GB in total **[est.]**, about 0.15 s of pure bandwidth on the scorer.
+  That's ≈ 4.5 GB in total **[est.]**; the measured peak footprint is 2.06 GB at 20M, about 0.15 s of pure bandwidth on the scorer.
 
 **Fixed costs are already small in v3.** mimalloc took Linux faults from 967k to 21k and the exit tail from
 161 ms to 11 ms (allocator bake-off). File-backed mmap faults with the kernel's 64 KB fault-around are ≈ 27k
@@ -96,9 +98,9 @@ instr/core-s locally (v2: 87 G instructions in 10.7 core-s).
 | G7 | Barriers | ≈ 6 → ≈ 4 | One task pool for events + clicks (independent until dedup). Run the serial `drops_by` regroup in parallel. | ≈ 0.01 s | Very low |
 | G8 | Classify ISA | SSE2 (≈ 40 instr / 64 B) → AVX2 (≈ 18) or AVX-512BW (≈ 8) | Guarded by a **startup self-test** (below) | ≈ 0.03 s | **High unless testable**: we can't run AVX-512 locally |
 | G9 | Output | 100 → 5 | A hand-rolled plain-encoded Parquet writer per worker, straight from `Acc`. | ≈ 0.02 s | Medium: format exactness |
-| G10 | Links | 40 → 10 | Hash instead of `binary_search` per pair; parallel union-find. Matters at 60M. | ≈ 0.01 s at 20M, ≈ 0.04 s at 60M | Low |
+| **G10 (re-ranked to #3, see `v3.md`)** | Links | 100 → 10, parallelism 2.9 → 7 | Hash instead of `binary_search` per pair; parallel union-find. Measured: **0.054 s at 20M, 0.216 s at 60M (11% of the final).** | **≈ 0.03 s local at 20M, ≈ 0.15 s local at 60M** | Low |
 
-G1–G5 together take v3 from ≈ 2,700 to ≈ 400–500 instr/line **[est.]**. G6–G10 and tuning are worth another
+G1–G5 together take v3 from 2,598 (measured) to ≈ 400–500 instr/line **[est.]**. G6–G10 and tuning are worth another
 ≈ 100–150. **Getting under 0.28 s needs all of G1–G6 at about their targets.** That is the target
 architecture, built incrementally on v3. No v3 code is thrown away: the scan, IDs, dedup design, decoder and
 session loop all stay.
@@ -195,7 +197,7 @@ sort kernels, and Sol owns links and the audit.
 ### Method (`method/v4`, branched from v3; one move per commit, each gated)
 
 1. **G1 quote-aware fast path** in `for_each_record`, for events, clicks and links. The unit test above is part
-   of the commit. Expected ≈ −470 instr/line, ≈ −1.3 core-s or ≈ −0.2 s local wall at 20M **[est.]**.
+   of the commit. Expected ≈ −470 instr/line, ≈ −0.75 core-s or ≈ −0.12 s local wall at 20M (v3 runs 13.5 G instr/core-s).
 2. **G2 compact streams + counting-sort `process_part`**, with the `wide` fallback layouts. Expected ≈ −600
    instr/line and ≈ −1.5 GB of traffic.
 3. **G6 + G7:** sort partitions by size, one events + clicks task pool, a parallel drop regroup, and P scaled

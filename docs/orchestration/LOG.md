@@ -8,7 +8,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ref | d170ffe | main | 236 s (1 thread) | n/a | 17 GB at 20M | oracle | no | n/a |
 | v1 | 3e48662 | main (tag v1) | 1.550 s (5 runs, sd 0.03) | 5.79 s (3 runs) | 11.46 GB footprint (16.6 GB RSS incl. page cache) | **SUBMIT-READY** | no | n/a |
-| v3 | 29b64bf | main (tag v3) | **0.626 s** (interleaved vs v1 1.609 s, +61.1%) | 1.97 s | 5.62 GB footprint (11.6 GB RSS) | **SUBMIT-READY** | no (asked user) | n/a |
+| v3 | 29b64bf | main (tag v3) | **0.626 s** (interleaved vs v1 1.609 s, +61.1%) | 1.97 s | 5.62 GB footprint (11.6 GB RSS) | **SUBMIT-READY** | **yes (BB-93D28A6B, Sat 19:23 ET)** | **1.9424 s** (wait 141 ms; entered in final as best) |
 | v2 | 953af43 | method/v2 | 1.661 s (interleaved 1.610 vs v1 1.659) | 5.367 s | 11.41 GB footprint (17.76 GB RSS) | HOLD (Gate C: only 2.94% faster, needs 5%) | no | n/a |
 
 ## Thread registry
@@ -16,12 +16,13 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 | Thread | Role | Branch / worktree | Status |
 | --- | --- | --- | --- |
 | Orchestrator | coordination, merges, log | main / project root | active |
-| [Eval: framework + scoring](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:89ba2159fefcb9d132aac87119da7af32599350130f935c6869fa5fd8158d759) | evaluation framework | eval/framework (worktree from origin/main @ 7f27b6a) | running (Codex sol): framework v1.2 (Analyst v2 §requests: Linux A/B Gate C, madvise THP, fault anatomy, contamination guard) |
+| [Eval: framework + scoring](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:89ba2159fefcb9d132aac87119da7af32599350130f935c6869fa5fd8158d759) | evaluation framework (Cursor grok-4.7 + Gemini 4 Neon in browser) | eval/framework (worktree from origin/main @ 7f27b6a) | running (Codex sol): framework v1.2 (Analyst v2 §requests: Linux A/B Gate C, madvise THP, fault anatomy, contamination guard) |
 | [Dashboard (simple, static)](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/thread:delegated-task:command%3Amcp%3A02321fc3-e973-4332-85f8-fdaccde89f88%3Adelegate-task%3Adashboard-sol-1) | dashboard (Codex gpt-6.2-sol) | t3/build-progress-dashboard, merged (8807552) | done |
 | [Analyst: insights](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:4bb2f427ec0d090bb0b1d04656a70cbb5677caeda85f78ddb59f299ee7c58728) | insights | analysis (worktree from origin/main @ 54be3ad) | running (claude_andrew): correctness review of method/v3 |
 | [Method: next version](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:12abc78a5e772d60f60bfee203e923ca14d54c88168f046f78565586a6182097) | pipeline versions | method/v2 (worktree from origin/main @ e695855) | running (Claude): v3 on method/v3 (packed IDs, dedup routing, direct-index lookups, SIMD scan); no big timings until cleared |
 | [Explorer (Sol): new methods](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:6315989f2e18da907dd5afa1c1d91b92f260d655ff39ccea533b4bcc1c8dff26) | new methods, orthogonal to v3 (Codex gpt-6.2-sol) | explore/sol + explore/<idea> (worktree from origin/main) | running |
 | [Explorer (Gemini Neon): parse + sort](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:c34fb1c92727c4ef2b6393af4d85d74111a2d51ff14281638fe8f40541130fd3) | new methods: radix sort, parse path, input I/O and threads (runs on Cursor grok-4.7; consults Gemini 4 Neon in the browser) | explore/gemini + explore/gemini-<idea> (worktree from method/v3 @ 1ea8059) | running |
+| [Explorer 3 (Gemini Neon): sessions, output, fused design](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:4379b65d8484648bc9238d23e7cc78673f8a8df125def5c32a8181b904ea7ac5) | sessions+attribution kernel, Parquet output cost, fused ~300 instr/row microbenchmark (Cursor grok-4.7 + Gemini 4 Neon in browser) | explore/gemini3 + explore/gemini3-<idea> (worktree from origin/main) | running |
 | [Dashboard: live Claude artifact](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:41ab4ef0a8234b722582c94a9f60a3b6ad91d309d5aa3b1510e7c1c2ad26f325) | live claude.ai dashboard (one URL, data in the artifact DB) | dashboard/live, merged (304e818) | done: canonical https://claude.ai/artifact/WtswJrVasZtzDdyXH1Ci82 (main account) |
 
 ## Entries
@@ -75,3 +76,39 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Gap list: (1) quote-aware fast path; (2) 16 B rows and a counting sort; (3) a faster ID packer, with category lookup only for purchases; (4) the same for clicks; (5) a smaller dedup entry and L2-sized partitions; (6) largest-first partition scheduling for whale users.
   - Beating 0.28 s needs all six. It's incremental on v3, not a rewrite.
 - **Explorer 2 (Grok + Gemini):** counting sort on the dense person ID, with LSD radix as the fallback (Gemini's design), on `explore/gemini-radix` `c99960e`. Fixtures 36/36, dev MATCH, and a unit test against the comparison order. Not yet timed.
+- **USER SUBMITTED v3** (`29b64bf`): board **1.9424 s** (BB-93D28A6B, "wait 141 ms"). It's our best score and is entered in the final. Rank is around 250th; the leaders are at 0.28 s.
+  - **Calibration (1 point):** board / local = 1.9424 / 0.626 = **3.10×**.
+  - Per row: v3 runs 2,598 instructions per row at 20M (IPC 3.17 on M5). On the scorer that is 97 ns per row, about 26.7 G instructions/s effective, which matches the Analyst's model of about 25 G/s across 8 cascadelake vCPUs.
+  - **What 0.28 s needs:** about 14 ns per row, i.e. **≤ ~300–375 instructions per row including fixed costs**, or about 0.09 s local wall at the 3.1× ratio. Local wall time is a poor proxy because the M5 Pro has much higher IPC. **Instructions per row (and the predicted board time) becomes the primary metric.**
+- **User request:** one more Gemini Neon instance in its own thread. **Orchestrator** launched **Explorer 3**, Cursor `grok-4.7` with Gemini 4 Neon in its own browser tab. Scope:
+  - a sessions and attribution kernel at ≤ 60 instructions per row
+  - Parquet output cost, and the cheapest writer configuration the checker accepts
+  - a clean-room fused design at ~300 instructions per row, with a stage-by-stage instruction microbenchmark
+
+  Eval was asked to record the calibration point, make predicted board time plus instructions per row the primary metric, and let Gate C pass on a ≥5% drop in instructions per row. Method and the Analyst were told to judge moves by instructions per row.
+- **Analyst:** v3 insights at `e03ad61`, merged. Measured instructions per line: 2,598 in total.
+  - Per phase: events parse 1,441, sessions 550, clicks 221, dedup 153, links 100.
+  - Lines on the fast path: events 21%, clicks 41%, links 64%.
+  - Superlinear from 20M to 60M: dedup ×4.2, sessions ×3.6, links ×4.0. With the partition count fixed at 256, partitions outgrow L2.
+  - Re-ranked: (1) quote-aware fast path; (2) compact rows, counting sort and scaled partitions in one commit; (3) parallel links (Sol: now ahead of the audit); (4) ID packing; (5) one task pool plus parallel output. Moves 1–4 project to about 0.35 s native at 20M.
+  - Asked the Analyst to re-anchor on the 1.9424 s board point.
+- **Eval:** framework v1.3 at `8a507ee`, merged into main as `d96eaae`.
+  - Calibration: 1 point, ratio fit, slope 3.103. Added an instructions-per-row predictor.
+  - v3 amendment: review suites 120/120, windows fuzz 227/227, amd64 SWAR path 36/36 + dev, Linux A/B +74%.
+  - "wait 141 ms" isn't defined anywhere in the docs.
+- **User request:** run Eval on Gemini Neon in the browser instead of Claude. **Orchestrator** switched Eval to Cursor `grok-4.7` as the driver, with Gemini 4 Neon in its own browser tab as analysis and design partner. Eval keeps ownership of the verdicts. Its tasks are to prepare v4 evals (lead with predicted board time and instructions per row) and to cover the Analyst's open requests: per-phase instructions, fast-path share counter, partition skew, 60M/20M growth.
+- **Orchestrator tick (19:47 ET):** several threads finished 10–20 min ago and sat idle until this tick. Fix: shorter loop delay, and re-task as soon as reports land.
+- **Method:** v4 moves 1–2 on `method/v4` @ `c9e1a0c`. Every gate passes: fixtures, dev, 7 seeds, the full knob matrix, the v3_review cases, and 8 unit tests.
+  - **Instructions per line, 20M:** 1,772–1,795 vs v3's 2,610 (**−31%**). That projects to about 1.3 s on the board. Quick 20M run: 0.53 s, 3.8 GB.
+  - **Move 1 (quote-aware fast path) saved only 3 instructions per line.** It now takes 100% of lines, but `split_fields` on quoted lines was never the cost. The Analyst's premise for that move was wrong.
+  - **Move 2 (16 B rows plus a per-person counting sort with Explorer 2's radix) did the work:** 2,628 → 1,855 instructions per line on dev.
+  - The remaining parse cost is ID packing, timestamps, category lookups and pushes.
+- **Explorer (Sol):** `5dafdb0`, merged.
+  - **Parallel links** (`explore/parallel-links` @ `89ad72c`): −36 instructions per line at 20M and −40 at 60M, exact.
+  - **Unneeded-work audit:** looking up the category only for purchases skips 97.1% of lookups, about −57 to −67 instructions per line (modeled).
+  - **Partition skew:** the largest partition is 5.5× the average.
+- **Explorer 2:** counting sort alone on v3 cuts 2,598 → 2,391 instructions per line (−207), worth about −0.15 s on the board. Already in v4 move 2. Note merged.
+- **Analyst** addendum `353709c`, **Eval** v1.4 `3f2ceee` and **Dashboard** `0ad54a7` merged.
+  - Eval: per-phase instructions per row for v3 are events parse 1,600, sessions 522, clicks 241, output 130, lookups 69, dedup 35. Lookups and dedup are cache-bound at 60M.
+  - Eval: the Linux A/B for v3 vs v1 is +74%.
+- **Next:** Eval runs the full eval of v4 `c9e1a0c`. Method does move 3 (ID packer), category lookups for purchases only, the parallel-links port, then moves 4–6. Sol prototypes move 5–6 (L2-sized partitions, dedup and lookup cache behaviour at 60M, skew-aware scheduling). Explorer 2 does the ID packer kernel. Re-applied Eval's switch to Cursor grok-4.7 + Gemini (it had kept running on Claude).

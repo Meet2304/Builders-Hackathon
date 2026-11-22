@@ -45,6 +45,11 @@ A **summary** object (`S` below) is `{n, median, mean, min, max, p90, stdev, cv,
                     "dev"?: {"match", "hash"?, "rows"?, "error"?, "diff"?}, "fuzz"?: { ...same as fuzz... }},
                     "<rejection case>": {"status", "returncode", "stderr_tail"},
                     "<empty-output check>": {"status", "cases": {"<fixture>": {"expected", "hashes"}}}},
+    "fuzz_windows"?: { ...same as fuzz, seeds [100000, 100000 + N)... },
+    "review_suites"?: {"<suite name>": {"runner", "status": "pass|fail|not_run", "total", "passed",
+                       "failed": ["<script>: <runner line>"], "error"?,
+                       "scripts": {"<cases script>": {"wall_s", "returncode", "total", "passed", "failed"}}}},
+    "amd64_knobs"?: {"SESSIONS_DEBUG_NO_FAST=3": {"fixtures": { ...as fixtures_amd64... }, "dev": { ...as dev_answer_amd64... }}},
     "determinism": {"<dataset>": {"runs", "hashes": [...], "deterministic", "byte_identical_files"}},
     "row_counts": {"<dataset>": {"user_daily", "campaign_daily"}}
   },
@@ -90,15 +95,33 @@ A **summary** object (`S` below) is `{n, median, mean, min, max, p90, stdev, cv,
                   "clean_image_build_ok", "clean_image_build_detail", "binary_bytes", "image_bytes": {"<arch>"},
                   "repo": {"tracked_bytes", "tracked_files", "data_files", "largest": [{"path", "bytes"}]}},
 
+  // perf.phase_counters (untimed, macOS proc_pid_rusage at each phase mark):
+  //   {"<role>": {"dataset", "n", "event_lines", "instructions", "instr_per_row", "cycles_per_row", "ipc",
+  //               "phases": {"<phase key>": {"instructions", "cycles", "instr_per_row", "cycles_per_row", "ipc", "share"}},
+  //               "debug_stats"?: {"raw": [...], "kinds": {"events|clicks|links|<name>": {"fast", "split_fields",
+  //                                "fast_share", "rows_max"?, "rows_mean"?, "skew_max_over_mean"?, ...}},
+  //                                "output_matches_default"?: bool}}}
+  // perf.size_scaling.phase_growth: {"events_ratio", "phases": {"<phase>": {"wall_20m_s", "wall_60m_s", "wall_ratio",
+  //   "wall_ratio_per_event", "cpu_ratio_per_event"?, "instr_per_row_ratio"?, "cycles_per_row_ratio"?, "superlinear"}}}
   "baseline": null | {"kind": "submitted|submit-ready", "version", "sha", "wall_s": S,
-                      "board_time_s"?, "ab_load_before"?, "ab_required_pairs"?, "ab_wall_s"?: S, "ab_candidate_wall_s"?: S},
+                      "board_time_s"?, "instructions_per_row"?: S, "ab_load_before"?, "ab_required_pairs"?, "ab_wall_s"?: S, "ab_candidate_wall_s"?: S},
   "calibration": {"method": "linear|ratio"|null, "points", "intercept"?, "slope"?, "local_range_s"?,
-                  "reason"?, "estimated_scorer_20m_s", "extrapolated", "board_target_s", "beats_board_target"},
+                  "reason"?, "estimated_scorer_20m_s", "extrapolated", "board_target_s", "beats_board_target",
+                  // instruction model (primary when counters exist): board = fixed_s + ipr * board_rows / rate
+                  "instr_model": {"method": "rate|linear"|null, "points", "board_rows", "fixed_s"?, "rate_instr_per_s"?,
+                                  "ns_per_instr_row"?, "ipr_range"?, "reason"?},
+                  "instructions_per_row": float|null, "estimated_scorer_20m_instr_s": float|null,
+                  "primary": "instructions|wall"|null, "predicted_board_s": float|null,
+                  "target": {"board_target_s", "ns_per_row", "instructions_per_row_max"?: {"fixed X.XXs": n}, "summary"}},
 
   "gates": {"A" | "B" | "C": {"status": "pass|fail|incomplete",
                               "checks": [{"name", "status": "pass|fail|not_run", "detail"}],
                               "warnings"?: [...]}},       // C also has baseline, gain, pooled_sd_s, metric
-  "verdict": {"verdict": "REJECT|HOLD|SUBMIT-READY", "final": bool, "reasons": [...], "warnings": [...]},
+  // Gate C extras: "linux_ab"?: {"status": "supports|regression|inconclusive|unavailable", ...},
+  //   "instructions": {"status": "pass|fail|unavailable", "gain"?, "checks"}, "wall"? (when the instruction route passed)
+  "amendments"?: [{"at", "stages": ["review"|"windows"|"amd64-knobs"|"linux-ab"|"counters"|"growth"], "eval_sha", "duration_s"}],
+  "verdict": {"verdict": "REJECT|HOLD|SUBMIT-READY", "final": bool, "reasons": [...], "warnings": [...],
+              "predictions"?: "predicted board 20M: <instr model>; <wall model>. Target: ..."},
   "notes": [...], "errors": [{"stage", "error", "trace"}]
 }
 ```
@@ -123,8 +146,16 @@ New Linux timing runs use an inside-container wall clock around GNU time for `pr
 Timed samples include `minor_faults_per_row` and `major_faults_per_row` using physical event rows as
 the denominator. **LINUX_STATS** maps both wall times, both fault counts and both fault rates to summary objects.
 
-**Gate C secondary signal** is `gates.C.linux_secondary` with `status` (`supports|regression|inconclusive|unavailable`),
-`detail`, and, when comparable, `gain`, `pooled_sd_s`, and `pairs`. The signal is informational.
+**Gate C Linux A/B** is `gates.C.linux_ab`, with `status` (`supports|regression|inconclusive|unavailable`),
+`detail`, and, when comparable, `gain`, `pooled_sd_s`, and `pairs`. A qualifying Linux improvement can pass Gate C
+and retains the native result under `gates.C.native`.
+
+New timed samples record `load_before` (host load averages and contamination wait duration).
+Linux samples also include `user_s`, `sys_s`, `exit_tail_s`, `peak_anon_bytes`, `peak_anon_huge_bytes`,
+`cgroup_peak_bytes`, `oom_kills`, and VM-wide `thp_fault_alloc` and `thp_fault_fallback` deltas when accessible.
+The Linux results record `thp_previous`, `thp_policy`, and `thp_restored`. The 60M cap check is stored in
+`perf.linux_60m_memory` with the same single-sample shape as the Linux fault probe. The clean scorer-target build
+is recorded in `build.images.amd64-cascadelake` and checked via `constraints.cascadelake_build_ok`.
 
 **Verdict:** `REJECT` if any Gate A or B check fails; otherwise `HOLD` if Gate C fails or anything is `not_run`
 (then `final: false`, i.e. provisional, e.g. the quick profile); otherwise `SUBMIT-READY`.

@@ -6,7 +6,10 @@
 Every case is small (tens to a few thousand rows) and dense in the corner cases
 of docs/rules.md. A seed picks a *focus* (dialect, timestamps, sessions, clicks,
 links, dedup, files, overflow, window, mixed, id-shapes) that raises the rate of that
-family; every family still appears at a base rate.
+family; every family still appears at a base rate. Seeds >= WINDOWS_SEED0 (100000) all take the
+`windows` focus instead: year-end, new-year, leap-day and month-end windows (some off midnight),
+timestamps at the window and click-window edges, at local midnights via F2 offsets, and at
+window -/+ 8 days, the edges of a date-table timestamp decoder. Seeds below it are unchanged.
 
 Cases are `strict` (everything stays inside rules.md: these gate a submission)
 unless they use an out-of-spec input, which makes them `robust` (reported, not
@@ -31,6 +34,7 @@ DAY = 86_400_000
 GAP = 1_800_000
 WEEK = 7 * DAY
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+WINDOWS_SEED0 = 100_000  # must match evals/lib/correct.py
 FOCI = ["dialect", "timestamps", "sessions", "clicks", "links", "dedup", "files", "overflow", "window", "mixed"]
 ARABIC = "٠١٢٣٤٥٦٧٨٩"
 FULLWIDTH = "０１２３４５６７８９"
@@ -57,6 +61,8 @@ class Gen:
         self.focus = FOCI[seed % len(FOCI)] if seed < 10 * len(FOCI) else r.choice(FOCI)
         if seed % 20 == 10:
             self.focus = "id-shapes"
+        if seed >= WINDOWS_SEED0:
+            self.focus = "windows"
         self.tags: set[str] = {self.focus}
         self.robust: list[str] = []
         f = self.focus
@@ -65,7 +71,7 @@ class Gen:
         self.p_malformed = 0.01 if f != "dialect" else 0.08
         self.p_crlf = 0.005 if f != "dialect" else 0.06
         self.p_empty_line = 0.003 if f != "dialect" else 0.03
-        self.p_bad_ts = 0.01 if f != "timestamps" else 0.15
+        self.p_bad_ts = {"timestamps": 0.15, "windows": 0.06}.get(f, 0.01)
         self.p_edge_ts = 0.05 if f != "timestamps" else 0.3
         self.p_overflow = 0.003 if f != "overflow" else 0.08
         self.p_dup = 0.04 if f != "dedup" else 0.35
@@ -88,6 +94,8 @@ class Gen:
     # ------------------------------------------------------------ setup
     def _window(self):
         r = self.r
+        if self.focus == "windows":
+            return self._windows_window()
         if self.focus == "window" and r.random() < 0.5:
             self.tags.add("leap")
             start = datetime(2028, 2, r.randint(14, 29), tzinfo=timezone.utc)
@@ -109,6 +117,85 @@ class Gen:
             self.robust.append("window-not-midnight")
         self.ws = from_dt(start)
         self.we = self.ws + length * DAY
+
+    def _windows_window(self):
+        r = self.r
+        kind = r.choice(["year-end", "new-year", "leap", "leap-after", "non-leap-feb", "month-end"])
+        self.tags.add(kind)
+        if kind == "year-end":
+            start = datetime(r.choice([2025, 2026, 2027]), 12, r.randint(17, 31), tzinfo=timezone.utc)
+        elif kind == "new-year":
+            start = datetime(r.choice([2026, 2027, 2028]), 1, r.randint(1, 8), tzinfo=timezone.utc)
+        elif kind == "leap":
+            start = datetime(2028, 2, r.randint(14, 29), tzinfo=timezone.utc)
+        elif kind == "leap-after":
+            start = datetime(2028, 3, r.randint(1, 9), tzinfo=timezone.utc)  # Feb 29 in the click lookback
+        elif kind == "non-leap-feb":
+            start = datetime(r.choice([2025, 2026, 2027]), 2, r.randint(14, 28), tzinfo=timezone.utc)
+        else:
+            y, m = r.randint(2025, 2028), r.randint(1, 12)
+            last = ((datetime(y + m // 12, m % 12 + 1, 1, tzinfo=timezone.utc) - timedelta(days=1)).day)
+            start = datetime(y, m, r.randint(last - 3, last), tzinfo=timezone.utc)
+        if r.random() < 0.25:
+            # not a midnight: out of spec for the generator, still a legal manifest, so robust only
+            start += timedelta(hours=r.randint(0, 23), minutes=r.randint(0, 59), seconds=r.randint(1, 59))
+            self.robust.append("window-not-midnight")
+            self.tags.add("not-midnight")
+        self.ws = from_dt(start)
+        self.we = self.ws + 14 * DAY
+
+    def window_probes(self) -> list[int]:
+        """Instants at the edges a window-relative timestamp decoder could get wrong."""
+        ws, we, r = self.ws, self.we, self.r
+        pts = [ws, ws - 1000, ws + 1000, ws - 1, ws + 1, we, we - 1000, we - 1, we + 1000,
+               ws - WEEK, ws - WEEK - 1000, ws - WEEK + 1000, ws - WEEK - 1, ws - WEEK + 1,
+               ws - 8 * DAY, ws - 8 * DAY - 1000, ws - 8 * DAY + 1000, we + 8 * DAY, we + 8 * DAY - 1000,
+               ws - 9 * DAY, we + 9 * DAY]
+        # every UTC midnight in and around the window, and a second either side
+        first = ws - ws % DAY
+        for d in range(-9, 24):
+            m = first + d * DAY
+            pts += [m, m - 1000, m + 1000]
+        # year boundaries and Feb 29 / Mar 1 near the window
+        for y in {to_dt(ws - 9 * DAY).year, to_dt(we + 9 * DAY).year}:
+            pts += [from_dt(datetime(y, 1, 1, tzinfo=timezone.utc)) + k for k in (-1000, 0, 1000)]
+            pts += [from_dt(datetime(y, 3, 1, tzinfo=timezone.utc)) + k for k in (-DAY, -1000, 0)]
+        r.shuffle(pts)
+        return pts
+
+    def render_probe(self, ms: int) -> str:
+        """A valid rendering of ms; F2 offsets put the local date on another day (or year) than UTC."""
+        r = self.r
+        if ms % 1000:
+            return self._f3(ms)
+        x = r.random()
+        if x < 0.3:
+            return self.f1(ms)
+        if x < 0.8:
+            off = r.choice([1, 59, 60, 13 * 60 + 45, 14 * 60, 23 * 60 + 59, 0])
+            sign = r.choice("+-")
+            local = to_dt(ms) + timedelta(minutes=off if sign == "+" else -off)
+            return local.strftime("%Y-%m-%dT%H:%M:%S") + f"{sign}{off // 60:02d}:{off % 60:02d}"
+        return self._f3(ms)
+
+    def emit_window_probes(self):
+        """One fresh person per probe, so a wrong decode or bound shows as its own wrong row."""
+        r = self.r
+        product = next(iter(self.products))
+        for n, t in enumerate(self.window_probes()):
+            uid = f"wp{n}"
+            ts = self.render_probe(t)
+            ingest = self.f1(max(t, 0) - max(t, 0) % 1000 + 1000 * r.randint(0, 5))
+            typ = r.choice(["view", "cart", "purchase"])
+            self.events.append((f"we{n},{uid},{ts},{ingest},{typ},{product},{r.randint(1, 5000)}", -1))
+            if r.random() < 0.5:
+                # a click at the probe instant, crediting (or not) a session that starts at a window edge
+                anchor = r.choice([self.ws, self.ws + 1000, t + WEEK, t + WEEK - 1000, t + WEEK + 1000, t + 1000])
+                if self.ws <= anchor < self.we:
+                    self.events.append((f"wa{n},{uid},{self.render_probe(anchor - anchor % 1000)},"
+                                        f"{self.f1(anchor - anchor % 1000)},view,{product},", -1))
+                self.clicks.append(f"wk{n},{uid},{r.choice(self.camp_ids)},{self.render_probe(t)}")
+        self.tags.add("window-probes")
 
     def _catalog(self):
         r = self.r
@@ -152,6 +239,8 @@ class Gen:
         if ms % 1000:
             return self._f3(ms)
         x = r.random()
+        if self.focus == "windows":
+            return self.render_probe(ms)
         if x < 0.55:
             return self.f1(ms)
         if x < 0.75:
@@ -379,6 +468,8 @@ class Gen:
         r = self.r
         x = r.random()
         span = self.we - self.ws
+        if self.focus == "windows" and x < 0.5:
+            return r.choice(self.window_probes()[:8])
         if x < 0.1:
             return self.ws + r.choice([0, 1, -1, -1000, 1000])
         if x < 0.2:
@@ -655,6 +746,8 @@ class Gen:
         self.emit_clicks()
         if self.focus == "id-shapes":
             self.emit_id_shapes()
+        if self.focus == "windows":
+            self.emit_window_probes()
         self.write(out)
         return {"seed": self.seed, "focus": self.focus, "tags": sorted(self.tags),
                 "strict": not self.robust, "robust_reasons": sorted(set(self.robust)),

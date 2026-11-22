@@ -1,0 +1,170 @@
+{
+  "seed-42": {
+    "user_days": 2246306,
+    "people": 667401,
+    "events": 19564682,
+    "sessions": 3407788,
+    "no_purchase_days": 1851938,
+    "assisted_sessions": 36030031,
+    "purchasing_sessions": 464800,
+    "canonical_hash": "3a77b9fd70f2a47435c182de701737f9c73df847f230772c0b2251ca6606e47a",
+    "category": {
+      "nonpurchase": 20436887,
+      "purchase": 600419,
+      "empty_event_id": 1809,
+      "emitted_eid": 21497135
+    },
+    "valid_clicks": 5090199,
+    "session_work": {
+      "person_zeroed_bytes": 1111490560,
+      "clicks_sorted": 5089975,
+      "adjacent_equal_click_ts": 262200,
+      "events_revisited": 5255371,
+      "clicks_expired_at_add": 265150,
+      "clicks_after_last_session": 3967,
+      "assist_updates_identical_window": 3937170,
+      "identical_window_starts": 599432
+    },
+    "serial_drop_route_ns": 1842417,
+    "dedup_dropped_valid_rows": 1472624,
+    "top_partitions": [
+      [
+        51,
+        421509
+      ],
+      [
+        42,
+        413788
+      ],
+      [
+        53,
+        324724
+      ],
+      [
+        23,
+        291005
+      ],
+      [
+        246,
+        268878
+      ]
+    ],
+    "slowest_partition_ns": [
+      42,
+      18044625
+    ],
+    "accumulators": 195,
+    "campaign_slots_per_acc": 28014,
+    "physical_event_lines": 21507843,
+    "top_assist_campaigns": [
+      {
+        "campaign_id": "c_1986",
+        "assisted_sessions": 1281479
+      },
+      {
+        "campaign_id": "c_1007",
+        "assisted_sessions": 1280270
+      },
+      {
+        "campaign_id": "c_1685",
+        "assisted_sessions": 1277659
+      },
+      {
+        "campaign_id": "c_1095",
+        "assisted_sessions": 1206467
+      },
+      {
+        "campaign_id": "c_1039",
+        "assisted_sessions": 904162
+      }
+    ],
+    "category_id_sample": {
+      "mean_decimal_digits": 4.73785,
+      "sampled_ids": 18268
+    }
+  },
+  "seed-43": {
+    "user_days": 6671410,
+    "people": 2002299,
+    "events": 58449132,
+    "sessions": 10095916,
+    "no_purchase_days": 5505224,
+    "assisted_sessions": 102157003,
+    "purchasing_sessions": 1372963,
+    "canonical_hash": "5121c6474473be5a073e6bc293b2966dcd09bd7d9646c0004bf259297b65c5bd",
+    "category": {
+      "nonpurchase": 60697275,
+      "purchase": 1785753,
+      "empty_event_id": 5338,
+      "emitted_eid": 64118170
+    },
+    "valid_clicks": 15031833,
+    "session_work": {
+      "person_zeroed_bytes": 2499805184,
+      "clicks_sorted": 15031125,
+      "adjacent_equal_click_ts": 708892,
+      "events_revisited": 16240993,
+      "clicks_expired_at_add": 779677,
+      "clicks_after_last_session": 11776,
+      "assist_updates_identical_window": 11570313,
+      "identical_window_starts": 1784084
+    },
+    "serial_drop_route_ns": 6393167,
+    "dedup_dropped_valid_rows": 4033896,
+    "top_partitions": [
+      [
+        94,
+        1204818
+      ],
+      [
+        117,
+        1148012
+      ],
+      [
+        96,
+        932871
+      ],
+      [
+        102,
+        905726
+      ],
+      [
+        194,
+        856725
+      ]
+    ],
+    "slowest_partition_ns": [
+      94,
+      105631084
+    ],
+    "accumulators": 189,
+    "campaign_slots_per_acc": 28014,
+    "physical_event_lines": 64150261,
+    "top_assist_campaigns": [
+      {
+        "campaign_id": "c_1513",
+        "assisted_sessions": 3760985
+      },
+      {
+        "campaign_id": "c_651",
+        "assisted_sessions": 3755168
+      },
+      {
+        "campaign_id": "c_627",
+        "assisted_sessions": 3754622
+      },
+      {
+        "campaign_id": "c_1428",
+        "assisted_sessions": 3543734
+      },
+      {
+        "campaign_id": "c_1335",
+        "assisted_sessions": 2642404
+      }
+    ],
+    "category_id_sample": {
+      "mean_decimal_digits": 4.69252,
+      "sampled_ids": 36558
+    }
+  }
+}

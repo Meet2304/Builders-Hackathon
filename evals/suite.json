@@ -1,16 +1,92 @@
 {
   "_doc": "Datasets the eval suite uses. kind: oracle = diff vs cached Python reference output (data/expected/<name>/); consistency = too big for the reference, so invariants + diff vs the best verified version's cached output (data/consistency/<name>/). Generator args are recorded so any dataset can be regenerated.",
+  "reference_version": "v3",
+  "_reference_doc": "Every new eval is compared with this version (results/<v>-vs-<ref>.md and a section in the report). Before comparing, the reference's result gets any untimed stages the current framework has added (review, windows, counters, growth, amd64-knobs) via --amend, so metrics are like for like; timed metrics come from the new eval's interleaved A/B, which re-times the Gate C baseline (the best submitted version) in the same session.",
   "datasets": {
-    "dev":     {"kind": "oracle", "answer": "dev-answer", "seed": 1,  "events": 1000000,  "clicks": 250000,   "role": "perf-1M"},
-    "seed-2":  {"kind": "oracle", "seed": 2,  "events": 200000,   "clicks": 50000},
-    "seed-3":  {"kind": "oracle", "seed": 3,  "events": 200000,   "clicks": 50000},
-    "seed-4":  {"kind": "oracle", "seed": 4,  "events": 200000,   "clicks": 50000},
-    "seed-5":  {"kind": "oracle", "seed": 5,  "events": 200000,   "clicks": 50000},
-    "seed-6":  {"kind": "oracle", "seed": 6,  "events": 200000,   "clicks": 50000},
-    "seed-15": {"kind": "oracle", "seed": 15, "events": 300000,   "clicks": 75000,   "note": "window holds Feb 29 2028"},
-    "seed-62": {"kind": "oracle", "seed": 62, "events": 300000,   "clicks": 75000,   "note": "window holds Feb 29 2028"},
-    "seed-42": {"kind": "oracle", "seed": 42, "events": 20000000, "clicks": 5000000,  "role": "perf-20M"},
-    "seed-62-20m": {"kind": "oracle", "seed": 62, "events": 20000000, "clicks": 5000000, "note": "window holds Feb 29 2028"},
-    "seed-43": {"kind": "consistency", "seed": 43, "events": 60000000, "clicks": 15000000, "role": "perf-60M"}
-  }
+    "dev": {
+      "kind": "oracle",
+      "answer": "dev-answer",
+      "seed": 1,
+      "events": 1000000,
+      "clicks": 250000,
+      "role": "perf-1M"
+    },
+    "seed-2": {
+      "kind": "oracle",
+      "seed": 2,
+      "events": 200000,
+      "clicks": 50000
+    },
+    "seed-3": {
+      "kind": "oracle",
+      "seed": 3,
+      "events": 200000,
+      "clicks": 50000
+    },
+    "seed-4": {
+      "kind": "oracle",
+      "seed": 4,
+      "events": 200000,
+      "clicks": 50000
+    },
+    "seed-5": {
+      "kind": "oracle",
+      "seed": 5,
+      "events": 200000,
+      "clicks": 50000
+    },
+    "seed-6": {
+      "kind": "oracle",
+      "seed": 6,
+      "events": 200000,
+      "clicks": 50000
+    },
+    "seed-15": {
+      "kind": "oracle",
+      "seed": 15,
+      "events": 300000,
+      "clicks": 75000,
+      "note": "window holds Feb 29 2028"
+    },
+    "seed-62": {
+      "kind": "oracle",
+      "seed": 62,
+      "events": 300000,
+      "clicks": 75000,
+      "note": "window holds Feb 29 2028"
+    },
+    "seed-42": {
+      "kind": "oracle",
+      "seed": 42,
+      "events": 20000000,
+      "clicks": 5000000,
+      "role": "perf-20M"
+    },
+    "seed-62-20m": {
+      "kind": "oracle",
+      "seed": 62,
+      "events": 20000000,
+      "clicks": 5000000,
+      "note": "window holds Feb 29 2028"
+    },
+    "seed-43": {
+      "kind": "consistency",
+      "seed": 43,
+      "events": 60000000,
+      "clicks": 15000000,
+      "role": "perf-60M"
+    }
+  },
+  "review_suites": [
+    {
+      "name": "v3-review",
+      "runner": "evals/insights/v3_review/run.py",
+      "cases": [
+        "cases.py",
+        "cases_ts.py"
+      ],
+      "owner": "Analyst",
+      "note": "evals/insights/v3-review.md: packed-ID, dedup, lookup, scan and timestamp-decoder boundaries, each under 10 debug knobs"
+    }
+  ]
 }
