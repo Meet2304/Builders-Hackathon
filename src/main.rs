@@ -1790,7 +1790,7 @@ struct Scratch<E> {
     spare: Vec<E>,
     cks: Vec<PCk>,
     active: ActiveSet,
-    cat_sum: Vec<i64>,
+    category_sales: CategorySales,
 }
 
 fn process_part<L: Layout>(
@@ -1890,73 +1890,119 @@ fn process_part<L: Layout>(
     // a session start is the latest one with the smallest click_id.
     sc.cks.sort_unstable_by(|a, b| a.k.cmp(&b.k).then(a.ts.cmp(&b.ts)).then_with(|| lk.ids.cmp(b.cid, a.cid)));
 
-    let base = ctx.base;
-    let Scratch { persons, evs, starts, cks, active, cat_sum, .. } = sc;
-    let ncat = cat_sum.len();
+    let Scratch { persons, evs, starts, cks, active, category_sales, .. } = sc;
     let mut ci = 0usize;
     let mut i = 0usize;
     for (loc, &j) in starts.iter().enumerate() {
         let j = j as usize;
-        let loc = loc as u64;
-        let person = persons.keys[loc as usize];
-        while ci < cks.len() && cks[ci].k >> shift < loc {
-            ci += 1;
-        }
+        let person = persons.keys[loc];
+        // Every stored click has a person in starts, and the sort groups those
+        // people in the same order. The cursor advances once per click.
         let mut cj = ci;
-        while cj < cks.len() && cks[cj].k >> shift == loc {
+        while cj < cks.len() && cks[cj].k >> shift == loc as u64 {
             cj += 1;
         }
         let clicks = &cks[ci..cj];
-        let (mut lo, mut hi) = (0usize, 0usize);
+        if clicks.is_empty() {
+            walk_person::<L, false>(ctx, acc, person, &evs[i..j], clicks, active, category_sales);
+        } else {
+            walk_person::<L, true>(ctx, acc, person, &evs[i..j], clicks, active, category_sales);
+        }
+        i = j;
+        ci = cj;
+    }
+}
 
-        // per-day accumulator for this person
-        let mut cur_day = i64::MIN;
-        let (mut d_sessions, mut d_events, mut d_rev) = (0i64, 0i64, 0i64);
-        let mut d_any_purchase = false;
+#[derive(Default)]
+struct DayTotals {
+    sessions: i64,
+    purchasing: i64,
+    events: i64,
+    revenue: i64,
+}
 
-        let mut k = i;
-        while k < j {
-            // session = evs[k0..k]; equal timestamps have gap 0 and always join
-            let k0 = k;
-            let start = L::ts(evs[k], base);
-            let mut last = start;
-            let mut rev = 0i64;
-            let mut purchased = false;
-            while k < j && L::ts(evs[k], base) - last <= GAP_MS {
-                let e = evs[k];
-                last = L::ts(e, base);
-                let price = L::price(e);
-                if price > 0 {
-                    purchased = true;
-                    rev += price as i64;
-                }
-                k += 1;
-            }
-            let day = start.div_euclid(DAY_MS);
-            if day != cur_day {
-                if cur_day != i64::MIN {
-                    flush_user(acc, lk, person, cur_day, d_sessions, d_events, d_rev, d_any_purchase, cat_sum, ncat);
-                }
-                cur_day = day;
-                d_sessions = 0;
-                d_events = 0;
-                d_rev = 0;
-                d_any_purchase = false;
-            }
-            if purchased {
-                for &e in &evs[k0..k] {
-                    let price = L::price(e);
-                    if price > 0 {
-                        cat_sum[L::cat(e) as usize] += price as i64;
-                    }
-                }
-            }
-            d_sessions += 1;
-            d_events += (k - k0) as i64;
-            d_rev += rev;
-            d_any_purchase |= purchased;
+struct CategorySales {
+    totals: Vec<i64>,
+    touched: Vec<u32>,
+}
 
-            // attribution window [start - 7d, start]
+impl CategorySales {
+    #[inline]
+    fn add(&mut self, cat: u32, price: i64) {
+        let total = &mut self.totals[cat as usize];
+        if *total == 0 {
+            self.touched.push(cat);
+        }
+        *total += price;
+    }
+
+    fn take_top(&mut self, rank: &[u32]) -> Option<u32> {
+        let mut best = None;
+        let mut best_total = 0;
+        let mut best_rank = u32::MAX;
+        for cat in self.touched.drain(..) {
+            let total = std::mem::take(&mut self.totals[cat as usize]);
+            let rank = rank[cat as usize];
+            if total > best_total || (total == best_total && rank < best_rank) {
+                best = Some(cat);
+                best_total = total;
+                best_rank = rank;
+            }
+        }
+        best
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn walk_person<L: Layout, const HAS_CLICKS: bool>(
+    ctx: &Ctx,
+    acc: &mut Acc,
+    person: u64,
+    events: &[L::Elem],
+    clicks: &[PCk],
+    active: &mut ActiveSet,
+    sales: &mut CategorySales,
+) {
+    let base = ctx.base;
+    let mut k = 0;
+    let mut day = L::ts(events[0], base).div_euclid(DAY_MS);
+    let mut next_day = (day + 1).saturating_mul(DAY_MS);
+    let mut day_index = (day - ctx.first_day) as usize;
+    let mut daily = DayTotals::default();
+    let (mut lo, mut hi) = (0, 0);
+    while k < events.len() {
+        let first = k;
+        let start = L::ts(events[k], base);
+        if start >= next_day {
+            flush_day::<HAS_CLICKS>(ctx, acc, person, day, day_index, daily, sales);
+            day = start.div_euclid(DAY_MS);
+            next_day = (day + 1).saturating_mul(DAY_MS);
+            day_index = (day - ctx.first_day) as usize;
+            daily = DayTotals::default();
+        }
+
+        // Attribute all events in a session to its start day, even past midnight.
+        let mut last = start;
+        let mut revenue = 0;
+        while let Some(&event) = events.get(k) {
+            let ts = L::ts(event, base);
+            if ts - last > GAP_MS {
+                break;
+            }
+            last = ts;
+            let price = L::price(event) as i64;
+            if price > 0 {
+                sales.add(L::cat(event), price);
+                revenue += price;
+            }
+            k += 1;
+        }
+        let purchased = i64::from(revenue > 0);
+        daily.sessions += 1;
+        daily.events += (k - first) as i64;
+        daily.revenue += revenue;
+        if HAS_CLICKS {
+            // The two cursors delimit the inclusive 7-day click window.
             while hi < clicks.len() && clicks[hi].ts <= start {
                 active.add(clicks[hi].camp);
                 hi += 1;
@@ -1965,60 +2011,50 @@ fn process_part<L: Layout>(
                 active.remove(clicks[lo].camp);
                 lo += 1;
             }
-            let di = (day - ctx.first_day) as usize;
             let credited = if lo < hi { clicks[hi - 1].camp as usize } else { ctx.ncamp };
-            let r = &mut acc.camp[credited * ctx.ndays + di];
-            r[0] += 1;
-            r[1] += purchased as i64;
-            r[2] += rev;
-            for &c in &active.list {
-                acc.camp[c as usize * ctx.ndays + di][3] += 1;
+            let credit = &mut acc.camp[credited * ctx.ndays + day_index];
+            credit[0] += 1;
+            credit[1] += purchased;
+            credit[2] += revenue;
+            for &campaign in &active.list {
+                acc.camp[campaign as usize * ctx.ndays + day_index][3] += 1;
             }
+        } else {
+            daily.purchasing += purchased;
         }
-        flush_user(acc, lk, person, cur_day, d_sessions, d_events, d_rev, d_any_purchase, cat_sum, ncat);
-        while lo < hi {
-            active.remove(clicks[lo].camp);
-            lo += 1;
+    }
+    flush_day::<HAS_CLICKS>(ctx, acc, person, day, day_index, daily, sales);
+    if HAS_CLICKS {
+        // Past this person's last session the multiplicities have no consumer.
+        for campaign in active.list.drain(..) {
+            active.cnt[campaign as usize] = 0;
         }
-        i = j;
-        ci = cj;
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn flush_user(
+fn flush_day<const HAS_CLICKS: bool>(
+    ctx: &Ctx,
     acc: &mut Acc,
-    lk: &Lookups,
     person: u64,
     day: i64,
-    sessions: i64,
-    events: i64,
-    revenue: i64,
-    any_purchase: bool,
-    cat_sum: &mut [i64],
-    ncat: usize,
+    day_index: usize,
+    totals: DayTotals,
+    sales: &mut CategorySales,
 ) {
-    let top = if any_purchase {
-        let mut best: Option<u32> = None;
-        for c in 0..ncat {
-            let s = cat_sum[c];
-            if s == 0 {
-                continue;
-            }
-            best = match best {
-                None => Some(c as u32),
-                Some(b) => {
-                    let bs = cat_sum[b as usize];
-                    if s > bs || (s == bs && lk.cat_rank[c] < lk.cat_rank[b as usize]) { Some(c as u32) } else { Some(b) }
-                }
-            };
-        }
-        best
-    } else {
-        None
-    };
-    cat_sum.iter_mut().for_each(|x| *x = 0);
-    acc.users.push(UserRow { person, day: day as i32, sessions, events, revenue, top });
+    if !HAS_CLICKS {
+        let organic = &mut acc.camp[ctx.ncamp * ctx.ndays + day_index];
+        organic[0] += totals.sessions;
+        organic[1] += totals.purchasing;
+        organic[2] += totals.revenue;
+    }
+    acc.users.push(UserRow {
+        person,
+        day: day as i32,
+        sessions: totals.sessions,
+        events: totals.events,
+        revenue: totals.revenue,
+        top: sales.take_top(&ctx.lk.cat_rank),
+    });
 }
 
 fn load_products<'a>(buf: &'a [u8], direct_on: bool) -> (IdIndex<'a>, Vec<Vec<u8>>) {
@@ -2275,7 +2311,7 @@ fn pipeline<'a, L: Layout>(
                     spare: Vec::new(),
                     cks: Vec::new(),
                     active: ActiveSet::new(ncamp),
-                    cat_sum: vec![0i64; ncat],
+                    category_sales: CategorySales { totals: vec![0i64; ncat], touched: Vec::new() },
                 };
                 (acc, sc)
             },
