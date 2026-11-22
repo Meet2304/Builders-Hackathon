@@ -42,8 +42,6 @@
 //!                               instead of NEON/SSE2 and NEON/SSSE3 (knobs 1 and 2
 //!                               also use the scalar packer)
 //!   SESSIONS_DEBUG_STATS=1      print fast-path / split_fields line counts per input kind
-//!   SESSIONS_PARQUET=v4         v4's Parquet writer (dictionaries + statistics); the
-//!                               default writes PLAIN columns without statistics
 
 mod links;
 
@@ -62,8 +60,8 @@ use arrow_array::{ArrayRef, Date32Array, Int64Array, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use memmap2::Mmap;
 use parquet::arrow::ArrowWriter;
-use parquet::basic::{Compression, Encoding};
-use parquet::file::properties::{EnabledStatistics, WriterProperties};
+use parquet::basic::Compression;
+use parquet::file::properties::WriterProperties;
 use rayon::prelude::*;
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -1196,8 +1194,7 @@ fn parse_price(s: &[u8]) -> Option<u32> {
 /// every other ID (and all of them with SESSIONS_DEBUG_NO_FAST=1) goes to a hash map.
 /// The canonical value is unique per string, so the split is exact.
 struct IdIndex<'a> {
-    prefix: [u8; 8], // zero padded
-    plen: usize,     // 1..=8
+    prefix: &'static [u8],
     direct_on: bool,
     direct: Vec<u32>, // u32::MAX = absent
     map: HashMap<&'a [u8], u32>,
@@ -1205,56 +1202,35 @@ struct IdIndex<'a> {
 
 impl<'a> IdIndex<'a> {
     fn new(prefix: &'static [u8], direct_on: bool) -> Self {
-        assert!((1..=8).contains(&prefix.len()));
-        let mut p = [0u8; 8];
-        p[..prefix.len()].copy_from_slice(prefix);
-        IdIndex { prefix: p, plen: prefix.len(), direct_on, direct: Vec::new(), map: new_map(64) }
+        IdIndex { prefix, direct_on, direct: Vec::new(), map: new_map(64) }
     }
 
-    /// Canonical value of `b`: prefix, then 1..=7 digits without a leading zero.
-    #[inline(always)]
+    #[inline]
     fn direct_slot(&self, b: &[u8]) -> Option<usize> {
-        let (n, pl) = (b.len(), self.plen);
-        if !self.direct_on || n <= pl || n > pl + 7 {
+        if !self.direct_on || !b.starts_with(self.prefix) {
             return None;
         }
-        // byte loop, not starts_with: a runtime-length slice compare is a bcmp call
-        let mut i = 0;
-        while i < pl {
-            if b[i] != self.prefix[i] {
-                return None;
-            }
-            i += 1;
-        }
-        if b[pl] == b'0' && n > pl + 1 {
+        let d = &b[self.prefix.len()..];
+        if d.is_empty() || d.len() > 7 || (d[0] == b'0' && d.len() > 1) {
             return None;
         }
         let mut v = 0usize;
-        while i < n {
-            let x = b[i].wrapping_sub(b'0');
+        for &c in d {
+            let x = c.wrapping_sub(b'0');
             if x >= 10 {
                 return None;
             }
             v = v * 10 + x as usize;
-            i += 1;
         }
         (v < 1 << 22).then_some(v)
     }
 
-    #[inline(always)]
+    #[inline]
     fn get(&self, b: &[u8]) -> Option<u32> {
         match self.direct_slot(b) {
             Some(v) => self.direct.get(v).copied().filter(|&x| x != u32::MAX),
-            None => self.get_map(b),
+            None => self.map.get(b).copied(),
         }
-    }
-
-    /// Non-canonical IDs. Out of line: the inlined hash-map probe would otherwise make
-    /// every `get` save and restore most callee-saved registers.
-    #[cold]
-    #[inline(never)]
-    fn get_map(&self, b: &[u8]) -> Option<u32> {
-        self.map.get(b).copied()
     }
 
     fn set(&mut self, b: &'a [u8], val: u32) {
@@ -1642,56 +1618,28 @@ fn parse_event<'a, L: Layout>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &
     }
 }
 
-/// One parse task's output for clicks: valid clicks by person partition, with the same
-/// batched link lookup as events.
-struct CkOut {
-    b: Vec<Vec<Ck>>,
-    pend: [(Ck, usize); BATCH], // `person` holds the user key; the user's link slot
-    np: usize,
-}
-
-impl CkOut {
-    fn new(nb: usize, bytes: usize) -> Self {
-        let c = Ck { person: 0, ts: 0, cid: 0, camp: 0 };
-        CkOut { b: buckets_with(nb, bytes / 60 / nb * 5 / 4 + 16), pend: [(c, 0); BATCH], np: 0 }
-    }
-
-    #[inline(always)]
-    fn queue(&mut self, c: Ck, lk: &Lookups) {
-        let slot = lk.links.slot(c.person);
-        prefetch(&lk.links.slots[slot]);
-        self.pend[self.np & (BATCH - 1)] = (c, slot);
-        self.np += 1;
-        if self.np == BATCH {
-            self.flush(lk);
-        }
-    }
-
-    #[inline]
-    fn flush(&mut self, lk: &Lookups) {
-        let nb = self.b.len();
-        let np = std::mem::take(&mut self.np);
-        for &(mut c, slot) in &self.pend[..np] {
-            c.person = lk.links.get_at(c.person, slot);
-            let d = bucket(lk.hpart(c.person), nb);
-            // SAFETY: bucket(_, nb) < nb == self.b.len()
-            unsafe { self.b.get_unchecked_mut(d) }.push(c);
-        }
-    }
-}
-
 /// A valid click; `person` holds the user key until the batched lookup resolves it.
 #[inline]
-fn parse_click<'a>(f: &[&'a [u8]; 4], lk: &Lookups<'a>, w: &Win, o: &mut CkOut) {
+fn parse_click<'a>(f: &[&'a [u8]; 4], lk: &Lookups<'a>, w: &Win) -> Option<(Ck, usize)> {
     if f[0].is_empty() || f[1].is_empty() {
-        return;
+        return None;
     }
-    let Some(camp) = lk.campaign(f[2]) else { return };
+    let camp = lk.campaign(f[2])?;
     let ts = w.parse_ts(f[3]);
     if ts < w.start - WEEK_MS || ts >= w.end {
-        return;
+        return None;
     }
-    o.queue(Ck { person: lk.ids.key(f[1]), ts, cid: lk.ids.key(f[0]), camp }, lk);
+    let user = lk.ids.key(f[1]);
+    let slot = lk.links.slot(user);
+    prefetch(&lk.links.slots[slot]);
+    Some((Ck { person: user, ts, cid: lk.ids.key(f[0]), camp }, slot))
+}
+
+fn flush_clicks(pend: &mut Vec<(Ck, usize)>, lk: &Lookups, b: &mut [Vec<Ck>]) {
+    for (mut c, slot) in pend.drain(..) {
+        c.person = lk.links.get_at(c.person, slot);
+        b[bucket(lk.hpart(c.person), b.len())].push(c);
+    }
 }
 
 /// Group consecutive chunks into rayon tasks: one chunk per task by default; a tiny debug
@@ -2098,23 +2046,9 @@ impl ActiveSet {
 
 // ------------------------------------------------------------------ output
 
-fn writer_props() -> WriterProperties {
-    // Uncompressed, no dictionary, no statistics. v4 already left compression off.
-    // Dictionary encoding and page statistics do not change column values, and on
-    // seed-42 they were most of the write. SESSIONS_PARQUET=v4 restores that writer.
-    let mut b = WriterProperties::builder().set_compression(Compression::UNCOMPRESSED);
-    if env::var("SESSIONS_PARQUET").ok().as_deref() != Some("v4") {
-        b = b
-            .set_dictionary_enabled(false)
-            .set_encoding(Encoding::PLAIN)
-            .set_statistics_enabled(EnabledStatistics::None);
-    }
-    b.build()
-}
-
 fn write_parquet(path: &Path, batch: RecordBatch) {
     let file = File::create(path).expect("create parquet file");
-    let props = writer_props();
+    let props = WriterProperties::builder().set_compression(Compression::UNCOMPRESSED).build();
     let mut w = ArrowWriter::try_new(file, batch.schema(), Some(props)).expect("parquet writer");
     w.write(&batch).expect("write batch");
     w.close().expect("close parquet");
@@ -2234,13 +2168,21 @@ fn pipeline<'a, L: Layout>(
         .par_chunks(task_group(ck_chunks.len(), nb, knobs.chunk))
         .map(|task| {
             let bytes: usize = task.iter().map(|&(_, s, e)| e - s).sum();
-            let mut o = CkOut::new(nb, bytes);
+            let mut b: Vec<Vec<Ck>> = buckets_with(nb, bytes / 60 / nb * 5 / 4 + 16);
+            let mut pend = Vec::with_capacity(BATCH);
             for &(fi, s, e) in task {
                 let buf: &[u8] = &clicks_in.maps[fi];
-                for_each_record(buf, s, e, scan, |f| parse_click(f, lk, win, &mut o));
+                for_each_record(buf, s, e, scan, |f| {
+                    if let Some(c) = parse_click(f, lk, win) {
+                        pend.push(c);
+                        if pend.len() == BATCH {
+                            flush_clicks(&mut pend, lk, &mut b);
+                        }
+                    }
+                });
             }
-            o.flush(lk);
-            o.b
+            flush_clicks(&mut pend, lk, &mut b);
+            b
         })
         .collect();
     lap("clicks parsed");
@@ -2816,36 +2758,6 @@ mod idbench {
             run!("key(again)", |b| ids0.key(b));
             let ids3 = Ids::new(3);
             run!("key(scalar)", |b| ids3.key(b));
-        }
-        // campaign field of every click, product field of every event, through IdIndex
-        let camps_csv = std::fs::read("data/dev/campaigns.csv").unwrap();
-        let mut cix = IdIndex::new(b"c_", true);
-        for (i, line) in camps_csv.split(|&c| c == b'\n').skip(1).enumerate() {
-            if let Some(f) = line.split(|&c| c == b',').next() {
-                if !f.is_empty() {
-                    cix.set(strip(f), i as u32);
-                }
-            }
-        }
-        let mut cf: Vec<&[u8]> = Vec::new();
-        for b in &bufs[bufs.len() - 6..] {
-            for line in b.split(|&c| c == b'\n').skip(1) {
-                if let Some(f) = line.split(|&c| c == b',').nth(2) {
-                    cf.push(strip(f));
-                }
-            }
-        }
-        let n2 = cf.len() as f64;
-        for _ in 0..2 {
-            let i0 = instructions().unwrap();
-            let mut acc = 0u64;
-            for _ in 0..50 {
-                for &b in &cf {
-                    acc = acc.wrapping_add(cix.get(black_box(b)).unwrap_or(7) as u64);
-                }
-            }
-            black_box(acc);
-            eprintln!("campaign get: {:6.1} instr/field over {} fields", (instructions().unwrap() - i0) as f64 / n2 / 50.0, cf.len());
         }
     }
 }
