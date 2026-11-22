@@ -11,6 +11,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 | v3 | 29b64bf | main (tag v3) | **0.626 s** (interleaved vs v1 1.609 s, +61.1%) | 1.97 s | 5.62 GB footprint (11.6 GB RSS) | **SUBMIT-READY** | **yes (BB-93D28A6B, Sat 19:23 ET)** | **1.9424 s** (wait 141 ms; entered in final as best) |
 | v2 | 953af43 | method/v2 | 1.661 s (interleaved 1.610 vs v1 1.659) | 5.367 s | 11.41 GB footprint (17.76 GB RSS) | HOLD (Gate C: only 2.94% faster, needs 5%) | no | n/a |
 | v7b | 96af24b → main ddbf1a3 (tag v7b) | method/v7b | gVisor 20M **1.360 s** (v5 1.910 s, same session); native 0.545 s; 1,359 instr/row | predicted board 60M 3.06 s | 11.54 GB RSS | HOLD → **SUBMIT-READY (Orchestrator override; Gate C noise)** | **yes (BB-870A1088, Sun 02:51 ET)** | **1.5275 s** (rank 132; entered in final as best) |
+| v8 | 2bfb034 → main 2a9f52c (tag v8) | method/v8 | untimed PASS; timed eval pending | n/a | n/a | SUBMIT-READY (correctness; Red Team PASS; x86 MATCH) | **yes (BB-607A8C0F, Sun 03:20 ET)** | **1.0844 s** (rank 86; entered in final as best) |
 
 ## Thread registry
 
@@ -347,3 +348,6 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **03:19: v8 untimed phase PASS** (Eval, full profile): fixtures 36/36, differential 9/9, fuzz 1000 under every knob (`HASH_BITS=4` about 290 s, MATCH), long-ID suite 900/900, 0 framework errors.
   - With Red Team PASS and x86 MATCH, **v8 is released as `main` `2a9f52c` (tag `v8`; src identical to `2bfb034`)**; fixtures 36/36 and dev MATCH on main. **User asked to submit** (one slot left this hour after v7b at 02:51).
   - Eval's timed run (pid 38234) is queued behind Explorer 5's `run_gvisor_20m.sh` (3-arm v5/v7b/v8 ABBA), which is allowed to finish; Explorer 5 was told not to re-acquire until `results/v8.json` exists.
+- **USER SUBMITTED v8** (`2a9f52c`): board **1.0844 s** (BB-607A8C0F, wait 207 ms, **rank 86**). It's our best and is entered in the final. That's −29% vs v7b's 1.5275 s, beating my estimate of 1.4–1.5 s, so the per-column decoders cut gVisor time more than instruction counts suggested (probably fewer touched pages and allocations too).
+  - At the 1.123 calibration, v8 implies a local gVisor 20M of about 0.965 s. The leaders (≈0.45 s) need about 0.40 s.
+- **Orchestrator:** stopped Explorer 5's `run_gvisor_20m.sh` (15–20 min per run under its Kiro-built harness, holding the lock for hours). Freed the bench lock for Eval's timed v8 run, and re-tasked Explorer 5 to fix its harness and plan a ≤ 5 min 60M v7b-vs-v8 run.
