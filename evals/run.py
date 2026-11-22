@@ -1141,9 +1141,9 @@ def append_ledger(r: dict, replace: bool = False):
     def med(role):
         block = p.get(role, {})
         w = block.get("summary", {}).get("wall_s", {})
-        if block.get("noisy"):
-            return "noisy"
-        return f"{w['median']:.3f}s" if w.get("n") else "-"
+        if not w.get("n"):
+            return "-"
+        return f"{w['median']:.3f}s" + (" (noisy)" if block.get("noisy") else "")
 
     diffs = c["differential"]
     nd = sum(1 for d in diffs.values() if d.get("match"))
@@ -1155,7 +1155,7 @@ def append_ledger(r: dict, replace: bool = False):
     estimate = r.get("calibration", {}).get("estimated_scorer_20m_s")
     linux_timing = r["perf"].get("linux_timing", {})
     linux_wall = linux_timing.get("summary", {}).get("process_wall_s", {})
-    linux = "noisy" if linux_timing.get("noisy") else fmt_s(linux_wall.get("median"))
+    linux = fmt_s(linux_wall.get("median")) + (" (noisy)" if linux_timing.get("noisy") and linux_wall.get("n") else "")
     row = (f"| {r['started'][:16]} | {r['version']} | {r['sha'][:8]} | {r['profile']} | "
            f"{fx('fixtures_native')}/{fx('fixtures_arm64')}/{fx('fixtures_amd64')} | "
            f"{'MATCH' if dev else ('DIFFER' if dev is False else '-')} | {nd}/{len(diffs)} | {fzs} | "
