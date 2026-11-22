@@ -798,24 +798,43 @@ unsafe fn try_line<'a>(
     lk: &Lookups<'a>,
     w: &Win,
     dec: &TimestampDecoder,
-) -> Option<(*const u8, Option<EvRec>)> {
+    emit: &mut impl FnMut(EvRec),
+) -> Option<*const u8> {
     unsafe {
-        // `eid_ok`/`user_ok`: the key is non-empty. Short keys always carry the
-        // prefix symbol in their top bits (SYM is non-zero for 'e' and 'u'), so
-        // the fast path knows both without re-testing the merged enum.
+        // The rest of the line is generic over the ID path, so on the short
+        // path both keys are known `Packed` and non-empty at compile time.
         #[cfg(target_arch = "x86_64")]
-        let (eid, user, p, eid_ok, user_ok) = if let Some((eid, user, p)) = short_id_pair(p) {
-            (FieldId::Packed(eid), FieldId::Packed(user), p, true, true)
-        } else {
+        {
+            if let Some((eid, user, p)) = short_id_pair(p) {
+                return line_tail::<true>(FieldId::Packed(eid), FieldId::Packed(user), p, lk, w, dec, emit);
+            }
             let (eid, user, p) = other_id_pair(p)?;
-            (eid, user, p, !eid.is_empty(), !user.is_empty())
-        };
+            line_tail::<false>(eid, user, p, lk, w, dec, emit)
+        }
         #[cfg(target_arch = "aarch64")]
-        let (eid, user, p, eid_ok, user_ok) = {
+        {
             let (eid, p) = Column::open(p).id::<b'e'>()?;
             let (user, p) = Column::open(p).id::<b'u'>()?;
-            (eid, user, p, !eid.is_empty(), !user.is_empty())
-        };
+            line_tail::<false>(eid, user, p, lk, w, dec, emit)
+        }
+    }
+}
+
+/// `SHORT`: both IDs came from `short_id_pair`, so they are `Packed` and
+/// non-empty (SYM is non-zero for 'e' and 'u').
+#[inline(always)]
+unsafe fn line_tail<'a, const SHORT: bool>(
+    eid: FieldId<'a>,
+    user: FieldId<'a>,
+    p: *const u8,
+    lk: &Lookups<'a>,
+    w: &Win,
+    dec: &TimestampDecoder,
+    emit: &mut impl FnMut(EvRec),
+) -> Option<*const u8> {
+    unsafe {
+        let eid_ok = SHORT || !eid.is_empty();
+        let user_ok = SHORT || !user.is_empty();
         #[cfg(target_arch = "x86_64")]
         let (p, ts, ingest) = if let Some(decoded) = common_timestamps(p, dec) {
             decoded
@@ -891,17 +910,14 @@ unsafe fn try_line<'a>(
             });
             (next, row)
         };
-        if !eid_ok {
-            return Some((next, None));
-        }
-        Some((
-            next,
-            Some(EvRec {
+        if eid_ok {
+            emit(EvRec {
                 eid: eid.key(&lk.ids),
                 ingest,
                 row,
-            }),
-        ))
+            });
+        }
+        Some(next)
     }
 }
 
@@ -938,10 +954,7 @@ pub(super) fn parse_chunk<'a, L: Layout>(
     while pos < end {
         if end - pos >= LINE_GUARD {
             // SAFETY: the guard bounds all speculative reads from this line.
-            if let Some((next, rec)) = unsafe { try_line(base.add(pos), lk, w, dec) } {
-                if let Some(rec) = rec {
-                    emit_event(rec, lk, out);
-                }
+            if let Some(next) = unsafe { try_line(base.add(pos), lk, w, dec, &mut |rec| emit_event(rec, lk, out)) } {
                 pos = unsafe { next.offset_from(base) } as usize;
                 fast += 1;
                 continue;
@@ -1008,7 +1021,11 @@ mod tests {
         };
         let decoded = if end - pos >= LINE_GUARD {
             // SAFETY: this is the same guard as parse_chunk.
-            unsafe { try_line(buf.as_ptr().add(pos), lk, w, w.decoder.as_ref().unwrap()) }
+            let mut got = None;
+            let next = unsafe {
+                try_line(buf.as_ptr().add(pos), lk, w, w.decoder.as_ref().unwrap(), &mut |rec| got = Some(rec))
+            };
+            next.map(|next| (next, got))
         } else {
             None
         };
