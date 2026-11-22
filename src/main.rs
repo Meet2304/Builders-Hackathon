@@ -747,6 +747,28 @@ impl<'a> Ids<'a> {
         }
     }
 
+    /// Byte-wise order of packed key `a` (at most 10 bytes) and long-table key `b`
+    /// (33 bytes): only `b`'s first 10 bytes can differ before `a` ends.
+    fn cmp_packed_long(&self, a: u64, b: u64) -> Ordering {
+        const DIGITS: &[u8; 16] = b"0123456789abcdef";
+        let hi = self.long.value((b >> 10) as usize).0;
+        let mut n = 0;
+        while n < 10 {
+            let c = (a >> (58 - 6 * n)) & 63;
+            if c == 0 {
+                break;
+            }
+            let x = DESYM[c as usize];
+            let y = if n == 0 { DESYM[((b >> 4) & 63) as usize] } else { DIGITS[(hi >> (64 - 4 * n)) as usize & 15] };
+            if x != y {
+                return x.cmp(&y);
+            }
+            n += 1;
+        }
+        // `a` is a proper prefix of `b`'s 33 bytes
+        Ordering::Less
+    }
+
     /// Byte-wise order of two keys.
     #[inline]
     fn cmp(&self, a: u64, b: u64) -> Ordering {
@@ -757,6 +779,12 @@ impl<'a> Ids<'a> {
             // same length: prefix byte, then the 32 digits
             let (pa, pb) = ((a >> 4) & 63, (b >> 4) & 63);
             return pa.cmp(&pb).then_with(|| self.long.value((a >> 10) as usize).cmp(&self.long.value((b >> 10) as usize)));
+        }
+        if is_packed(a) && b & 15 == 2 {
+            return self.cmp_packed_long(a, b);
+        }
+        if a & 15 == 2 && is_packed(b) {
+            return self.cmp_packed_long(b, a).reverse();
         }
         let (mut x, mut y) = ([0u8; 33], [0u8; 33]);
         self.bytes(a, &mut x).cmp(self.bytes(b, &mut y))
@@ -3686,6 +3714,42 @@ mod tests {
             products.set(f[0], ci);
         });
         (products, cat_names)
+    }
+
+    #[test]
+    fn cmp_packed_long_is_byte_order() {
+        let mut rng = 0x9e37_79b9_7f4a_7c15u64;
+        let mut next = move |m: u64| {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng % m
+        };
+        const HEXD: &[u8] = b"0123456789abcdef";
+        const B36: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz_";
+        let mut names: Vec<Vec<u8>> = Vec::new();
+        for _ in 0..300 {
+            let pre = [b'u', b'k', b'e', b'v'][next(4) as usize];
+            let long: Vec<u8> = std::iter::once(pre).chain((0..32).map(|_| HEXD[next(16) as usize])).collect();
+            for k in [1, 2, 5, 9, 10] {
+                let mut s = long[..k].to_vec();
+                if next(3) == 0 {
+                    let last = s.len() - 1;
+                    s[last] = B36[next(B36.len() as u64) as usize];
+                }
+                names.push(s);
+            }
+            names.push((0..1 + next(10)).map(|i| if i == 0 { pre } else { B36[next(36) as usize] }).collect());
+            names.push(long);
+        }
+        let ids = Ids::new(0);
+        let keys: Vec<u64> = names.iter().map(|n| ids.key(n)).collect();
+        assert!(keys.iter().any(|&k| k & 15 == 2) && keys.iter().any(|&k| is_packed(k)));
+        for (i, a) in names.iter().enumerate() {
+            for (j, b) in names.iter().enumerate() {
+                assert_eq!(ids.cmp(keys[i], keys[j]), a.cmp(b), "{:?} vs {:?}", String::from_utf8_lossy(a), String::from_utf8_lossy(b));
+            }
+        }
     }
 
     #[test]
