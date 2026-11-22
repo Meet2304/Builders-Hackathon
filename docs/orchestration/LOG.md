@@ -22,6 +22,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 | [Method: next version](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:12abc78a5e772d60f60bfee203e923ca14d54c88168f046f78565586a6182097) | pipeline versions | method/v2 (worktree from origin/main @ e695855) | running (Claude): v3 on method/v3 (packed IDs, dedup routing, direct-index lookups, SIMD scan); no big timings until cleared |
 | [Explorer (Sol): new methods](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:6315989f2e18da907dd5afa1c1d91b92f260d655ff39ccea533b4bcc1c8dff26) | new methods, orthogonal to v3 (Codex gpt-6.2-sol) | explore/sol + explore/<idea> (worktree from origin/main) | running |
 | [Explorer (Gemini Neon): parse + sort](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:c34fb1c92727c4ef2b6393af4d85d74111a2d51ff14281638fe8f40541130fd3) | new methods: radix sort, parse path, input I/O and threads (runs on Cursor grok-4.7; consults Gemini 4 Neon in the browser) | explore/gemini + explore/gemini-<idea> (worktree from method/v3 @ 1ea8059) | running |
+| [Explorer 3 (Gemini Neon): sessions, output, fused design](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:4379b65d8484648bc9238d23e7cc78673f8a8df125def5c32a8181b904ea7ac5) | sessions+attribution kernel, Parquet output cost, fused ~300 instr/row microbenchmark (Cursor grok-4.7 + Gemini 4 Neon in browser) | explore/gemini3 + explore/gemini3-<idea> (worktree from origin/main) | running |
 | [Dashboard: live Claude artifact](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:41ab4ef0a8234b722582c94a9f60a3b6ad91d309d5aa3b1510e7c1c2ad26f325) | live claude.ai dashboard (one URL, data in the artifact DB) | dashboard/live, merged (304e818) | done: canonical https://claude.ai/artifact/WtswJrVasZtzDdyXH1Ci82 (main account) |
 
 ## Entries
@@ -79,3 +80,9 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Calibration (1 point):** board / local = 1.9424 / 0.626 = **3.10×**.
   - Per row: v3 runs 2,598 instructions per row at 20M (IPC 3.17 on M5). On the scorer that is 97 ns per row, about 26.7 G instructions/s effective, which matches the Analyst's model of about 25 G/s across 8 cascadelake vCPUs.
   - **What 0.28 s needs:** about 14 ns per row, i.e. **≤ ~300–375 instructions per row including fixed costs**, or about 0.09 s local wall at the 3.1× ratio. Local wall time is a poor proxy because the M5 Pro has much higher IPC. **Instructions per row (and the predicted board time) becomes the primary metric.**
+- **User request:** one more Gemini Neon instance in its own thread. **Orchestrator** launched **Explorer 3**, Cursor `grok-4.7` with Gemini 4 Neon in its own browser tab. Scope:
+  - a sessions and attribution kernel at ≤ 60 instructions per row
+  - Parquet output cost, and the cheapest writer configuration the checker accepts
+  - a clean-room fused design at ~300 instructions per row, with a stage-by-stage instruction microbenchmark
+
+  Eval was asked to record the calibration point, make predicted board time plus instructions per row the primary metric, and let Gate C pass on a ≥5% drop in instructions per row. Method and the Analyst were told to judge moves by instructions per row.
