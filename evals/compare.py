@@ -123,9 +123,14 @@ def headline(A: dict, B: dict) -> list[tuple[str, list]]:
     return sections
 
 
+def _verdict_name(r: dict) -> str:
+    verdict = r.get("verdict") or {}
+    return verdict.get("verdict", "n/a")
+
+
 def compare(A: dict, B: dict) -> list[tuple[str, list]]:
     sections = headline(A, B)
-    rows = [("verdict", A["verdict"]["verdict"], B["verdict"]["verdict"], "", "", ""),
+    rows = [("verdict", _verdict_name(A), _verdict_name(B), "", "", ""),
             ("sha", A["sha"][:10], B["sha"][:10], "", "", ""), ("profile", A["profile"], B["profile"], "", "", "")]
     ca, cb = A["correctness"], B["correctness"]
     for k in ("fixtures_native", "fixtures_arm64", "fixtures_amd64"):
