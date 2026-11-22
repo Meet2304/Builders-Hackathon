@@ -586,3 +586,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Eval's untimed full gate (1000 fuzz under every knob, arm64 and amd64 containers) is running.
 - **PGO `8142d5e` not taken:** −0.53% x86 Ir with no wall gain, the profile was taken on old code, and the image pin is risky.
 - **Early-free** (claude_master, `explore/v16-free` from v15): release dead input mmaps and buffers off the critical path to cut 60M exit teardown (about 135 ms per another team's measurement). Due 09:10.
+- **08:25: v15 released.** `main` `12c449e` (tag `v15`); src is identical to `integ/v15` `361a9cd`.
+  - Eval untimed full PASS: fixtures 36/36, differential 9/9, 1000 fuzz under every knob, review suites 70/70 and 50/50, long-ID 900/900, 0 framework errors.
+  - amd64 (x86-64-v2) container: fixtures 36/36, dev MATCH.
+  - main build: fixtures 36/36, dev MATCH.
+  - **User asked to submit.**
