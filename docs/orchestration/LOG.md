@@ -351,3 +351,19 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **USER SUBMITTED v8** (`2a9f52c`): board **1.0844 s** (BB-607A8C0F, wait 207 ms, **rank 86**). It's our best and is entered in the final. That's −29% vs v7b's 1.5275 s, beating my estimate of 1.4–1.5 s, so the per-column decoders cut gVisor time more than instruction counts suggested (probably fewer touched pages and allocations too).
   - At the 1.123 calibration, v8 implies a local gVisor 20M of about 0.965 s. The leaders (≈0.45 s) need about 0.40 s.
 - **Orchestrator:** stopped Explorer 5's `run_gvisor_20m.sh` (15–20 min per run under its Kiro-built harness, holding the lock for hours). Freed the bench lock for Eval's timed v8 run, and re-tasked Explorer 5 to fix its harness and plan a ≤ 5 min 60M v7b-vs-v8 run.
+- **03:36: all threads stopped** (user noticed).
+  - claude_andrew hit its 5-hour limit (resets 05:40), killing Eval and Footprint. Kiro hit its **monthly** limit (Explorer 3, Explorer 5).
+  - Still working: claude_master (the Orchestrator's lane) and Antigravity Gemini 3.8 Flash. claudeAgent ≈ 05:00, Codex 05:47.
+  - Eval's timed v8 run died with it; v8 already has its board time, so that's not critical.
+- **v9 branches found:**
+  - `explore/footprint` `9775367`: pread streaming of events and clicks
+  - `explore/sol-longtable` `7413dfe`: 16 B slots, 39–42% fewer faults
+  - `explore/links-par` `ddcd7d3`: in-place lock-free union-find
+  - `explore/neon-detective` `e9fda82`: parallel `Input::open`, zeroed allocations
+  - `explore/gemini3-write` `c2c10d4`: dictionaries and statistics off. **Rejected**: the same idea as the dropped v6 writer.
+- **Orchestrator integrated v9a = `integ/v9` @ `0340530`** = `2bfb034` + sol-longtable + neon-detective + links-par (conflict resolved to links-par). Gates: fixtures 36/36, new dev MATCH under `NO_FAST` 0–3, seed-42 MATCH. **Full eval running** (Orchestrator, eval worktree).
+- Re-routes:
+  - **Footprint → claude_master**, resumed: gate and gVisor-time the pread streaming.
+  - Method is stuck (stale background commands block the provider switch).
+  - Neon Detective (Gemini Flash) → write-path syscalls with the encoding unchanged.
+  - Explorer 4 (Gemini Flash) → clicks-phase faults.
