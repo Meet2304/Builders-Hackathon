@@ -1267,6 +1267,8 @@ struct TimestampDecoder {
     hours: [CalendarHour; 1024],
     numeric: [(u64, i64); 32],
     ingest_days: [(u64, i64); 64],
+    #[cfg(all(target_arch = "x86_64", target_feature = "ssse3"))]
+    ingest_day_suffix: [u16; 64],
 }
 
 impl TimestampDecoder {
@@ -1276,6 +1278,8 @@ impl TimestampDecoder {
             hours: [CalendarHour { prefix: 0, suffix: u64::MAX, base: 0 }; 1024],
             numeric: [(u64::MAX, 0); 32],
             ingest_days: [(0, 0); 64],
+            #[cfg(all(target_arch = "x86_64", target_feature = "ssse3"))]
+            ingest_day_suffix: [0; 64],
         };
         let numeric_start = start.saturating_sub(7 * DAY_MS).div_euclid(100_000_000);
         let numeric_end = end.div_euclid(100_000_000);
@@ -1301,8 +1305,11 @@ impl TimestampDecoder {
             }
             let date = format!("{y:04}-{m:02}-{d:02}");
             let tag = u64::from_le_bytes(date.as_bytes()[..8].try_into().unwrap());
-            let day_key = Self::day_index(u16::from_le_bytes(date.as_bytes()[8..10].try_into().unwrap()));
+            let suffix = u16::from_le_bytes(date.as_bytes()[8..10].try_into().unwrap());
+            let day_key = Self::day_index(suffix);
             decoder.ingest_days[day_key] = (tag, day * DAY_MS);
+            #[cfg(all(target_arch = "x86_64", target_feature = "ssse3"))]
+            { decoder.ingest_day_suffix[day_key] = suffix; }
             for h in 0..24 {
                 let date = format!("{y:04}-{m:02}-{d:02}T{h:02}");
                 let bytes = date.as_bytes();

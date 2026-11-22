@@ -601,6 +601,99 @@ unsafe fn timestamp_pair(
     (ts, i)
 }
 
+/// A cached UTC date yields both its exact byte validation and its midnight.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn common_ingest(
+    p: *const u8, dec: &TimestampDecoder,
+) -> Option<(*const u8, u64, u16, i64, i64)> {
+    unsafe {
+        let quote = (*p == b'"') as usize;
+        let p = p.add(quote);
+        if *p.add(19) != b'Z' || *p.add(10) != b'T' {
+            return None;
+        }
+        let next = terminate::<b','>(p.add(20), quote)?;
+        let prefix = p.cast::<u64>().read_unaligned();
+        let suffix = p.add(8).cast::<u16>().read_unaligned();
+        let key = TimestampDecoder::day_index(suffix);
+        let (expect, midnight) = dec.ingest_days[key];
+        if prefix != expect || suffix != dec.ingest_day_suffix[key] || suffix == 0 {
+            return None;
+        }
+        let i = direct_clock::<true>(dec.table, p.add(11).cast::<u64>().read_unaligned(), 0);
+        if i == i64::MAX {
+            return None;
+        }
+        Some((next, prefix, suffix, midnight, i + midnight))
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn common_timestamps(
+    p: *const u8, dec: &TimestampDecoder,
+) -> Option<(*const u8, i64, i64)> {
+    unsafe {
+        let quote = (*p == b'"') as usize;
+        let p = p.add(quote);
+        if *p.add(4) == b'-' {
+            if *p.add(19) != b'Z' || *p.add(10) != b'T' {
+                return None;
+            }
+            let next = terminate::<b','>(p.add(20), quote)?;
+            let (next, prefix, suffix, midnight, ingest) = common_ingest(next, dec)?;
+            if p.cast::<u64>().read_unaligned() != prefix || p.add(8).cast::<u16>().read_unaligned() != suffix {
+                return None;
+            }
+            let ts = direct_clock::<true>(dec.table, p.add(11).cast::<u64>().read_unaligned(), midnight);
+            if ts == i64::MAX {
+                return None;
+            }
+            Some((next, ts, ingest))
+        } else {
+            let next = terminate::<b','>(p.add(13), quote)?;
+            let lo = p.cast::<u64>().read_unaligned();
+            let hi = p.add(8).cast::<u64>().read_unaligned();
+            let stem = lo ^ 0x3030_3030_3030_3030;
+            let tail = (hi ^ 0x3030_3030_3030_3030) & 0xff_ffff_ffff;
+            if !super::eight_digits(stem) || !super::eight_digits(tail) {
+                return None;
+            }
+            let (next, _, _, _, ingest) = common_ingest(next, dec)?;
+            Some((next, decimal_field(lo, hi, 13, dec), ingest))
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[cold]
+#[inline(never)]
+unsafe fn other_timestamps(
+    p: *const u8, dec: &TimestampDecoder,
+) -> Option<(*const u8, i64, i64)> {
+    unsafe { decode_timestamps(p, dec) }
+}
+
+#[inline(always)]
+unsafe fn decode_timestamps(
+    p: *const u8, dec: &TimestampDecoder,
+) -> Option<(*const u8, i64, i64)> {
+    unsafe {
+        let event = Column::open(p);
+        let (event_time, event_len, p) = event_time(&event, dec)?;
+        let ing = Column::open(p);
+        let (lo, hi) = ing.bytes.words();
+        let date = ing.date(lo, hi)?;
+        if date.zone != b'Z' {
+            return None;
+        }
+        let p = ing.end::<b','>(20)?;
+        let (ts, ingest) = timestamp_pair(dec, event_time, &event, event_len, &ing, date);
+        Some((p, ts, ingest))
+    }
+}
+
 #[inline(always)]
 unsafe fn category(c: &Column, len: usize, canonical: bool, lk: &Lookups) -> u32 {
     let lo = c.bytes.words().0;
@@ -659,15 +752,14 @@ unsafe fn try_line<'a>(
             let (user, p) = Column::open(p).id::<b'u'>()?;
             (eid, user, p)
         };
-        let event = Column::open(p);
-        let (event_time, event_len, p) = event_time(&event, dec)?;
-        let ing = Column::open(p);
-        let (lo, hi) = ing.bytes.words();
-        let date = ing.date(lo, hi)?;
-        if date.zone != b'Z' {
-            return None;
-        }
-        let p = ing.end::<b','>(20)?;
+        #[cfg(target_arch = "x86_64")]
+        let (p, ts, ingest) = if let Some(decoded) = common_timestamps(p, dec) {
+            decoded
+        } else {
+            other_timestamps(p, dec)?
+        };
+        #[cfg(target_arch = "aarch64")]
+        let (p, ts, ingest) = decode_timestamps(p, dec)?;
 
         let kind = Column::open(p);
         let k = kind.bytes.words().0;
@@ -685,7 +777,6 @@ unsafe fn try_line<'a>(
         }
         let p = kind.end::<b','>(kind_len)?;
 
-        let (ts, ingest) = timestamp_pair(dec, event_time, &event, event_len, &ing, date);
         let valid_time_user = !eid.is_empty()
             && !user.is_empty()
             && ts >= w.start
