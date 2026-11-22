@@ -1,0 +1,11 @@
+--- a/src/main.rs	2026-11-21 21:58:30
++++ b/src/main.rs	2026-11-21 23:59:06
+@@ -1913,7 +1913,7 @@
+ 
+ fn write_parquet(path: &Path, batch: RecordBatch) {
+     let file = File::create(path).expect("create parquet file");
+-    let props = WriterProperties::builder().set_compression(Compression::UNCOMPRESSED).build();
++    let props = WriterProperties::builder().set_compression(Compression::UNCOMPRESSED).set_dictionary_enabled(false).set_column_dictionary_enabled(parquet::schema::types::ColumnPath::from("top_category"), true).set_column_dictionary_enabled(parquet::schema::types::ColumnPath::from("channel"), true).set_statistics_enabled(parquet::file::properties::EnabledStatistics::None).build();
+     let mut w = ArrowWriter::try_new(file, batch.schema(), Some(props)).expect("parquet writer");
+     w.write(&batch).expect("write batch");
+     w.close().expect("close parquet");
