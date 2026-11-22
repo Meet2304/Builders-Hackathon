@@ -31,24 +31,17 @@ run() { # cfg image rep datadir [env...]
 
 # perf stat wrapper (runs perf stat around the docker run; requires privileged)
 
-echo "== round 2: 20M, runc, $REPS interleaved reps"
+echo "== round 3: v16 vs v17pre, 20M, $REPS interleaved reps"
+REPS=8
 docker run --rm --runtime=runc -v $DATA20:/data:ro ss:v16 sh -c 'cat /data/*/* > /dev/null 2>/dev/null; cat /data/*.csv /data/*.json > /dev/null 2>/dev/null' || true
 for rep in $(seq 1 $REPS); do
   run v16-20m v16 $rep $DATA20
-  run write-20m write $rep $DATA20
-  run lev-default levers $rep $DATA20
-  run lev-huge levers $rep $DATA20 SESSIONS_HUGE=1 MIMALLOC_ALLOW_LARGE_OS_PAGES=1
-  run lev-pf8 levers $rep $DATA20 SESSIONS_PF_DEDUP=8
-  run lev-chunk128k levers $rep $DATA20 SESSIONS_DEBUG_CHUNK=131072
-  run lev-chunk1m levers $rep $DATA20 SESSIONS_DEBUG_CHUNK=1048576
-  run lev-parts64 levers $rep $DATA20 SESSIONS_DEBUG_PARTS=64
-  run lev-parts1024 levers $rep $DATA20 SESSIONS_DEBUG_PARTS=1024
-  run lev-pop1 levers $rep $DATA20 SESSIONS_POPULATE=1
+  run v17pre-20m v17pre $rep $DATA20
 done
-echo "== 60M: v16 vs write"
+echo "== 60M"
 docker run --rm --runtime=runc -v $DATA60:/data:ro ss:v16 sh -c 'cat /data/*/* > /dev/null 2>/dev/null; cat /data/*.csv /data/*.json > /dev/null 2>/dev/null' || true
-for rep in 1 2 3; do
+for rep in 1 2 3 4; do
   run v16-60m v16 $rep $DATA60
-  run write-60m write $rep $DATA60
+  run v17pre-60m v17pre $rep $DATA60
 done
 echo DONE
