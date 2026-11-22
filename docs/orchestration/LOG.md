@@ -430,3 +430,4 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Explorer 4** → Codex-Andrew 6.1 Sol (6.2 isn't supported there): v11b = fewer output files (about 205 → a few), if the spec allows. Numbers by 07:10.
   - On Codex: Red Team (v10 adversarial, 07:15) and Sol (v11 dedup-mem rebased, 07:15).
   - Gemini Neon is already signed in; Opus capacity is only claudeAgent until claude_master resets at 07:20.
+- **Explorer 5: v11a = `explore/v11-pread` @ `5da601f`** (v10 + footprint pread). Native gates all pass: fixtures 36/36, dev under `NO_FAST` 0–3, seed-42, long-ID 120/120. The footprint patch's lifetime transmute on the reused buffer was removed: each parser is scoped to its chunk, and copy-on-intern is kept. gVisor 60M, then 20M, A/B vs v10 is queued. Explorer 4 confirmed the rules allow any output file count and row order (v11-files in progress).
