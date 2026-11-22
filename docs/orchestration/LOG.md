@@ -542,3 +542,16 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **PGO** (claude, `explore/v14-pgo`). Scout found Epsilon −20% from PGO and crypto-kidz committing an x86 profdata; we have no PGO. Plan: pin the toolchain, `scripts/pgo-gen.sh`, `pgo/x86.profdata`, profile-use on amd64.
   - **Bins** (`explore/v14-bins`): 30-minute-bin sessionization replacing the per-person sort, worth about 40–60 Ir/line. claude_master is capped until 07:20, so it relaunches at 07:21.
   - **Neon:** `0e57f01`'s dedup cut is mostly the rep-stos artifact (corrected about −1.1%). Redirected to Scout's 2-bit prefilter.
+
+### 07:22 — Board: v13 = 1.0770 s (BB-15E689A6); pivot to scorer-environment diagnosis
+- **v13 scored 1.0770 s** against v8's 1.0844, despite −13.5% x86 Ir and −6.5% native time. That's rank 103. The Ir model no longer predicts the board, so the scorer's time goes somewhere our ARM, Rosetta and local-gVisor measurements can't see.
+- **Released v14n:** main `bccee66` (tag v14n), src from Neon's `c9b6fa6` = v13.1 + generation-tagged dedup.
+  - x86 Ir: raw 1,018.5 / corrected 988.0, which is −3.44% corrected vs v13.1.
+  - Checks: fixtures, dev and seed-42 MATCH. Eval's untimed and x86 correctness gate is running.
+  - Native 20M NCPU=8: 0.51–0.55 s.
+- **v13.1:** the untimed gate is all MATCH. Its timed A/B is cancelled; v14n supersedes it.
+- **Pivot agents:**
+  - **Scorer Lab** (claude_andrew): real x86 + gVisor runs on GitHub Actions. Phase laps for v8, v13 and v13.1, runsc vs runc, then lever tests: NCPU 2×, `read()` vs mmap, a static binary on scratch, huge pages.
+  - **Neon Architect plus Gemini Neon:** ranks hypotheses for the 2× gVisor gap and prototypes the top one as an env switch.
+  - **Scout 2** (claude_master): how the 0.4–0.45 s entries read input, use threads and memory, and build images. Ideas only.
+- **Paused:** Bins, which is Ir-only work.
