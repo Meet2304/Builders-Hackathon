@@ -48,6 +48,8 @@
 
 #[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
 mod columns;
+#[allow(dead_code)]
+mod hex32;
 mod links;
 
 use links::load_links;
@@ -487,6 +489,7 @@ struct Ids<'a> {
     long: LongTable,
     no_fast: u8,
     simd_pack: bool, // off under any NO_FAST knob or if the startup self-test fails
+    simd_hex: bool,  // hex32's SIMD digits: with simd_pack, and if its self-test passes
 }
 
 impl<'a> Ids<'a> {
@@ -502,7 +505,11 @@ impl<'a> Ids<'a> {
         if !simd_pack && no_fast == 0 {
             eprintln!("warning: SIMD ID packer failed its self-test; using the scalar packer");
         }
-        Ids { shards, long: LongTable::new(long_cap, hmask), no_fast, simd_pack }
+        let simd_hex = simd_pack && hex32::self_test();
+        if simd_pack && !simd_hex {
+            eprintln!("warning: SIMD hex32 failed its self-test; using the scalar hex packer");
+        }
+        Ids { shards, long: LongTable::new(long_cap, hmask), no_fast, simd_pack, simd_hex }
     }
 
     /// Key of a non-empty ID.
@@ -528,7 +535,12 @@ impl<'a> Ids<'a> {
         if sym == 0 {
             return None;
         }
-        let (hi, lo) = hex32(b[1..].try_into().unwrap())?;
+        let (hi, lo) = if self.simd_hex {
+            let v = hex32::parse_with(b, b[0])?;
+            ((v >> 64) as u64, v as u64)
+        } else {
+            hex32(b[1..].try_into().unwrap())?
+        };
         let s = self.long.slot(hi, lo)?;
         Some((s as u64) << 10 | (sym as u64) << 4 | 2)
     }
