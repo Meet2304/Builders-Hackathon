@@ -65,7 +65,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use arrow_array::builder::StringBuilder;
-use arrow_array::{ArrayRef, Date32Array, Int64Array, RecordBatch, StringArray};
+use arrow_array::types::UInt32Type;
+use arrow_array::builder::ArrayBuilder;
+use arrow_array::{ArrayRef, Date32Array, DictionaryArray, Int64Array, RecordBatch, StringArray, UInt32Array};
 use arrow_schema::{DataType, Field, Schema};
 use memmap2::Mmap;
 use parquet::arrow::ArrowWriter;
@@ -2725,27 +2727,46 @@ fn campaign_batch(camp: &[[i64; 4]], ctx: &Ctx) -> RecordBatch {
 }
 
 fn user_batch(rows: &[UserRow], lk: &Lookups) -> RecordBatch {
+    let dict = || DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8));
     let schema = Arc::new(Schema::new(vec![
-        Field::new("user_id", DataType::Utf8, false),
+        Field::new("user_id", dict(), false),
         Field::new("day", DataType::Date32, false),
         Field::new("sessions", DataType::Int64, false),
         Field::new("events", DataType::Int64, false),
         Field::new("revenue_cents", DataType::Int64, false),
-        Field::new("top_category", DataType::Utf8, true),
+        Field::new("top_category", dict(), true),
     ]));
-    let cat_str: Vec<Cow<str>> = lk.cat_names.iter().map(|c| utf8(c)).collect();
+    // Each person's daily rows are emitted consecutively. Reuse their string
+    // across days so the Parquet writer only interns it once.
     let mut users = StringBuilder::with_capacity(rows.len(), rows.len() * 10);
+    let mut user_keys = Vec::with_capacity(rows.len());
     let mut buf: IdBuf = [0; 33];
+    let mut previous = None;
+    let mut index = 0;
     for r in rows {
-        users.append_value(utf8(lk.ids.bytes(r.person, &mut buf)));
+        if previous != Some(r.person) {
+            index = u32::try_from(users.len()).expect("too many users in output file");
+            let id = lk.ids.bytes(r.person, &mut buf);
+            if is_packed(r.person) || r.person & 15 == 2 {
+                // Both key formats decode exclusively to ASCII.
+                users.append_value(unsafe { std::str::from_utf8_unchecked(id) });
+            } else {
+                users.append_value(utf8(id));
+            }
+            previous = Some(r.person);
+        }
+        user_keys.push(index);
     }
+    let ids = DictionaryArray::<UInt32Type>::new(UInt32Array::from(user_keys), Arc::new(users.finish()));
+    let cat_values = Arc::new(StringArray::from_iter_values(lk.cat_names.iter().map(|c| utf8(c))));
+    let cats = DictionaryArray::<UInt32Type>::new(rows.iter().map(|r| r.top).collect(), cat_values);
     let cols: Vec<ArrayRef> = vec![
-        Arc::new(users.finish()),
+        Arc::new(ids),
         Arc::new(Date32Array::from_iter_values(rows.iter().map(|r| r.day))),
         Arc::new(Int64Array::from_iter_values(rows.iter().map(|r| r.sessions))),
         Arc::new(Int64Array::from_iter_values(rows.iter().map(|r| r.events))),
         Arc::new(Int64Array::from_iter_values(rows.iter().map(|r| r.revenue))),
-        Arc::new(StringArray::from_iter(rows.iter().map(|r| r.top.map(|c| cat_str[c as usize].as_ref())))),
+        Arc::new(cats),
     ];
     RecordBatch::try_new(schema, cols).unwrap()
 }
