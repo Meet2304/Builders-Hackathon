@@ -223,3 +223,11 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Analyst: refit on the 3 board points and recommend the next probe submission.
   - **New, at the user's request (Gemini Neon in the browser):** **Neon Detective** (scorer-environment hypotheses, the track's infra docs, startup and exit paths) and **Neon Architect** (structural low-footprint design, from 1.8 GiB to ≤ 400 MiB, on `explore/neon-lowmem` off `3671aeb`).
 - **Method:** move 5 = `3671aeb` (Sol's 3 sessions prototypes + Explorer 3's click sort). Sessions + attribution 297 → 236 per line; all gates pass. v7 base.
+- **ROOT CAUSE FOUND (Scout, 00:52 ET).** The organizers changed the generator at **21:08 ET** (scorer `shopping-sessions-5`, everyone rescored): **1 in 8 distinct user, event and click IDs is now a prefix plus 32 hex characters (33 bytes)**, and every ID goes through a per-seed keyed bijection.
+  - Our packer handles ≤ 10 characters, so those IDs go to the cold mutex-sharded `Ids::intern`.
+  - v5 on the new 20M data: **0.42 s → 1.14 s** local wall (events parse 0.19 → 0.76 s), but only +21% instructions. That's lock contention and cache misses, which the instruction model can't see.
+  - Our output is still correct (new dev MATCH).
+- **Orchestrator:**
+  - Updated `docs/rules.md` (line 101 is the only change) and `tools/generator` from the current downloads, and verified that the generator reproduces the Scout's new dev set byte for byte.
+  - Moved the old `data/{dev,dev-answer,seed-42,seed-43}` to `data/old-gen/`. Installed the new dev set and dev answer, and am regenerating seed-42 (20M) and seed-43 (60M).
+  - **Method** → move 6: an exact lock-free u128 fast path for the 33-byte IDs, with byte-order-exact comparisons.
