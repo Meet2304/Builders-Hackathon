@@ -13,12 +13,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: v15,    ref: v15, cpu: cascadelake }
-          - { name: v15v3,  ref: v15, cpu: x86-64-v3 }
           - { name: v16,    ref: v16, cpu: cascadelake }
-          - { name: v16v3,  ref: v16, cpu: x86-64-v3 }
-          - { name: pgo,    ref: explore/v14-pgo, cpu: cascadelake, pgo: 'on' }
-          - { name: pgooff, ref: explore/v14-pgo, cpu: cascadelake, pgo: 'off' }
+          - { name: write,  ref: explore/v17-write, cpu: cascadelake }
+          - { name: levers, ref: explore/v17-levers, cpu: cascadelake }
     steps:
       - uses: actions/checkout@v4
         with: { ref: '${{ matrix.ref }}', fetch-depth: 0 }
@@ -92,7 +89,7 @@ jobs:
           time tools/generator/target/release/generate --seed 99 --events 60000000 --clicks 15000000 --output data/seed-99
           du -sh data/seed-99
       - name: Bench
-        run: bash .github/bench/bench.sh 2>&1 | tee bench.log
+        run: bash .github/bench/bench2.sh 2>&1 | tee bench.log
       - name: Summary
         if: always()
         run: python3 .github/bench/summarize.py results.jsonl | tee -a $GITHUB_STEP_SUMMARY
