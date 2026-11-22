@@ -41,6 +41,9 @@
 //!   SESSIONS_DEBUG_NO_FAST=3    the portable SWAR classifier instead of NEON/SSE2
 //!   SESSIONS_DEBUG_STATS=1      print fast-path / split_fields line counts per input kind
 
+mod links;
+
+use links::load_links;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::env;
@@ -1037,58 +1040,6 @@ impl<'a> Lookups<'a> {
     }
 }
 
-fn load_links<'a>(input: &'a Input, chunk: usize, scan: Scan, ids: &Ids<'a>, hmask: u64) -> (LinkTable, usize) {
-    let pairs: Vec<Vec<(u64, u64)>> = input
-        .chunks(chunk)
-        .par_iter()
-        .map(|&(fi, s, e)| {
-            let buf: &'a [u8] = &input.maps[fi];
-            let mut v = Vec::new();
-            for_each_record(buf, s, e, scan, |f: &[&'a [u8]; 2]| {
-                if !f[0].is_empty() && !f[1].is_empty() {
-                    v.push((ids.key(f[0]), ids.key(f[1])));
-                }
-            });
-            v
-        })
-        .collect();
-    // dense index = rank among the distinct keys
-    let mut keys: Vec<u64> = pairs.par_iter().flat_map_iter(|v| v.iter().flat_map(|&(a, b)| [a, b])).collect();
-    keys.par_sort_unstable();
-    keys.dedup();
-    let n = keys.len();
-    let idx = |k: u64| keys.binary_search(&k).unwrap() as u32;
-    let ipairs: Vec<Vec<(u32, u32)>> = pairs.par_iter().map(|v| v.iter().map(|&(a, b)| (idx(a), idx(b))).collect()).collect();
-    drop(pairs);
-    let mut parent: Vec<u32> = (0..n as u32).collect();
-    for v in &ipairs {
-        for &(a, b) in v {
-            let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
-            if ra != rb {
-                parent[rb as usize] = ra;
-            }
-        }
-    }
-    // byte-wise smallest ID per component (packed keys compare as u64)
-    let mut best: Vec<u32> = (0..n as u32).collect();
-    for i in 0..n as u32 {
-        let r = find(&mut parent, i) as usize;
-        if ids.cmp(keys[i as usize], keys[best[r] as usize]) == Ordering::Less {
-            best[r] = i;
-        }
-    }
-    let person = |i: usize| keys[best[parent[i] as usize] as usize];
-    let remapped = (0..n).filter(|&i| person(i) != keys[i]).count();
-    let table = LinkTable::new(remapped, hmask);
-    (0..n).into_par_iter().for_each(|i| {
-        let p = person(i);
-        if p != keys[i] {
-            table.insert(keys[i], p);
-        }
-    });
-    (table, n)
-}
-
 // ------------------------------------------------------------------ rows
 
 /// Dedup entry: one per well-formed event line with an event_id.
@@ -1769,18 +1720,6 @@ fn load_campaigns<'a>(buf: &'a [u8], direct_on: bool) -> (IdIndex<'a>, Vec<&'a [
     (map, ids, chans)
 }
 
-fn find(parent: &mut [u32], mut x: u32) -> u32 {
-    let mut r = x;
-    while parent[r as usize] != r {
-        r = parent[r as usize];
-    }
-    while parent[x as usize] != r {
-        let next = parent[x as usize];
-        parent[x as usize] = r;
-        x = next;
-    }
-    r
-}
 /// Sliding set of campaigns with a count of clicks in the window.
 struct ActiveSet {
     cnt: Vec<u32>,
