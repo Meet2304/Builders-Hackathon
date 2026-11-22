@@ -711,3 +711,5 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **v17 vs v16 at 20M: −2.89% median (1.843 vs 1.898 s), −3.0% min**
   - **at 60M: −2.44% median (5.330 vs 5.463 s), −1.8% min**
   - A consistent wall gain at both sizes. (This runner is slower overall than round 1's.)
+- **USER SUBMITTED v17** (`bf93837`): board **0.8900 s** (BB-CCCBB93B, Sun 09:31 ET, **rank 80**). It's our best and is entered in the final. −5.1% vs v16 (0.9378 s).
+- **User plan:** keep improving, and prepare a **hail-mary on Codex gpt-6.2-astra (fast)** for the roughly 10-minute window when two Codex instances reset. Last shot.
