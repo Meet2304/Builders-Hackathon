@@ -591,3 +591,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - amd64 (x86-64-v2) container: fixtures 36/36, dev MATCH.
   - main build: fixtures 36/36, dev MATCH.
   - **User asked to submit.**
+- **08:40: Early-free `7533216` delivered; v16 released.** `main` (tag `v16`) = v15 + `MADV_DONTNEED` on the input maps (16 MB pieces, all rayon workers) after the last Parquet close, then `_exit`.
+  - 60M arm64 Linux, 6 interleaved pairs: **wall 1.067 → 0.968 s (−9.3%)**, exit tail 107 → 21 ms; won 6/6.
+  - Gates in Linux (default, mode 1, stress mode 3): fixtures, dev under `NO_FAST` 0–3, seed-42, long-ID 240/240. amd64: fixtures, dev.
+  - Heap left as is (it's on mimalloc 2 MB THP, so teardown is cheap). Nothing is unmapped, so late input reads simply refault.
+  - **User asked to submit v16.**
