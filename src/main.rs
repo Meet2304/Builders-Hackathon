@@ -886,6 +886,51 @@ impl Interner {
         }
     }
 
+    /// `intern` of every row's person, writing each ordinal to `out` (same length),
+    /// with the probe parameters in locals (reloaded only after a grow).
+    #[inline]
+    fn intern_into<L: Layout>(&mut self, rows: &[L], out: &mut [std::mem::MaybeUninit<u32>]) {
+        assert!(rows.len() == out.len());
+        let mut tab = self.tab.as_mut_ptr();
+        let mut mask = self.mask;
+        let mut shift = self.shift;
+        let mut probe_mask = self.probe_mask;
+        let mut grow_at = self.tab.len() / 2;
+        debug_assert!(self.tab.len() == mask + 1 && probe_mask <= mask);
+        for (r, o) in rows.iter().zip(out.iter_mut()) {
+            let k = r.person();
+            let mut s = (k >> shift) as usize & probe_mask;
+            let id = loop {
+                // s <= mask, and tab.len() == mask + 1 (clear_table); tab is only
+                // reallocated by grow_and_intern, after which the locals are reloaded.
+                let e = unsafe { &mut *tab.add(s) };
+                if e.0 == k {
+                    debug_assert!((e.1 as usize) < self.counts.len());
+                    unsafe { *self.counts.get_unchecked_mut(e.1 as usize) += 1 };
+                    break e.1;
+                }
+                if e.0 == 0 {
+                    if self.keys.len() == grow_at {
+                        let id = self.grow_and_intern(k);
+                        tab = self.tab.as_mut_ptr();
+                        mask = self.mask;
+                        shift = self.shift;
+                        probe_mask = self.probe_mask;
+                        grow_at = self.tab.len() / 2;
+                        break id;
+                    }
+                    let id = self.keys.len() as u32;
+                    *e = (k, id);
+                    self.keys.push(k);
+                    self.counts.push(1);
+                    break id;
+                }
+                s = (s + 1) & mask;
+            };
+            o.write(id);
+        }
+    }
+
     #[inline]
     fn get(&self, k: u64) -> Option<u32> {
         let mut s = (k >> self.shift) as usize & self.probe_mask;
@@ -2566,19 +2611,18 @@ fn process_part<L: Layout>(
     sc.persons.reset(n, ev[0].r.len(), hmask);
     sc.locs.clear();
     sc.locs.reserve(n);
-    let locs_out = sc.locs.as_mut_ptr();
-    let mut w = 0usize;
-    for x in ev {
-        for r in &x.r[p] {
-            let loc = sc.persons.intern(r.person());
-            // w < n: the rows visited here are exactly the n counted above, and
-            // `reserve(n)` on the cleared Vec gave room for n.
-            unsafe { locs_out.add(w).write(loc) };
-            w += 1;
+    {
+        let locs_out = &mut sc.locs.spare_capacity_mut()[..n];
+        let mut w = 0usize;
+        for x in ev {
+            let rows = &x.r[p];
+            sc.persons.intern_into(rows, &mut locs_out[w..w + rows.len()]);
+            w += rows.len();
         }
+        assert!(w == n);
     }
-    debug_assert!(w == n);
-    unsafe { sc.locs.set_len(w) };
+    // All n slots were written by intern_into above.
+    unsafe { sc.locs.set_len(n) };
     if !drops.is_empty() {
         sc.off.clear();
         let mut o = 0;
@@ -2605,6 +2649,7 @@ fn process_part<L: Layout>(
     sc.evs.clear();
     sc.evs.reserve(kept);
     let sorted = &mut sc.evs.spare_capacity_mut()[..kept];
+    let counts = &mut sc.persons.counts[..];
     let mut locs = &sc.locs[..];
     for x in ev {
         let rows = &x.r[p];
@@ -2615,7 +2660,7 @@ fn process_part<L: Layout>(
                 // loc < counts.len() (an interned ordinal), and each cursor stays
                 // inside its person's prefix-summed run, so < kept == sorted.len().
                 unsafe {
-                    let cursor = sc.persons.counts.get_unchecked_mut(loc as usize);
+                    let cursor = counts.get_unchecked_mut(loc as usize);
                     debug_assert!((*cursor as usize) < sorted.len());
                     sorted.get_unchecked_mut(*cursor as usize).write(r.elem());
                     *cursor += 1;
@@ -2902,6 +2947,7 @@ fn walk_bins<L: Layout, const HAS_CLICKS: bool>(
     debug_assert!(L::BINS && !events.is_empty());
     let base = ctx.base;
     let Bins { bits, slot, buys } = bins;
+    let (bits, slot) = (&mut bits[..], &mut slot[..]);
     assert!(bits.len() == NBINS.div_ceil(64) && slot.len() == NBINS);
     let (mut blo, mut bhi) = (u32::MAX, 0u32);
     for &e in events {
