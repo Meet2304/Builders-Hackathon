@@ -13,15 +13,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: v15,    ref: 12c449e, cpu: cascadelake }
-          - { name: v15v3,  ref: 12c449e, cpu: x86-64-v3 }
-          - { name: v16,    ref: d5e9ee3, cpu: cascadelake }
-          - { name: v16v3,  ref: d5e9ee3, cpu: x86-64-v3 }
-          - { name: pgo,    ref: 8142d5e, cpu: cascadelake, pgo: 'on' }
-          - { name: pgooff, ref: 8142d5e, cpu: cascadelake, pgo: 'off' }
+          - { name: v15,    ref: v15, cpu: cascadelake }
+          - { name: v15v3,  ref: v15, cpu: x86-64-v3 }
+          - { name: v16,    ref: v16, cpu: cascadelake }
+          - { name: v16v3,  ref: v16, cpu: x86-64-v3 }
+          - { name: pgo,    ref: explore/v14-pgo, cpu: cascadelake, pgo: 'on' }
+          - { name: pgooff, ref: explore/v14-pgo, cpu: cascadelake, pgo: 'off' }
     steps:
       - uses: actions/checkout@v4
-        with: { ref: '${{ matrix.ref }}' }
+        with: { ref: '${{ matrix.ref }}', fetch-depth: 0 }
       - uses: actions/checkout@v4
         with: { path: labtree }
       - id: key
