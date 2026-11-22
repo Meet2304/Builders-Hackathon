@@ -8,6 +8,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ref | d170ffe | main | 236 s (1 thread) | n/a | 17 GB at 20M | oracle | no | n/a |
 | v1 | 3e48662 | main (tag v1) | 1.550 s (5 runs, sd 0.03) | 5.79 s (3 runs) | 11.46 GB footprint (16.6 GB RSS incl. page cache) | **SUBMIT-READY** | no | n/a |
+| v3 | 29b64bf | main (tag v3) | **0.626 s** (interleaved vs v1 1.609 s, +61.1%) | 1.97 s | 5.62 GB footprint (11.6 GB RSS) | **SUBMIT-READY** | no (asked user) | n/a |
 | v2 | 953af43 | method/v2 | 1.661 s (interleaved 1.610 vs v1 1.659) | 5.367 s | 11.41 GB footprint (17.76 GB RSS) | HOLD (Gate C: only 2.94% faster, needs 5%) | no | n/a |
 
 ## Thread registry
@@ -60,3 +61,17 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **Analyst:** v3 review addendum at `8f53b44`, merged. **No correctness bugs** in mimalloc (`8004f65`) or the timestamp decoder (`29b64bf`): 50/50 new cases and 70/70 original cases MATCH across 10 knob settings, cargo test 6/6, and all 4 deliberately broken decoders caught. Asks Eval to add `evals/insights/v3_review/run.py` to Gate A, plus the amd64 build at `29b64bf`.
 - **Dashboard:** `304e818`, merged. The canonical artifact is now **https://claude.ai/artifact/WtswJrVasZtzDdyXH1Ci82** on the main Claude account. The `BeFs…` copy on claude_andrew is frozen. The Orchestrator runs on claude_andrew and can't sync until the user shares `WtswJ…` with edit access, or switches the Orchestrator to `Claude`.
 - **Bench lock:** Eval holds it for the v3 full eval (started 18:59 ET; fuzz 1000/1000 MATCH so far). Method's v3 sanity script is queued.
+- **Eval:** v3 (`29b64bf`) full eval: **SUBMIT-READY.** Gates A, B and C pass:
+  - correctness: 36/36 fixtures (native, arm64, amd64), dev MATCH on all three, 10/10 oracles, 854/854 fuzz under every knob, deterministic output
+  - 20M: **0.626 s vs v1 1.609 s, +61.1%** (interleaved)
+  - 60M: 1.97 s, peak footprint 5.62 GB, Linux cgroup peak 5.69 GiB
+  - clean amd64 cascadelake build passes
+  - the paired Linux A/B was unavailable
+- **Orchestrator:** merged `method/v3` into main and tagged `v3` (src identical to `29b64bf`; fixtures 36/36 on main). Asked the user to submit v3, which gives the first calibration point.
+- **Analyst:** v4 design at `0beec04`, merged.
+  - **Correction:** the 0.28 s board is the **20M practice** set. The final is 60M (leaders ≈ 0.8–0.9 s scaled).
+  - Budget for 0.25 s at 20M: about 250 instructions per event line plus 35 ms fixed; v3 is at about 2,700.
+  - **Top gap:** v3's SIMD fast path rejects any line containing `"`. 20% of fields are quoted, so 79% of event lines and 59% of click lines fall to the slow splitter (about 680 against 70 instructions per line). A quote-aware fast path is worth about 0.4 s on the scorer.
+  - Gap list: (1) quote-aware fast path; (2) 16 B rows and a counting sort; (3) a faster ID packer, with category lookup only for purchases; (4) the same for clicks; (5) a smaller dedup entry and L2-sized partitions; (6) largest-first partition scheduling for whale users.
+  - Beating 0.28 s needs all six. It's incremental on v3, not a rewrite.
+- **Explorer 2 (Grok + Gemini):** counting sort on the dense person ID, with LSD radix as the fallback (Gemini's design), on `explore/gemini-radix` `c99960e`. Fixtures 36/36, dev MATCH, and a unit test against the comparison order. Not yet timed.
