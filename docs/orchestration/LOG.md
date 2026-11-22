@@ -112,3 +112,9 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Eval: per-phase instructions per row for v3 are events parse 1,600, sessions 522, clicks 241, output 130, lookups 69, dedup 35. Lookups and dedup are cache-bound at 60M.
   - Eval: the Linux A/B for v3 vs v1 is +74%.
 - **Next:** Eval runs the full eval of v4 `c9e1a0c`. Method does move 3 (ID packer), category lookups for purchases only, the parallel-links port, then moves 4–6. Sol prototypes move 5–6 (L2-sized partitions, dedup and lookup cache behaviour at 60M, skew-aware scheduling). Explorer 2 does the ID packer kernel. Re-applied Eval's switch to Cursor grok-4.7 + Gemini (it had kept running on Claude).
+- **Analyst:** v4 insights `9734a48`, merged.
+  - **Correction:** G1 (the quote-aware path) delivered **−679** instructions per line (v3 2,641 → `e62060c` 1,962). G2 delivered −93. Method's move-1 figure came from a stale binary.
+  - Parse microbenchmark on v4, instructions per line now → target: scan 302 → 70, ID packing 196 → 35, timestamps 152 → 50, category 105 → 3, link lookup + row path about 235 → 50.
+  - Ranked by board seconds saved: sessions kernel (Explorer 3), **scan loop (unowned)**, **link lookup + row path (unowned)**, ID packer (Explorer 2), Parquet output (Explorer 3), **timestamps (unowned)**, category only for purchases (Method), links, **click parsing (unowned)**, L2 + skew (Sol).
+  - Projection: owned items bring us to about 1,000 instructions per line (about 0.75 s on the board); the unowned items reach about 400 (about 0.30 s).
+  - **Orchestrator assigned:** scan loop to Explorer 2 (after the packer), link lookup + row path to Method (then click parsing), timestamps to Sol (after skew).
