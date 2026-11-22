@@ -231,3 +231,10 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Updated `docs/rules.md` (line 101 is the only change) and `tools/generator` from the current downloads, and verified that the generator reproduces the Scout's new dev set byte for byte.
   - Moved the old `data/{dev,dev-answer,seed-42,seed-43}` to `data/old-gen/`. Installed the new dev set and dev answer, and am regenerating seed-42 (20M) and seed-43 (60M).
   - **Method** → move 6: an exact lock-free u128 fast path for the 33-byte IDs, with byte-order-exact comparisons.
+- **Datasets regenerated with the new generator:** `data/seed-42` (1.9 GB) and `data/seed-43` (5.8 GB). The old ones are in `data/old-gen/`. Eval is regenerating the rest of the suite and the expected answers.
+- **Explorer 5, gVisor reproduction (harness `explore/critpath` @ `55922b0`):** v5 on the new 20M data, median of 3 pairs: **plain Docker 0.94 s, gVisor (runsc) 2.23 s** (+1.29 s; 2.36 s launch to teardown). **That matches the board's 2.146 s.**
+  - Event parse alone is 0.565 → 1.528 s under gVisor, pointing at futex syscalls from the contended intern `Mutex`.
+  - **The gVisor time is now our primary predictor of the board.**
+- **Explorer 4:** click decoder: dev click phase 561 → 389 instructions per line, 0.49% fallback (old data). Told to route 33-byte IDs onto the fast path.
+- **Explorer 2:** quote mask is negative (−28). Re-tasked to a hex-32 SIMD validator and exact packer kernel for Method (`explore/gemini-hex32`).
+- **Analyst:** board fit: 1.70 s fixed + 0.000318 s per instruction per row, within 4 ms on all three points. It predates the root cause and is being redone.
