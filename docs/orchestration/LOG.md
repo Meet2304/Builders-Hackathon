@@ -23,6 +23,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 | [Explorer (Sol): new methods](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:6315989f2e18da907dd5afa1c1d91b92f260d655ff39ccea533b4bcc1c8dff26) | new methods, orthogonal to v3 (Codex gpt-6.2-sol) | explore/sol + explore/<idea> (worktree from origin/main) | running |
 | [Explorer (Gemini Neon): parse + sort](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:c34fb1c92727c4ef2b6393af4d85d74111a2d51ff14281638fe8f40541130fd3) | new methods: radix sort, parse path, input I/O and threads (runs on Cursor grok-4.7; consults Gemini 4 Neon in the browser) | explore/gemini + explore/gemini-<idea> (worktree from method/v3 @ 1ea8059) | running |
 | [Explorer 3 (Gemini Neon): sessions, output, fused design](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:4379b65d8484648bc9238d23e7cc78673f8a8df125def5c32a8181b904ea7ac5) | sessions+attribution kernel, Parquet output cost, fused ~300 instr/row microbenchmark (Cursor grok-4.7 + Gemini 4 Neon in browser) | explore/gemini3 + explore/gemini3-<idea> (worktree from origin/main) | running |
+| [Analyst 2 (Grok + Gemini Neon): verification, scorer model](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:ae50fb5d3f96b5f5f93ddb22c338d922bdc22fb8b564d2e46e81a99cc58ed242) | independent verification, x86 Cascade Lake scorer model, 60M final projection (Cursor grok-4.7 + Gemini 4 Neon in browser) | analysis2 (worktree from origin/main) | running |
 | [Dashboard: live Claude artifact](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:41ab4ef0a8234b722582c94a9f60a3b6ad91d309d5aa3b1510e7c1c2ad26f325) | live claude.ai dashboard (one URL, data in the artifact DB) | dashboard/live, merged (304e818) | done: canonical https://claude.ai/artifact/WtswJrVasZtzDdyXH1Ci82 (main account) |
 
 ## Entries
@@ -118,3 +119,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Ranked by board seconds saved: sessions kernel (Explorer 3), **scan loop (unowned)**, **link lookup + row path (unowned)**, ID packer (Explorer 2), Parquet output (Explorer 3), **timestamps (unowned)**, category only for purchases (Method), links, **click parsing (unowned)**, L2 + skew (Sol).
   - Projection: owned items bring us to about 1,000 instructions per line (about 0.75 s on the board); the unowned items reach about 400 (about 0.30 s).
   - **Orchestrator assigned:** scan loop to Explorer 2 (after the packer), link lookup + row path to Method (then click parsing), timestamps to Sol (after skew).
+- **User request:** a separate Analyst on Grok, with Gemini Neon in the browser. **Orchestrator** launched **Analyst 2** (Cursor `grok-4.7` with Gemini 4 Neon in its own tab) on `analysis2`. Scope:
+  - independent re-derivation of every claim (`evals/insights2/verification.md`); it starts with v4 `c9e1a0c`, `d89e2b5`, `a019739`
+  - an x86 Cascade Lake scorer cost model, with per-phase board predictions and what AVX-512 is worth (`evals/insights2/scorer-model.md`)
+  - a 60M final projection and the superlinear phases
