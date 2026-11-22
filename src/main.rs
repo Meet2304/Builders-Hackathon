@@ -51,7 +51,7 @@ use std::cmp::Ordering;
 use std::env;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+use std::sync::atomic::{AtomicU64, Ordering::{Acquire, Relaxed, Release}};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -349,26 +349,135 @@ fn is_packed(k: u64) -> bool {
     k & 15 == 0
 }
 
+/// Lowercase hex digit value, or 0xff.
+const HEX: [u8; 256] = {
+    let mut t = [0xffu8; 256];
+    let mut i = 0;
+    while i < 10 {
+        t[b'0' as usize + i] = i as u8;
+        i += 1;
+    }
+    i = 0;
+    while i < 6 {
+        t[b'a' as usize + i] = 10 + i as u8;
+        i += 1;
+    }
+    t
+};
+
+/// 32 lowercase hex digits -> (hi, lo): digit 0 in the top nibble of hi, so (hi, lo)
+/// order is the digits' byte order ('0'..'9' < 'a'..'f' in ASCII and in value).
+#[inline]
+fn hex32(d: &[u8; 32]) -> Option<(u64, u64)> {
+    let (mut hi, mut lo, mut bad) = (0u64, 0u64, 0u8);
+    for i in 0..16 {
+        let (x, y) = (HEX[d[i] as usize], HEX[d[16 + i] as usize]);
+        bad |= x | y;
+        hi = hi << 4 | (x & 15) as u64;
+        lo = lo << 4 | (y & 15) as u64;
+    }
+    (bad & 0x80 == 0).then_some((hi, lo))
+}
+
+/// Lock-free, insert-only set of 128-bit values: the hex digits of long IDs (a packable
+/// prefix byte + 32 lowercase hex digits, the generator's 1-in-8 long form). A value's
+/// slot index never changes, so it is the ID's key. No locks, no syscalls: a racing
+/// reader spins over the two stores of a slot being written.
+struct LongTable {
+    slots: Box<[[AtomicU64; 3]]>, // state (0 empty, 1 writing, 2 ready), hi, lo
+    mask: usize,
+    shift: u32,
+    hmask: u64, // SESSIONS_DEBUG_HASH_BITS
+}
+
+/// Probes before a value goes to the interner instead. Slots only ever fill, so a value
+/// that once found its probe window full always does: the split stays exact.
+const LONG_PROBES: usize = 128;
+
+impl LongTable {
+    fn new(cap: usize, hmask: u64) -> Self {
+        let cap = cap.next_power_of_two().max(64);
+        // zeroed straight from the allocator: untouched pages stay unfaulted
+        let layout = std::alloc::Layout::array::<[AtomicU64; 3]>(cap).unwrap();
+        let slots = unsafe {
+            let p = std::alloc::alloc_zeroed(layout) as *mut [AtomicU64; 3];
+            assert!(!p.is_null(), "long-ID table allocation");
+            Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, cap))
+        };
+        LongTable { slots, mask: cap - 1, shift: 64 - cap.trailing_zeros(), hmask }
+    }
+
+    /// Slot of (hi, lo), inserting it if absent; None if its probe window is full.
+    #[inline]
+    fn slot(&self, hi: u64, lo: u64) -> Option<usize> {
+        let h = (hi.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ lo).wrapping_mul(0xbf58_476d_1ce4_e5b9) & self.hmask;
+        let mut s = (h >> self.shift) as usize;
+        for _ in 0..LONG_PROBES {
+            let e = &self.slots[s];
+            let mut st = e[0].load(Acquire);
+            if st == 0 {
+                match e[0].compare_exchange(0, 1, Acquire, Acquire) {
+                    Ok(_) => {
+                        e[1].store(hi, Relaxed);
+                        e[2].store(lo, Relaxed);
+                        e[0].store(2, Release);
+                        return Some(s);
+                    }
+                    Err(now) => st = now,
+                }
+            }
+            while st == 1 {
+                std::hint::spin_loop();
+                st = e[0].load(Acquire);
+            }
+            if e[1].load(Relaxed) == hi && e[2].load(Relaxed) == lo {
+                return Some(s);
+            }
+            s = (s + 1) & self.mask;
+        }
+        None
+    }
+
+    #[inline]
+    fn value(&self, s: usize) -> (u64, u64) {
+        let e = &self.slots[s];
+        debug_assert_eq!(e[0].load(Acquire), 2);
+        (e[1].load(Relaxed), e[2].load(Relaxed))
+    }
+}
+
+/// Decoded ID bytes: up to 10 for a packed key, 33 for a long one.
+type IdBuf = [u8; 33];
+
 struct Shard<'a> {
     map: HashMap<&'a [u8], u32>,
     strs: Vec<&'a [u8]>,
 }
 
-/// Every ID that can't be packed: key = (index << 4) | 1, index = local * 64 + shard.
+/// Keys of IDs that don't pack into 6-bit symbols, by low nibble:
+///   1: interned (cold, sharded Mutex map): key = (index << 4) | 1, index = local * 64 + shard
+///   2: long hex (lock-free LongTable): key = (slot << 10) | (SYM[prefix] << 4) | 2
 struct Ids<'a> {
     shards: Vec<Mutex<Shard<'a>>>,
+    long: LongTable,
     no_fast: u8,
     simd_pack: bool, // off under any NO_FAST knob or if the startup self-test fails
 }
 
 impl<'a> Ids<'a> {
+    #[cfg(test)]
     fn new(no_fast: u8) -> Self {
+        Self::with_long(no_fast, 1 << 16, u64::MAX)
+    }
+
+    /// `long_cap`: long-ID table slots (rounded up to a power of two).
+    fn with_long(no_fast: u8, long_cap: usize, hmask: u64) -> Self {
         let shards = (0..64).map(|_| Mutex::new(Shard { map: new_map(0), strs: Vec::new() })).collect();
         let simd_pack = no_fast == 0 && pack_simd_self_test();
         if !simd_pack && no_fast == 0 {
             eprintln!("warning: SIMD ID packer failed its self-test; using the scalar packer");
         }
-        Ids { shards, no_fast, simd_pack }
+        Ids { shards, long: LongTable::new(long_cap, hmask), no_fast, simd_pack }
     }
 
     /// Key of a non-empty ID.
@@ -378,9 +487,25 @@ impl<'a> Ids<'a> {
             if let Some(k) = pack_fast(b) {
                 return k;
             }
+            if let Some(k) = self.long_key(b) {
+                return k;
+            }
             return self.intern(b);
         }
         self.key_slow(b)
+    }
+
+    /// Key of a long ID (prefix symbol + 32 lowercase hex digits), lock-free.
+    #[inline]
+    fn long_key(&self, b: &[u8]) -> Option<u64> {
+        let b: &[u8; 33] = b.try_into().ok()?;
+        let sym = SYM[b[0] as usize];
+        if sym == 0 {
+            return None;
+        }
+        let (hi, lo) = hex32(b[1..].try_into().unwrap())?;
+        let s = self.long.slot(hi, lo)?;
+        Some((s as u64) << 10 | (sym as u64) << 4 | 2)
     }
 
     /// `key` under a debug knob or a failed self-test.
@@ -391,8 +516,13 @@ impl<'a> Ids<'a> {
             2 => xxh3_64(b) & 1 == 0,
             _ => true,
         };
-        if try_pack && let Some(k) = pack(b) {
-            return k;
+        if try_pack {
+            if let Some(k) = pack(b) {
+                return k;
+            }
+            if let Some(k) = self.long_key(b) {
+                return k;
+            }
         }
         self.intern(b)
     }
@@ -409,8 +539,8 @@ impl<'a> Ids<'a> {
         (((local as u64) * 64 + s as u64) << 4) | 1
     }
 
-    /// The bytes of key `k`; `buf` holds a decoded packed key.
-    fn bytes<'s>(&self, k: u64, buf: &'s mut [u8; 10]) -> &'s [u8]
+    /// The bytes of key `k`; `buf` holds a decoded packed or long key.
+    fn bytes<'s>(&self, k: u64, buf: &'s mut IdBuf) -> &'s [u8]
     where
         'a: 's,
     {
@@ -425,6 +555,15 @@ impl<'a> Ids<'a> {
                 n += 1;
             }
             &buf[..n]
+        } else if k & 15 == 2 {
+            const DIGITS: &[u8; 16] = b"0123456789abcdef";
+            let (hi, lo) = self.long.value((k >> 10) as usize);
+            buf[0] = DESYM[((k >> 4) & 63) as usize];
+            for i in 0..16 {
+                buf[1 + i] = DIGITS[(hi >> (60 - 4 * i)) as usize & 15];
+                buf[17 + i] = DIGITS[(lo >> (60 - 4 * i)) as usize & 15];
+            }
+            &buf[..33]
         } else {
             let i = k >> 4;
             let sh = self.shards[(i % 64) as usize].lock().unwrap();
@@ -438,7 +577,12 @@ impl<'a> Ids<'a> {
         if is_packed(a) && is_packed(b) {
             return a.cmp(&b);
         }
-        let (mut x, mut y) = ([0u8; 10], [0u8; 10]);
+        if a & 15 == 2 && b & 15 == 2 {
+            // same length: prefix byte, then the 32 digits
+            let (pa, pb) = ((a >> 4) & 63, (b >> 4) & 63);
+            return pa.cmp(&pb).then_with(|| self.long.value((a >> 10) as usize).cmp(&self.long.value((b >> 10) as usize)));
+        }
+        let (mut x, mut y) = ([0u8; 33], [0u8; 33]);
         self.bytes(a, &mut x).cmp(self.bytes(b, &mut y))
     }
 }
@@ -1845,12 +1989,25 @@ fn hwi() -> u64 {
     0
 }
 
+// Read once: env lookups take the environment lock, and these run per partition.
+static ENV_FLAGS: std::sync::OnceLock<(bool, bool, bool)> = std::sync::OnceLock::new();
+
+fn env_flags() -> (bool, bool, bool) {
+    *ENV_FLAGS.get_or_init(|| {
+        (
+            env::var_os("SESSIONS_DEBUG_INSN").is_some(),
+            env::var_os("SESSIONS_DEBUG_SORTED").is_some(),
+            env::var_os("SESSIONS_CLICK_SORT").is_some_and(|v| v == "old"),
+        )
+    })
+}
+
 fn insn_probe() -> bool {
-    env::var_os("SESSIONS_DEBUG_INSN").is_some()
+    env_flags().0
 }
 
 fn sorted_probe() -> bool {
-    env::var_os("SESSIONS_DEBUG_SORTED").is_some()
+    env_flags().1
 }
 
 static CLICK_INSN: AtomicU64 = AtomicU64::new(0);
@@ -2080,7 +2237,7 @@ fn process_part<L: Layout>(
     let wide = ctx.wide || sc.persons.keys.len() >= 1 << 24;
     let shift = if wide { 0 } else { 40 };
     let click_t0 = insn_probe().then(hwi);
-    if env::var_os("SESSIONS_CLICK_SORT").is_some_and(|v| v == "old") {
+    if env_flags().2 {
         sort_clicks_old::<L>(ctx, lk, sc, ck, p, wide);
     } else {
         sort_clicks_counted::<L>(lk, sc, ck, p, wide);
@@ -2402,7 +2559,7 @@ fn user_batch(rows: &[UserRow], lk: &Lookups) -> RecordBatch {
     ]));
     let cat_str: Vec<Cow<str>> = lk.cat_names.iter().map(|c| utf8(c)).collect();
     let mut users = StringBuilder::with_capacity(rows.len(), rows.len() * 10);
-    let mut buf = [0u8; 10];
+    let mut buf: IdBuf = [0; 33];
     for r in rows {
         users.append_value(utf8(lk.ids.bytes(r.person, &mut buf)));
     }
@@ -2535,6 +2692,7 @@ fn main() {
     };
     let knobs = Knobs::from_env();
     STATS_ON.store(env::var_os("SESSIONS_DEBUG_STATS").is_some(), Relaxed);
+    env_flags();
     let hmask = knobs.hmask;
 
     let manifest: serde_json::Value =
@@ -2560,7 +2718,11 @@ fn main() {
         cat_rank[c as usize] = r as u32;
     }
     let (campaigns, camp_ids, channels) = load_campaigns(&campaigns_buf, knobs.no_fast != 1);
-    let ids = Ids::new(knobs.no_fast);
+    // Long IDs (33 B) are 1 in 8 distinct values: one table slot per 256 input bytes
+    // keeps the load near 0.4 (an ID field costs >= 34 B, so a full window falls back
+    // to the interner long before it could matter).
+    let in_bytes: usize = [&links_in, &events_in, &clicks_in].iter().flat_map(|i| i.maps.iter()).map(|m| m.len()).sum();
+    let ids = Ids::with_long(knobs.no_fast, in_bytes / 256, hmask);
     let scan = match knobs.no_fast {
         1 => Scan::Scalar,
         3 => Scan::Swar,
@@ -2690,17 +2852,57 @@ mod tests {
         for s in [&b"a"[..], b"a0", b"0", b"z", b"zzzzzzzzzz", b"zzzzzzzzzzz", b"0000000000", b"00000000000", b"_", b"Z_", b"u1", b"u10"] {
             v.push(s.to_vec());
         }
+        // Long IDs (prefix + 32 hex) and near misses: other prefixes, uppercase or
+        // non-hex digits, 31/32/33 digits, shared digits under different prefixes,
+        // last-digit neighbours, and short IDs that are their prefixes.
+        let hexd: &[u8] = b"0123456789abcdef";
+        let mut longs: Vec<Vec<u8>> = Vec::new();
+        for i in 0..6_000 {
+            let mut d: Vec<u8> = (0..32).map(|_| hexd[(next() % 16) as usize]).collect();
+            if i % 3 == 0 {
+                d[..28].fill(b'7'); // long shared runs: order decided late
+            }
+            let pre = [b'u', b'e', b'c', b'U', b'_', b'0', b'-'][(next() % 7) as usize];
+            let mut s = vec![pre];
+            s.extend_from_slice(&d);
+            match next() % 10 {
+                0 => s[1 + (next() % 32) as usize] = b"AFg:/`G"[(next() % 7) as usize],
+                1 => s.truncate(32),
+                2 => s.push(hexd[(next() % 16) as usize]),
+                _ => {}
+            }
+            longs.push(s);
+        }
+        let n = longs.len();
+        for i in 0..n / 4 {
+            let mut s = longs[i].clone();
+            s[0] = b"uec"[i % 3];
+            longs.push(s.clone()); // same digits, other prefix
+            let last = s.len() - 1;
+            s[last] = hexd[(HEX[s[last] as usize] as usize + 1) % 16];
+            longs.push(s.clone()); // neighbour
+            longs.push(s[..(i % 11).max(1)].to_vec()); // short prefix of it
+            longs.push(longs[i].clone()); // exact duplicate
+        }
+        v.extend(longs);
         v
     }
 
     #[test]
     fn keys_preserve_equality_and_order() {
         let strs = strings();
-        for mode in 0..=2u8 {
-            let ids = Ids::new(mode);
+        // every knob; and a tiny all-colliding long table, so most long IDs overflow
+        // their probe window into the interner and keys of both kinds mix
+        for (mode, cap, hmask) in [(0u8, 1 << 16, u64::MAX), (1, 1 << 16, u64::MAX), (2, 1 << 16, u64::MAX), (3, 1 << 16, u64::MAX), (0, 64, 0)] {
+            let ids = Ids::with_long(mode, cap, hmask);
             let keys: Vec<u64> = strs.iter().map(|s| ids.key(s)).collect();
+            let (long, interned) = (keys.iter().filter(|&&k| k & 15 == 2).count(), keys.iter().filter(|&&k| k & 15 == 1).count());
+            if mode != 1 {
+                // a 64-slot table holds at most 64 distinct long IDs; the rest overflow
+                assert!(long > if cap == 64 { 64 } else { 1000 } && interned > 1000, "mode {mode} cap {cap}: {long} long, {interned} interned");
+            }
             for (i, s) in strs.iter().enumerate() {
-                let mut buf = [0u8; 10];
+                let mut buf: IdBuf = [0; 33];
                 assert_eq!(ids.bytes(keys[i], &mut buf), &s[..], "round trip {s:?}");
             }
             for i in 0..strs.len() {
@@ -3016,7 +3218,7 @@ mod tests {
         assert!(by_key.iter().map(|(_, s)| s).eq(by_bytes.iter()), "key order == byte order");
         // Keys decode back to their bytes.
         let ids = Ids::new(0);
-        let mut dec = [0u8; 10];
+        let mut dec: IdBuf = [0; 33];
         for (k, s) in &by_key {
             assert_eq!(ids.bytes(*k, &mut dec), &s[..]);
         }
