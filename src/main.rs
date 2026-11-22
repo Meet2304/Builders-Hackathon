@@ -952,20 +952,51 @@ fn decimal_eight(digits: u64) -> u64 {
     ((quads as u32) as u64) * 10_000 + (quads >> 32)
 }
 
-#[inline]
-fn clock_ms(clock: u64) -> Option<i64> {
-    let digits = clock ^ u64::from_le_bytes(*b"00:00:00");
-    if !eight_digits(digits) || digits & 0x0000_ff00_00ff_0000 != 0 {
-        return None;
+const BAD_CLOCK: u32 = 1 << 28;
+
+const fn clock_lookup() -> [u32; 196_608] {
+    let mut table = [BAD_CLOCK; 196_608];
+    let mut n = 0;
+    while n < 60 {
+        let tens = 48 + n / 10;
+        let ones = 48 + n % 10;
+        let key = tens | (ones << 8);
+        if n < 24 {
+            table[key] = n as u32 * 3_600_000;
+        }
+        table[65_536 | key] = n as u32 * 60_000;
+        table[131_072 | key] = n as u32 * 1_000;
+        n += 1;
     }
-    let pairs = digits * 10 + (digits >> 8);
-    let h = pairs as u8;
-    let m = (pairs >> 24) as u8;
-    let s = (pairs >> 48) as u8;
-    if h > 23 || m > 59 || s > 59 {
-        return None;
+    table
+}
+
+static CLOCK: [u32; 196_608] = clock_lookup();
+
+#[inline(always)]
+fn clock_millis<const CHECK: bool>(table: &[u32; 196_608], tail: u64, base: i64) -> i64 {
+    let ms = table[65_536 | (tail >> 8) as u16 as usize] + table[131_072 | (tail >> 32) as u16 as usize];
+    if CHECK && (ms >= BAD_CLOCK || tail & 0xff00_00ff != 0x3a00_003a) {
+        return i64::MAX;
     }
-    Some(((h as i64 * 60 + m as i64) * 60 + s as i64) * 1000)
+    base + ms as i64
+}
+
+#[inline(always)]
+fn direct_clock<const CHECK: bool>(table: &[u32; 196_608], clock: u64, base: i64) -> i64 {
+    let ms = table[clock as u16 as usize]
+        + table[65_536 | (clock >> 24) as u16 as usize]
+        + table[131_072 | (clock >> 48) as u16 as usize];
+    if CHECK && (ms >= BAD_CLOCK || clock & 0x0000_ff00_00ff_0000 != 0x0000_3a00_003a_0000) {
+        return i64::MAX;
+    }
+    base + ms as i64
+}
+
+#[cold]
+#[inline(never)]
+fn fallback_timestamp(s: &[u8]) -> i64 {
+    parse_ts(s).unwrap_or(i64::MAX)
 }
 
 // Inverse of days_from_civil, used once per cached calendar day.
@@ -981,21 +1012,40 @@ fn civil_from_days(day: i64) -> (i64, i64, i64) {
     (era * 400 + yoe + i64::from(m <= 2), m, d)
 }
 
-#[derive(Clone, Copy, Default)]
-struct CalendarDay {
+#[derive(Clone, Copy)]
+struct CalendarHour {
     prefix: u64,
-    midnight: i64,
+    suffix: u64,
+    base: i64,
 }
 
 struct TimestampDecoder {
-    days: [CalendarDay; 512],
+    table: &'static [u32; 196_608],
+    hours: [CalendarHour; 1024],
+    numeric: [(u64, i64); 32],
+    ingest_days: [(u64, i64); 64],
 }
 
 impl TimestampDecoder {
     fn new(start: i64, end: i64) -> Self {
-        let mut decoder = Self { days: [CalendarDay::default(); 512] };
-        // This covers click offsets, and the ordinary ingest dates around
-        // the window. A miss still uses the general parser, even for ingest.
+        let mut decoder = Self {
+            table: &CLOCK,
+            hours: [CalendarHour { prefix: 0, suffix: u64::MAX, base: 0 }; 1024],
+            numeric: [(u64::MAX, 0); 32],
+            ingest_days: [(0, 0); 64],
+        };
+        let numeric_start = start.saturating_sub(7 * DAY_MS).div_euclid(100_000_000);
+        let numeric_end = end.div_euclid(100_000_000);
+        if numeric_end - numeric_start <= 31 {
+            for n in numeric_start.max(0)..=numeric_end.min(99_999) {
+                let tag = format!("{n:05}");
+                let mut bytes = [0u8; 8];
+                bytes[..5].copy_from_slice(tag.as_bytes());
+                let tag = u64::from_le_bytes(bytes);
+                let i = Self::numeric_index(tag);
+                decoder.numeric[i] = (tag, n * 100_000_000);
+            }
+        }
         let first = start.div_euclid(DAY_MS) - 8;
         let last = end.div_euclid(DAY_MS) + 8;
         if last - first > 48 {
@@ -1007,68 +1057,115 @@ impl TimestampDecoder {
                 continue;
             }
             let date = format!("{y:04}-{m:02}-{d:02}");
-            let bytes = date.as_bytes();
-            let prefix = u64::from_le_bytes(bytes[..8].try_into().unwrap());
-            let index = Self::index(bytes[6], bytes[8], bytes[9]);
-            decoder.days[index] = CalendarDay { prefix, midnight: day * DAY_MS };
+            let tag = u64::from_le_bytes(date.as_bytes()[..8].try_into().unwrap());
+            let day_key = Self::day_index(u16::from_le_bytes(date.as_bytes()[8..10].try_into().unwrap()));
+            decoder.ingest_days[day_key] = (tag, day * DAY_MS);
+            for h in 0..24 {
+                let date = format!("{y:04}-{m:02}-{d:02}T{h:02}");
+                let bytes = date.as_bytes();
+                let prefix = u64::from_le_bytes(bytes[..8].try_into().unwrap());
+                let suffix = u64::from_le_bytes(bytes[5..13].try_into().unwrap());
+                decoder.hours[Self::index(suffix)] = CalendarHour {
+                    prefix, suffix, base: (day * 24 + h) * 3_600_000,
+                };
+            }
         }
         decoder
     }
 
-    #[inline]
-    fn index(month: u8, tens: u8, ones: u8) -> usize {
-        (((month as usize) & 1) << 8) | (((tens as usize) & 15) << 4) | ((ones as usize) & 15)
+    #[inline(always)]
+    fn numeric_index(tag: u64) -> usize {
+        (((tag >> 32) & 15) | ((tag >> 20) & 16)) as usize
     }
 
-    #[inline]
-    fn cached_datetime(&self, s: &[u8]) -> Option<i64> {
+    #[inline(always)]
+    fn pair_index(ascii: u16) -> usize {
+        // (10 * ASCII tens + ASCII ones) modulo 32; distinct for 00..31.
+        (((ascii as u32 * 2561) >> 8) & 31) as usize
+    }
+
+    #[inline(always)]
+    fn index(suffix: u64) -> usize {
+        (Self::pair_index((suffix >> 24) as u16) << 5) | Self::pair_index((suffix >> 48) as u16)
+    }
+
+    #[inline(always)]
+    fn calendar<const N: usize>(&self, s: &[u8; N]) -> (&CalendarHour, u64, u64) {
         let prefix = u64::from_le_bytes(s[..8].try_into().unwrap());
-        let day = &self.days[Self::index(s[6], s[8], s[9])];
-        // A matching slot checks the complete date: the prefix covers year,
-        // month and dashes, and the index plus high nibbles checks day digits.
-        if day.prefix == 0 || prefix != day.prefix
-            || (s[8] & 0xf0) != b'0' || (s[9] & 0xf0) != b'0' || s[10] != b'T'
-        {
-            return None;
-        }
-        let clock = u64::from_le_bytes(s[11..19].try_into().unwrap());
-        Some(day.midnight + clock_ms(clock)?)
+        let suffix = u64::from_le_bytes(s[5..13].try_into().unwrap());
+        (&self.hours[Self::index(suffix)], prefix, suffix)
     }
 
-    #[inline]
-    fn parse(&self, s: &[u8]) -> Option<i64> {
-        match s.len() {
-            20 if s[19] == b'Z' => {
-                if let Some(ts) = self.cached_datetime(s) {
-                    return Some(ts);
-                }
-            }
-            25 if matches!(s[19], b'+' | b'-') && s[22] == b':' => {
-                if let Some(ts) = self.cached_datetime(s) {
-                    let (h, m) = (dig2(s, 20)?, dig2(s, 23)?);
-                    if h > 23 || m > 59 {
-                        return None;
+    #[inline(always)]
+    fn day_index(packed: u16) -> usize {
+        (((packed & 3) << 4) | ((packed >> 8) & 15)) as usize
+    }
+
+    #[inline(always)]
+    fn parse_pair(&self, event: &[u8], ingest: &[u8]) -> (i64, i64) {
+        if let Ok(i) = <&[u8; 20]>::try_from(ingest) {
+            let prefix = u64::from_le_bytes(i[..8].try_into().unwrap());
+            let tail = u32::from_le_bytes(i[8..12].try_into().unwrap());
+            let (expected, midnight) = self.ingest_days[Self::day_index(tail as u16)];
+            if prefix == expected {
+                let b = direct_clock::<false>(self.table, u64::from_le_bytes(i[11..19].try_into().unwrap()), midnight);
+                if let Ok(t) = <&[u8; 20]>::try_from(event) {
+                    let e_prefix = u64::from_le_bytes(t[..8].try_into().unwrap());
+                    let e_date = u32::from_le_bytes(t[8..12].try_into().unwrap());
+                    if (e_prefix == prefix) & ((e_date ^ tail) & 0x00ff_ffff == 0) & (t[19] == b'Z') {
+                        return (direct_clock::<true>(self.table, u64::from_le_bytes(t[11..19].try_into().unwrap()), midnight), b);
                     }
-                    let offset = (h * 60 + m) * 60_000;
-                    return Some(if s[19] == b'+' { ts - offset } else { ts + offset });
                 }
+                return (self.parse(event), b);
             }
-            13 => {
-                const ZEROES: u64 = u64::from_le_bytes(*b"00000000");
-                let low = u64::from_le_bytes(s[5..13].try_into().unwrap()) ^ ZEROES;
-                let high = (u64::from_le_bytes(s[..8].try_into().unwrap()) ^ ZEROES) & 0xff_ffff_ffff;
-                if eight_digits(high) && eight_digits(low) {
-                    // The first five digits were loaded with three zero lanes.
-                    return Some((decimal_eight(high) * 100_000 + decimal_eight(low)) as i64);
-                }
-                return None;
-            }
-            _ => {}
         }
-        parse_ts(s)
+        (self.parse(event), fallback_timestamp(ingest))
+    }
+
+    #[inline(always)]
+    fn parse(&self, s: &[u8]) -> i64 {
+        if let Ok(s) = <&[u8; 20]>::try_from(s) {
+            let (hour, prefix, suffix) = self.calendar(s);
+            if prefix == hour.prefix && suffix == hour.suffix && s[19] == b'Z' {
+                return clock_millis::<true>(self.table,
+                    u64::from_le_bytes(s[12..20].try_into().unwrap()) >> 8, hour.base,
+                );
+            }
+        } else if let Ok(s) = <&[u8; 13]>::try_from(s) {
+            let tag = u64::from_le_bytes(s[..8].try_into().unwrap()) & 0xff_ffff_ffff;
+            let (expected, base) = self.numeric[Self::numeric_index(tag)];
+            if tag == expected {
+                let low = u64::from_le_bytes(s[5..].try_into().unwrap()) ^ 0x3030_3030_3030_3030;
+                if eight_digits(low) {
+                    return base + decimal_eight(low) as i64;
+                }
+                return i64::MAX;
+            }
+        } else {
+            return self.parse_offset(s);
+        }
+        fallback_timestamp(s)
+    }
+
+    #[cold]
+    fn parse_offset(&self, s: &[u8]) -> i64 {
+        if let Ok(s) = <&[u8; 25]>::try_from(s) {
+            let (hour, prefix, suffix) = self.calendar(s);
+            if prefix == hour.prefix && suffix == hour.suffix && matches!(s[19], b'+' | b'-') && s[22] == b':' {
+                let ts = clock_millis::<true>(self.table,
+                    u64::from_le_bytes(s[13..21].try_into().unwrap()), hour.base,
+                );
+                let offset = self.table[u16::from_le_bytes([s[20], s[21]]) as usize]
+                    + self.table[65_536 | u16::from_le_bytes([s[23], s[24]]) as usize];
+                if ts == i64::MAX || offset >= BAD_CLOCK {
+                    return i64::MAX;
+                }
+                return if s[19] == b'+' { ts - offset as i64 } else { ts + offset as i64 };
+            }
+        }
+        fallback_timestamp(s)
     }
 }
-
 
 /// Purchase price: ASCII digits only, value 1..=10_000_000.
 #[inline]
@@ -1388,10 +1485,18 @@ struct Win {
 
 impl Win {
     #[inline]
-    fn parse_ts(&self, s: &[u8]) -> Option<i64> {
+    fn parse_ts(&self, s: &[u8]) -> i64 {
         match &self.decoder {
             Some(d) => d.parse(s),
-            None => parse_ts(s),
+            None => fallback_timestamp(s),
+        }
+    }
+
+    #[inline]
+    fn parse_pair(&self, event: &[u8], ingest: &[u8]) -> (i64, i64) {
+        match &self.decoder {
+            Some(d) => d.parse_pair(event, ingest),
+            None => (fallback_timestamp(event), fallback_timestamp(ingest)),
         }
     }
 }
@@ -1469,12 +1574,11 @@ impl<L: Layout> EvOut<L> {
 
 /// v1's validation of an event line, given its 7 fields: Some((user, ts, price)) if valid.
 #[inline]
-fn validate<'a>(f: &[&'a [u8]; 7], ingest: i64, w: &Win) -> Option<(&'a [u8], i64, u32)> {
+fn validate<'a>(f: &[&'a [u8]; 7], ts: i64, ingest: i64, w: &Win) -> Option<(&'a [u8], i64, u32)> {
     let (user, product, etype) = (f[1], f[5], f[4]);
     if user.is_empty() || product.is_empty() {
         return None;
     }
-    let ts = w.parse_ts(f[2])?;
     if ts < w.start || ts >= w.end {
         return None;
     }
@@ -1495,8 +1599,8 @@ fn parse_event<'a, L: Layout>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &
         return;
     }
     let eid = lk.ids.key(f[0]);
-    let ingest = w.parse_ts(f[3]).unwrap_or(i64::MAX);
-    match validate(f, ingest, w) {
+    let (ts, ingest) = w.parse_pair(f[2], f[3]);
+    match validate(f, ts, ingest, w) {
         Some((user, ts, price)) => {
             let user = lk.ids.key(user);
             // only purchases (price >= 1) ever read the category; views/carts skip the lookup
@@ -1521,7 +1625,7 @@ fn parse_click<'a>(f: &[&'a [u8]; 4], lk: &Lookups<'a>, w: &Win) -> Option<(Ck, 
         return None;
     }
     let camp = lk.campaign(f[2])?;
-    let ts = w.parse_ts(f[3])?;
+    let ts = w.parse_ts(f[3]);
     if ts < w.start - WEEK_MS || ts >= w.end {
         return None;
     }
@@ -2397,7 +2501,12 @@ mod tests {
                 }
             }
             for c in &cases {
-                assert_eq!(dec.parse(c), parse_ts(c), "{:?}", String::from_utf8_lossy(c));
+                assert_eq!(dec.parse(c), parse_ts(c).unwrap_or(i64::MAX), "{:?}", String::from_utf8_lossy(c));
+                assert_eq!(
+                    dec.parse_pair(c, ws.as_bytes()),
+                    (parse_ts(c).unwrap_or(i64::MAX), start),
+                    "{:?}", String::from_utf8_lossy(c),
+                );
             }
         }
     }
