@@ -2051,11 +2051,11 @@ fn task_group(nchunks: usize, nb: usize, chunk: usize) -> usize {
     nchunks.div_ceil(max_tasks).min((MAX_TASK_BYTES / chunk).max(1)).max(1)
 }
 
-/// Reused dedup payload with a separate, cheaply reset occupancy array.
+/// The high 16 bits of each locator identify the current partition generation.
 #[derive(Default)]
 struct DedupScratch {
-    occupied: Vec<u8>,
-    slots: Vec<std::mem::MaybeUninit<(u64, u64)>>,
+    generation: u16,
+    slots: Vec<(u64, u64)>,
 }
 
 /// Dedup one eid partition: returns the drops (dest:16 | t:24 | seq:24) of every losing
@@ -2067,35 +2067,39 @@ fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, scratch: &mut DedupScrat
         return drops;
     }
     let cap = (2 * n).next_power_of_two();
-    // Only occupancy needs resetting. Payload slots become readable after their
-    // occupancy byte is set during this partition's insertion pass.
-    scratch.occupied.clear();
-    scratch.occupied.resize(cap, 0);
-    scratch.slots.resize_with(cap, std::mem::MaybeUninit::uninit);
+    // Grow only: untouched slots have generation zero. Reusing a table for a
+    // smaller partition must not discard the generations of its unused tail.
+    if scratch.slots.len() < cap {
+        scratch.slots.resize(cap, (0, 0));
+    }
+    if scratch.generation == u16::MAX {
+        scratch.slots.fill((0, 0));
+        scratch.generation = 0;
+    }
+    scratch.generation += 1;
+    let tag = (scratch.generation as u64) << 48;
+    assert!(ev.len() < 1 << 24, "dedup task index exceeds 24 bits");
     let m = cap - 1;
     for (t, o) in ev.iter().enumerate() {
+        assert!(o.e[q].len() < 1 << 24, "dedup entry index exceeds 24 bits");
         for (i, en) in o.e[q].iter().enumerate() {
             // Partition routing consumes the top hash bits; use middle bits
             // of a multiplicative hash for this partition-local table. Full
             // eid equality still resolves every collision exactly.
             let mut s = (en.eid.wrapping_mul(PART_MULTIPLIER).rotate_left(32) & hmask) as usize & m;
             loop {
-                // SAFETY: s is masked by cap - 1, and both arrays have cap
-                // elements. An occupied byte implies that this partition has
-                // initialized that payload; bytes are reset on every invocation.
-                let slot = unsafe {
-                    if *scratch.occupied.get_unchecked(s) == 0 {
-                        scratch.slots.get_unchecked_mut(s).write((en.eid, (t as u64) << 32 | i as u64));
-                        *scratch.occupied.get_unchecked_mut(s) = 1;
-                        break;
-                    }
-                    scratch.slots.get_unchecked_mut(s).assume_init_mut()
-                };
+                // SAFETY: s <= cap - 1, and slots.len() >= cap. All slots are
+                // initialized; an older locator generation is logically empty.
+                let slot = unsafe { scratch.slots.get_unchecked_mut(s) };
+                if slot.1 < tag {
+                    *slot = (en.eid, tag | (t as u64) << 24 | i as u64);
+                    break;
+                }
                 if slot.0 == en.eid {
-                    let (wt, wi) = ((slot.1 >> 32) as usize, slot.1 as u32 as usize);
+                    let (wt, wi) = (((slot.1 >> 24) & 0xff_ffff) as usize, (slot.1 & 0xff_ffff) as usize);
                     // strictly smaller ingest wins; on a tie the first copy stays
                     let (lt, li) = if en.ingest < ev[wt].e[q][wi].ingest {
-                        slot.1 = (t as u64) << 32 | i as u64;
+                        slot.1 = tag | (t as u64) << 24 | i as u64;
                         (wt, wi)
                     } else {
                         (t, i)
@@ -3085,6 +3089,8 @@ mod tests {
     fn dedup_scratch_reset_preserves_winners() {
         let mut scratch = DedupScratch::default();
         for hmask in [0, 3, u64::MAX] {
+            // Force the wrap path while retaining previously occupied slots.
+            scratch.generation = u16::MAX;
             for n in [128, 0, 1, 17, 257, 2, 128] {
                 let mut ev: Vec<EvOut<Row16>> = (0..3).map(|_| EvOut::new(1, 0, 0)).collect();
                 let mut expected = Vec::new();
