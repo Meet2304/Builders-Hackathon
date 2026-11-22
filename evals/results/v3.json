@@ -6035,11 +6035,34 @@
     }
   },
   "calibration": {
-    "points": 0,
-    "method": null,
-    "estimated_scorer_20m_s": null,
+    "points": 1,
+    "method": "ratio",
+    "intercept": 0.0,
+    "slope": 3.102875399361022,
+    "estimated_scorer_20m_s": 1.935574,
+    "instr_model": {
+      "points": 1,
+      "method": "rate",
+      "board_rows": 20000000,
+      "fixed_s": 0.0,
+      "rate_instr_per_s": 26754347817.133446,
+      "ns_per_instr_row": 0.037377
+    },
+    "instructions_per_row": 2598.38,
+    "estimated_scorer_20m_instr_s": 1.9424,
+    "primary": "instructions",
+    "predicted_board_s": 1.9424,
     "board_target_s": 0.28,
-    "beats_board_target": null,
+    "target": {
+      "board_target_s": 0.28,
+      "ns_per_row": 14.0,
+      "instructions_per_row_max": {
+        "fixed 0.05s": 308,
+        "fixed 0.00s": 375
+      },
+      "summary": "0.28 s \u21d2 14 ns/row \u21d2 \u2264 308\u2013375 instructions/row (fixed 0.05\u20130.00 s, 26.8 G instr/s effective)"
+    },
+    "beats_board_target": false,
     "extrapolated": false
   },
   "gates": {
@@ -6400,9 +6423,11 @@
     "reasons": [
       "Gates A, B, C pass",
       "0.626s vs 1.609s = +61.1% (local, interleaved A/B in this eval)",
-      "delta 0.9831s vs 2sd 0.2115s"
+      "delta 0.9831s vs 2sd 0.2115s",
+      "predicted board 20M: 1.942s from 2,598 instr/row (26.8 G/s + 0.000s fixed); 1.936s from local wall (\u00d73.10). Target: 0.28 s \u21d2 14 ns/row \u21d2 \u2264 308\u2013375 instructions/row (fixed 0.05\u20130.00 s, 26.8 G instr/s effective)"
     ],
-    "warnings": []
+    "warnings": [],
+    "predictions": "predicted board 20M: 1.942s from 2,598 instr/row (26.8 G/s + 0.000s fixed); 1.936s from local wall (\u00d73.10). Target: 0.28 s \u21d2 14 ns/row \u21d2 \u2264 308\u2013375 instructions/row (fixed 0.05\u20130.00 s, 26.8 G instr/s effective)"
   },
   "finished": "2026-11-21T19:18:52-0500",
   "duration_s": 2125.8

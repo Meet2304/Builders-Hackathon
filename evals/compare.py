@@ -142,7 +142,10 @@ def compare(A: dict, B: dict) -> list[tuple[str, list]]:
     oa = A["perf"].get("container_overhead", {}).get("dev_overhead_s")
     ob = B["perf"].get("container_overhead", {}).get("dev_overhead_s")
     row(rows, "container overhead (dev)", oa, ob)
-    row(rows, "estimated board 20M", A.get("calibration", {}).get("estimated_scorer_20m_s"),
+    row(rows, "predicted board 20M (instructions, primary)",
+        A.get("calibration", {}).get("estimated_scorer_20m_instr_s"),
+        B.get("calibration", {}).get("estimated_scorer_20m_instr_s"))
+    row(rows, "predicted board 20M (local wall)", A.get("calibration", {}).get("estimated_scorer_20m_s"),
         B.get("calibration", {}).get("estimated_scorer_20m_s"))
     sections.append(("Resources and sizes", rows))
     linux_a, linux_b = (r["perf"].get("linux_timing", {}).get("summary", {}) for r in (A, B))

@@ -1,4 +1,14 @@
 {
   "_doc": "Versions the user has submitted to the scorer, newest last. Gate C compares against the best of these (by board time when all comparable results have one, otherwise by local 20M median). Add {\"version\": \"v1\", \"sha\": \"...\", \"submitted_at\": \"ISO time\", \"board_time_s\": null} when the user submits; fill board_time_s from the leaderboard.",
-  "submissions": []
+  "submissions": [
+    {
+      "version": "v3",
+      "sha": "29b64bfce142f0144231f0b28ba7bece6518a105",
+      "submitted_at": "2026-11-21",
+      "board_time_s": 1.9424,
+      "submission": "BB-93D28A6B",
+      "board_note": "wait 141 ms",
+      "final_entry": true
+    }
+  ]
 }

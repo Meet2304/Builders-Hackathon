@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .common import EVALS, read_json
-from .calibration import estimate
+from .calibration import estimate, ipr_20m
 from .measure import pooled_sd
 
 GB = 10**9
@@ -191,7 +191,14 @@ def best_baseline(exclude_version: str) -> dict | None:
     rank_by_board = all(board and board > 0 for _, _, board, _ in eligible)
     kind, res, board, s = min(eligible, key=lambda x: x[2] if rank_by_board else x[3]["median"])
     return {"kind": kind, "version": res["version"], "sha": res.get("sha"), "wall_s": s,
-            "board_time_s": board}
+            "board_time_s": board, "instructions_per_row": ipr_20m_summary(res)}
+
+
+def ipr_20m_summary(res: dict) -> dict | None:
+    for v in res.get("perf", {}).get("datasets", {}).values():
+        if v.get("role") == "perf-20M":
+            return v.get("summary", {}).get("instructions_per_row")
+    return None
 
 
 def perf_20m(res: dict) -> dict | None:
@@ -267,7 +274,62 @@ def linux_signal(r: dict) -> dict:
             "detail": f"{c['median']:.4f}s vs {b['median']:.4f}s ({gain:+.1%}, {b['n']} pairs)"}
 
 
+def instr_signal(r: dict, linux: dict | None) -> dict:
+    """Gate C route 3: >= 5% fewer instructions per row (and > 2x pooled sd) with no significant wall regression.
+
+    Instructions are counted on the local arm64 build. The scorer runs x86-64, so this assumes the reduction carries
+    over roughly in proportion, which is the premise of the calibrated instruction model."""
+    base = r.get("baseline") or {}
+    b, c = base.get("instructions_per_row") or {}, ipr_20m_summary(r) or {}
+    if not base or base.get("sha") == r.get("sha") or not b.get("n") or not c.get("n"):
+        return {"status": "unavailable", "checks": [check("instructions/row >= 5% below baseline", "not_run",
+                                                          "no instruction counts for candidate or baseline")]}
+    delta = b["median"] - c["median"]
+    gain = delta / b["median"]
+    sd = pooled_sd(b, c)
+    ok_gain, ok_sig = gain >= GATE_C_MIN_GAIN, delta > GATE_C_SIGMAS * sd
+    paired_b, paired_c = base.get("ab_wall_s", {}), base.get("ab_candidate_wall_s", {})
+    if min(paired_b.get("n", 0), paired_c.get("n", 0)) >= 5:
+        wb, wc, src = paired_b, paired_c, "interleaved A/B"
+    else:
+        wb, wc, src = base.get("wall_s") or {}, perf_20m(r) or {}, "separate runs"
+    regress = None
+    detail = "no wall samples"
+    if wb.get("n") and wc.get("n"):
+        wdelta = wc["median"] - wb["median"]
+        wsd = pooled_sd(wb, wc)
+        regress = wdelta > GATE_C_SIGMAS * wsd
+        detail = f"native {wc['median']:.3f}s vs {wb['median']:.3f}s ({src}; slower by {wdelta:+.4f}s vs 2sd {2 * wsd:.4f}s)"
+    if linux and linux.get("status") == "regression":
+        regress = True
+        detail += f"; Linux regression {linux['detail']}"
+    elif linux and linux.get("status") not in (None, "unavailable"):
+        detail += f"; Linux {linux['status']} {linux['detail']}"
+    checks = [check(f"instructions/row >= 5% below {base['version']}", _status(ok_gain),
+                    f"{c['median']:,.0f} vs {b['median']:,.0f} = {-gain * 100:+.1f}%"),
+              check("instructions/row drop > 2x pooled stdev", _status(ok_sig),
+                    f"delta {delta:,.1f} vs 2sd {2 * sd:,.1f}"),
+              check("20M wall does not regress significantly", _status(None if regress is None else not regress),
+                    detail)]
+    ok = ok_gain and ok_sig and regress is False
+    return {"status": "pass" if ok else "fail", "gain": round(gain, 4), "checks": checks}
+
+
 def gate_c(r: dict) -> dict:
+    result = _gate_c_wall(r)
+    instr = instr_signal(r, result.get("linux_ab"))
+    result["instructions"] = instr
+    if result["status"] != "pass" and instr["status"] == "pass":
+        result = {**result, "status": "pass", "metric": "instructions per row", "gain": instr["gain"],
+                  "wall": {k: result[k] for k in ("checks", "metric", "gain", "pooled_sd_s") if k in result},
+                  "checks": instr["checks"]}
+    elif result["status"] != "pass" and instr["status"] == "fail":
+        result = {**result, "checks": result["checks"] + [{**x, "name": f"or (instructions route): {x['name']}"}
+                                                          for x in instr["checks"]]}
+    return result
+
+
+def _gate_c_wall(r: dict) -> dict:
     native = native_gate_c(r)
     if "linux_timing" not in r["perf"]:
         return native
@@ -286,7 +348,26 @@ def gate_c(r: dict) -> dict:
 def verdict(r: dict) -> dict:
     v = _verdict(r)
     v["warnings"] = [w for g in r["gates"].values() for w in g.get("warnings", [])]
+    if line := prediction_line(r.get("calibration") or {}):
+        v["predictions"] = line
+        v["reasons"].append(line)
     return v
+
+
+def prediction_line(cal: dict) -> str | None:
+    """Both board predictors and the target, for every verdict."""
+    wall, instr = cal.get("estimated_scorer_20m_s"), cal.get("estimated_scorer_20m_instr_s")
+    if wall is None and instr is None:
+        return None
+    parts = []
+    if instr is not None:
+        im = cal.get("instr_model", {})
+        parts.append(f"{instr:.3f}s from {cal['instructions_per_row']:,.0f} instr/row "
+                     f"({im['rate_instr_per_s'] / 1e9:.1f} G/s + {im['fixed_s']:.3f}s fixed)")
+    if wall is not None:
+        parts.append(f"{wall:.3f}s from local wall (×{cal['slope']:.2f}"
+                     + (f" + {cal['intercept']:.3f}s" if cal.get("intercept") else "") + ")")
+    return "predicted board 20M: " + "; ".join(parts) + f". Target: {cal.get('target', {}).get('summary', '0.28 s')}"
 
 
 def _verdict(r: dict) -> dict:

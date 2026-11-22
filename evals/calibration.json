@@ -1,8 +1,31 @@
 {
-  "_doc": "Add one point per submitted version with version, board_s and optionally local_20m_median_s. make eval-calibrate fills missing local times from results and saves the fit. One valid point uses a ratio; two or more fit board = intercept + slope * local.",
-  "points": [],
+  "_doc": "Board points, one per submitted version: version, board_s, local_20m_median_s and instructions_per_row (make eval-calibrate fills missing local values from results). Wall model: one point = ratio, two or more = linear fit. Instruction model: board = fixed_s + instructions_per_row x board_rows / rate; one point fixes rate with fixed_s = fixed_prior_s, two or more fit both.",
+  "points": [
+    {
+      "version": "v3",
+      "sha": "29b64bfce142",
+      "board_s": 1.9424,
+      "local_20m_median_s": 0.626,
+      "submission": "BB-93D28A6B",
+      "board_note": "wait 141 ms",
+      "submitted_on": "2026-11-21",
+      "instructions_per_row": 2598.38226
+    }
+  ],
   "fit": {
-    "points": 0,
-    "method": null
+    "points": 1,
+    "method": "ratio",
+    "intercept": 0.0,
+    "slope": 3.102875399361022
+  },
+  "board_rows": 20000000,
+  "fixed_prior_s": 0.0,
+  "instr_fit": {
+    "points": 1,
+    "method": "rate",
+    "board_rows": 20000000,
+    "fixed_s": 0.0,
+    "rate_instr_per_s": 26754347817.133446,
+    "ns_per_instr_row": 0.037377
   }
 }

@@ -96,15 +96,24 @@ A **summary** object (`S` below) is `{n, median, mean, min, max, p90, stdev, cv,
                   "repo": {"tracked_bytes", "tracked_files", "data_files", "largest": [{"path", "bytes"}]}},
 
   "baseline": null | {"kind": "submitted|submit-ready", "version", "sha", "wall_s": S,
-                      "board_time_s"?, "ab_load_before"?, "ab_required_pairs"?, "ab_wall_s"?: S, "ab_candidate_wall_s"?: S},
+                      "board_time_s"?, "instructions_per_row"?: S, "ab_load_before"?, "ab_required_pairs"?, "ab_wall_s"?: S, "ab_candidate_wall_s"?: S},
   "calibration": {"method": "linear|ratio"|null, "points", "intercept"?, "slope"?, "local_range_s"?,
-                  "reason"?, "estimated_scorer_20m_s", "extrapolated", "board_target_s", "beats_board_target"},
+                  "reason"?, "estimated_scorer_20m_s", "extrapolated", "board_target_s", "beats_board_target",
+                  // instruction model (primary when counters exist): board = fixed_s + ipr * board_rows / rate
+                  "instr_model": {"method": "rate|linear"|null, "points", "board_rows", "fixed_s"?, "rate_instr_per_s"?,
+                                  "ns_per_instr_row"?, "ipr_range"?, "reason"?},
+                  "instructions_per_row": float|null, "estimated_scorer_20m_instr_s": float|null,
+                  "primary": "instructions|wall"|null, "predicted_board_s": float|null,
+                  "target": {"board_target_s", "ns_per_row", "instructions_per_row_max"?: {"fixed X.XXs": n}, "summary"}},
 
   "gates": {"A" | "B" | "C": {"status": "pass|fail|incomplete",
                               "checks": [{"name", "status": "pass|fail|not_run", "detail"}],
                               "warnings"?: [...]}},       // C also has baseline, gain, pooled_sd_s, metric
-  "amendments"?: [{"at", "stages": ["review"|"windows"|"amd64-knobs"], "eval_sha", "duration_s"}],
-  "verdict": {"verdict": "REJECT|HOLD|SUBMIT-READY", "final": bool, "reasons": [...], "warnings": [...]},
+  // Gate C extras: "linux_ab"?: {"status": "supports|regression|inconclusive|unavailable", ...},
+  //   "instructions": {"status": "pass|fail|unavailable", "gain"?, "checks"}, "wall"? (when the instruction route passed)
+  "amendments"?: [{"at", "stages": ["review"|"windows"|"amd64-knobs"|"linux-ab"], "eval_sha", "duration_s"}],
+  "verdict": {"verdict": "REJECT|HOLD|SUBMIT-READY", "final": bool, "reasons": [...], "warnings": [...],
+              "predictions"?: "predicted board 20M: <instr model>; <wall model>. Target: ..."},
   "notes": [...], "errors": [{"stage", "error", "trace"}]
 }
 ```

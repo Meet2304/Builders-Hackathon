@@ -126,5 +126,5 @@ eval-cache-ref:  ## One-time: cache the reference's output for every oracle data
 eval-selftest:   ## Mutation self-test: how many reference mutants do fixtures and fuzz kill
 	$(PY) evals/fuzz/selftest.py
 
-eval-calibrate:  ## Recompute the local-to-scorer fit from evals/calibration.json points
+eval-calibrate:  ## Fit both board predictors (wall, instructions) from evals/calibration.json and refresh results + ledger
 	$(PY) evals/calibrate.py

@@ -248,15 +248,45 @@ invariants.
   Use `--ab-runs 11` with `evals/run.py --profile full` or `--profile linux` to require 11 pairs at slower times.
   Paired Linux A/B under THP `madvise` uses the same baseline, gain threshold, and pooled deviation test.
   Gate C passes when either the native or Linux comparison passes. The ledger includes a separate Linux 20M column.
+  **Instructions route:** Gate C also passes when 20M instructions/row are ≥ 5 % below the baseline's, the drop
+  exceeds 2 × the pooled stdev, and 20M wall doesn't regress significantly. "Regress" means the candidate's A/B
+  median is more than 2 × pooled stdev slower, or the Linux A/B shows a significant regression. This keeps
+  instruction wins that barely show on the M5. When every route fails, the failing instruction checks are listed
+  as `or (instructions route): …`.
 - **Verdict:** REJECT (A or B fails) / HOLD (C fails, or something wasn't run: provisional) / SUBMIT-READY.
 
-**Calibration:** after a submission, add `{version, board_s}` to `calibration.json` and run
-`make eval-calibrate`. One point uses a ratio. Two or more points with distinct local times fit
-`board = intercept + slope × local` by least squares. An increasing fit yields estimates in JSON, Markdown,
-and the ledger, with extrapolation flagged. Gate C uses estimated scorer seconds when both estimates are
-positive and scales the pooled deviation by the slope. Without usable estimates it uses local seconds.
-The calibration command refreshes estimates on existing results and ledger rows while preserving recorded verdicts.
-Record the actual practice board time after submission. Until then, reports flag missing calibration data.
+**Primary metric: predicted board time.** Every report opens with a "Predicted board time (20M practice)" table, and
+every verdict carries a `predicted board 20M: …` reason line. Two predictors are reported side by side:
+
+| Predictor | Model | v3 calibration (1 point: v3 board 1.9424 s) |
+| --- | --- | --- |
+| instructions (primary) | `board = fixed_s + instr/row × 20M / rate` | rate 26.75 G instr/s, fixed 0 s (97 ns/row) |
+| local wall | `board = intercept + slope × local 20M median` | ×3.10 |
+
+Instructions per row are retired instructions divided by event lines on the local 20M run, so they are counted on
+arm64. The M5 Pro's IPC (3.2 for v3) is much higher than Cascade Lake's, so local wall time understates gains from
+cutting instructions. The instruction model is primary whenever the candidate has counters. The target is shown in
+every report: **0.28 s ⇒ 14 ns/row ⇒ ≤ about 308–375 instructions/row** for 0.05–0 s of fixed cost.
+
+**Calibration:** after a submission, add `{version, board_s, submission, board_note}` to `calibration.json` (and
+the version to `submissions.json`), then run `make eval-calibrate`. It fills each point's local 20M median and
+instructions per row from `results/`. With one point, the wall model is a ratio, and the instruction model fixes the
+rate with `fixed_s = fixed_prior_s` (0). With two or more points, each model is a least-squares line, which fits the
+fixed cost for the instruction model. The command refreshes both predictions in every result's JSON and Markdown,
+in the verdict line, and in the ledger's `Board 20M (est.)`, `Instr/row 20M` and `Board 20M (instr.)` columns.
+Recorded verdicts don't change. Native Gate C uses estimated scorer seconds from the wall model when both estimates
+are positive.
+
+**Board note "wait 141 ms" (v3, BB-93D28A6B).** `docs/rules.md`, `../context/rules.md` and the starter README and
+scripts don't define it. The starter README only says build time is never timed and only the run is timed. It is
+recorded verbatim in `calibration.json`. The likeliest readings are (a) scorer-side time before or after the
+container's process, such as a queue, container create/start or teardown, that isn't in the score, or (b) a component
+of the score, such as container start-to-exit minus process time. Locally, `docker run` on dev costs +0.165 s
+over native (container overhead in `results/v3.md`), and Linux process wall at 20M was 0.545 s with exit included.
+If (b) is right, about 0.14 s of the 1.94 s is fixed, and it would consume half of the 0.28 s target. Then the
+instruction model's fixed cost should be about 0.14 s, giving roughly 26.75 → 28.8 G instr/s and about 200 instr/row
+at the target. A second board point will separate the two readings: the fixed cost is the intercept, and the wait
+note will either stay the same or scale.
 
 ## Files
 

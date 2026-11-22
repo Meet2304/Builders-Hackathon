@@ -30,7 +30,7 @@ from cache_reference import cached_ok  # noqa: E402
 from lib import gates  # noqa: E402
 from lib.bench_lock import benchmark_lock  # noqa: E402
 from lib.build import build_image, build_native, docker_info, repo_size, resolve  # noqa: E402
-from lib.calibration import report as calibration_report  # noqa: E402
+from lib.calibration import ipr_20m, report as calibration_report  # noqa: E402
 from lib.common import (CONSISTENCY, DATA, EVALS, EXPECTED, FIXTURES, REPO, WORK, canonical_hash, dataset_stats,  # noqa: E402
                         diff_outputs, invariants, log, read_json, reference_sha, sha256_file, write_json)
 from lib.correct import (DEBUG_CASES, DIALECT_ONLY, EXTRA_DEBUG_CASES, INVALID_DEBUG_CASES, check_output,  # noqa: E402
@@ -728,7 +728,7 @@ class Eval:
     def calibration(self):
         cal = read_json(EVALS / "calibration.json", {})
         stats = gates.perf_20m(self.r) or {}
-        self.r["calibration"] = calibration_report(cal, stats.get("median"))
+        self.r["calibration"] = calibration_report(cal, stats.get("median"), ipr_20m(self.r))
 
     def finish(self):
         r = self.r
@@ -851,8 +851,39 @@ def fmt_s(x):
     return "n/a" if x is None else f"{x:.3f}s"
 
 
+def fmt_ipr(x):
+    return "-" if x is None else f"{x:,.0f}"
+
+
 def fmt_number(x):
     return "n/a" if x is None else f"{x:,.2f}"
+
+
+def render_prediction(cal: dict) -> list[str]:
+    """Primary metric: predicted practice-board time from both models, next to instructions per row and the target."""
+    if not cal:
+        return []
+    L = ["", "## Predicted board time (20M practice)", "",
+         "| Predictor | Predicted board | Input | Model |", "| --- | --- | --- | --- |"]
+    im = cal.get("instr_model") or {}
+    if cal.get("estimated_scorer_20m_instr_s") is not None:
+        L.append(f"| instructions (primary) | **{cal['estimated_scorer_20m_instr_s']:.3f} s** | "
+                 f"{cal['instructions_per_row']:,.0f} instr/row | {im['fixed_s']:.3f} s + instr/row × "
+                 f"{im['board_rows'] / 1e6:.0f}M / {im['rate_instr_per_s'] / 1e9:.2f} G/s ({im['method']}, "
+                 f"{im['points']} point(s)) |")
+    elif cal.get("instructions_per_row"):
+        L.append(f"| instructions | n/a | {cal['instructions_per_row']:,.0f} instr/row | no board points |")
+    if cal.get("estimated_scorer_20m_s") is not None:
+        L.append(f"| local wall | {cal['estimated_scorer_20m_s']:.3f} s"
+                 + (" (extrapolated)" if cal.get("extrapolated") else "") + f" | 20M median | "
+                 f"{cal.get('intercept', 0):.3f} s + {cal['slope']:.3f} × local ({cal['method']}, {cal['points']} point(s)) |")
+    t = cal.get("target") or {}
+    if t:
+        L += ["", f"Target: {t['summary']}."]
+        if cal.get("beats_board_target") is not None:
+            L.append(f"Primary prediction {'beats' if cal['beats_board_target'] else 'is above'} the "
+                     f"{t['board_target_s']:.2f} s target.")
+    return L
 
 
 def render_md(r: dict) -> str:
@@ -861,6 +892,7 @@ def render_md(r: dict) -> str:
          f"**Verdict: {r['verdict']['verdict']}**" + ("" if r["verdict"]["final"] else " (provisional)"), ""]
     L += [f"- {x}" for x in r["verdict"]["reasons"]]
     L += [f"- WARNING: {x}" for x in r["verdict"].get("warnings", [])]
+    L += render_prediction(r.get("calibration") or {})
     L += ["", f"Run {r['started']} → {r.get('finished')}, {r.get('duration_s')} s. Host: {r['host']['machine']}, "
                f"{r['host']['ncpu']} CPUs. Evaluator {r['evaluator']['eval_sha']}.", "", "## Gates", "",
           "| Gate | Check | Status | Detail |", "| --- | --- | --- | --- |"]
@@ -1083,13 +1115,6 @@ def render_md(r: dict) -> str:
     base = r.get("baseline")
     if base:
         L += ["", f"Baseline for Gate C: {base['version']} ({base['kind']}), 20M median {fmt_s(base['wall_s']['median'])}"]
-    cal = r.get("calibration", {})
-    if (estimate := cal.get("estimated_scorer_20m_s")) is not None:
-        L.append(f"Estimated scorer 20M: {estimate:.3f} s"
-                 + (" (extrapolated)" if cal.get("extrapolated") else ""))
-        if cal.get("board_target_s"):
-            L.append(f"Practice target {cal['board_target_s']:.2f} s: "
-                     + ("beaten in estimate" if cal["beats_board_target"] else "above or at target"))
     if r["notes"]:
         L += ["", "## Notes", ""] + [f"- {n}" for n in r["notes"]]
     if r["errors"]:
@@ -1098,7 +1123,8 @@ def render_md(r: dict) -> str:
 
 
 LEDGER_HEADER = ("| Date | Version | Commit | Profile | Fixtures n/arm/amd | dev | Diff | Fuzz | Det | 1M | 20M | 60M "
-                 "| Footprint 60M | Verdict | Board 20M (est.) | Linux 20M |\n" + "| --- " * 16 + "|\n")
+                 "| Footprint 60M | Verdict | Board 20M (est.) | Linux 20M | Instr/row 20M | Board 20M (instr.) |\n"
+                 + "| --- " * 18 + "|\n")
 
 
 def append_ledger(r: dict, replace: bool = False):
@@ -1136,7 +1162,8 @@ def append_ledger(r: dict, replace: bool = False):
            f"{'yes' if det and all(v['deterministic'] for v in det.values()) else ('NO' if det else '-')} | "
            f"{med('perf-1M')} | {med('perf-20M')} | {med('perf-60M')} | "
            f"{f'{rss / 1e9:.1f} GB' if rss else '-'} | {r['verdict']['verdict']}"
-           f"{'' if r['verdict']['final'] else ' (prov.)'} | {fmt_s(estimate)} | {linux} |\n")
+           f"{'' if r['verdict']['final'] else ' (prov.)'} | {fmt_s(estimate)} | {linux} | "
+           f"{fmt_ipr(ipr_20m(r))} | {fmt_s(r.get('calibration', {}).get('estimated_scorer_20m_instr_s'))} |\n")
     lines = path.read_text().splitlines(keepends=True)
     key = f"| {r['version']} | {r['sha'][:8]} |"
     hits = [i for i, line in enumerate(lines) if key in line]
