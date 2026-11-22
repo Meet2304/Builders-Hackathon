@@ -1823,8 +1823,178 @@ struct Scratch<E> {
     evs: Vec<E>,      // the partition's events, grouped by person, ts-sorted per run
     spare: Vec<E>,
     cks: Vec<PCk>,
+    ck_spare: Vec<PCk>,
+    ck_at: Vec<u32>, // counting sort: per-person click-run end
     active: ActiveSet,
     category_sales: CategorySales,
+}
+
+fn hwi() -> u64 {
+    #[cfg(target_os = "macos")]
+    {
+        let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+        let rc = unsafe {
+            libc::proc_pid_rusage(
+                std::process::id() as libc::c_int,
+                libc::RUSAGE_INFO_V4,
+                &mut info as *mut libc::rusage_info_v4 as *mut libc::rusage_info_t,
+            )
+        };
+        if rc == 0 {
+            return info.ri_instructions;
+        }
+    }
+    0
+}
+
+fn insn_probe() -> bool {
+    env::var_os("SESSIONS_DEBUG_INSN").is_some()
+}
+
+fn sorted_probe() -> bool {
+    env::var_os("SESSIONS_DEBUG_SORTED").is_some()
+}
+
+static CLICK_INSN: AtomicU64 = AtomicU64::new(0);
+static CLICK_N: AtomicU64 = AtomicU64::new(0);
+static CK_PERSONS: AtomicU64 = AtomicU64::new(0);
+static CK_SORTED_PERSONS: AtomicU64 = AtomicU64::new(0);
+static CK_ROWS: AtomicU64 = AtomicU64::new(0);
+static CK_SORTED_ROWS: AtomicU64 = AtomicU64::new(0);
+static CK_RUNS: AtomicU64 = AtomicU64::new(0);
+static CK_BUCKET: [AtomicU64; 5] = [
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+];
+
+/// `a` belongs before `b`: earlier ts, or the same ts and a larger click_id.
+/// Packed ids compare as the byte order. The last click at a ts is then the
+/// smallest click_id, which is the one the window walk credits.
+#[inline]
+fn click_ord(a: &PCk, b: &PCk, ids: &Ids) -> Ordering {
+    a.ts.cmp(&b.ts).then_with(|| {
+        if is_packed(a.cid) && is_packed(b.cid) {
+            b.cid.cmp(&a.cid)
+        } else {
+            ids.cmp(b.cid, a.cid)
+        }
+    })
+}
+
+fn insertion_clicks(run: &mut [PCk], ids: &Ids) {
+    for i in 1..run.len() {
+        let key = run[i];
+        let mut j = i;
+        while j > 0 && click_ord(&key, &run[j - 1], ids) == Ordering::Less {
+            run[j] = run[j - 1];
+            j -= 1;
+        }
+        run[j] = key;
+    }
+}
+
+fn sort_click_run(run: &mut [PCk], ids: &Ids) {
+    if run.len() < 2 {
+        return;
+    }
+    if run.len() <= 64 {
+        insertion_clicks(run, ids);
+    } else {
+        run.sort_unstable_by(|a, b| click_ord(a, b, ids));
+    }
+}
+
+fn tally_clicks(run: &[PCk], ids: &Ids) {
+    let n = run.len();
+    if n == 0 {
+        return;
+    }
+    let mut runs = 1u64;
+    for w in run.windows(2) {
+        if click_ord(&w[1], &w[0], ids) == Ordering::Less {
+            runs += 1;
+        }
+    }
+    CK_PERSONS.fetch_add(1, Relaxed);
+    CK_ROWS.fetch_add(n as u64, Relaxed);
+    CK_RUNS.fetch_add(runs, Relaxed);
+    if runs == 1 {
+        CK_SORTED_PERSONS.fetch_add(1, Relaxed);
+        CK_SORTED_ROWS.fetch_add(n as u64, Relaxed);
+    }
+    let bucket = match runs {
+        1 => 0,
+        2 => 1,
+        3..=4 => 2,
+        5..=8 => 3,
+        _ => 4,
+    };
+    CK_BUCKET[bucket].fetch_add(n as u64, Relaxed);
+}
+
+/// v5's sort: one `sort_unstable_by` over every click in the partition.
+fn sort_clicks_old<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[Vec<Vec<Ck>>], p: usize, wide: bool) {
+    sc.cks.clear();
+    for part in ck {
+        for c in &part[p] {
+            if let Some(loc) = sc.persons.get(c.person) {
+                let k = if wide { loc as u64 } else { (loc as u64) << 40 | (c.ts - ctx.base) as u64 };
+                sc.cks.push(PCk { k, ts: c.ts, cid: c.cid, camp: c.camp });
+            }
+        }
+    }
+    sc.cks.sort_unstable_by(|a, b| a.k.cmp(&b.k).then(a.ts.cmp(&b.ts)).then_with(|| lk.ids.cmp(b.cid, a.cid)));
+}
+
+/// Counting sort by the dense person id, then a per-person sort by (ts, click_id desc).
+/// The person id is resolved once. The counting sort then runs on that flat list.
+fn sort_clicks_counted<L: Layout>(lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[Vec<Vec<Ck>>], p: usize, wide: bool) {
+    let shift = if wide { 0 } else { 40 };
+    sc.cks.clear();
+    for part in ck {
+        for c in &part[p] {
+            if let Some(loc) = sc.persons.get(c.person) {
+                let k = if wide { loc as u64 } else { (loc as u64) << 40 };
+                sc.cks.push(PCk { k, ts: c.ts, cid: c.cid, camp: c.camp });
+            }
+        }
+    }
+    let npeople = sc.persons.keys.len();
+    sc.ck_at.clear();
+    sc.ck_at.resize(npeople, 0);
+    for c in &sc.cks {
+        sc.ck_at[(c.k >> shift) as usize] += 1;
+    }
+    let mut sum = 0u32;
+    for c in sc.ck_at.iter_mut() {
+        let n = *c;
+        *c = sum;
+        sum += n;
+    }
+    sc.ck_spare.clear();
+    sc.ck_spare.resize(sc.cks.len(), PCk { k: 0, ts: 0, cid: 0, camp: 0 });
+    for c in &sc.cks {
+        let loc = (c.k >> shift) as usize;
+        let i = sc.ck_at[loc] as usize;
+        sc.ck_at[loc] += 1;
+        sc.ck_spare[i] = *c;
+    }
+    std::mem::swap(&mut sc.cks, &mut sc.ck_spare);
+    let tally = sorted_probe();
+    let mut s0 = 0usize;
+    for &e in &sc.ck_at {
+        let e = e as usize;
+        if e > s0 {
+            if tally {
+                tally_clicks(&sc.cks[s0..e], &lk.ids);
+            }
+            sort_click_run(&mut sc.cks[s0..e], &lk.ids);
+        }
+        s0 = e;
+    }
 }
 
 fn process_part<L: Layout>(
@@ -1911,18 +2081,16 @@ fn process_part<L: Layout>(
     }
     let wide = ctx.wide || sc.persons.keys.len() >= 1 << 24;
     let shift = if wide { 0 } else { 40 };
-    sc.cks.clear();
-    for part in ck {
-        for c in &part[p] {
-            if let Some(loc) = sc.persons.get(c.person) {
-                let k = if wide { loc as u64 } else { (loc as u64) << 40 | (c.ts - ctx.base) as u64 };
-                sc.cks.push(PCk { k, ts: c.ts, cid: c.cid, camp: c.camp });
-            }
-        }
+    let click_t0 = insn_probe().then(hwi);
+    if env::var_os("SESSIONS_CLICK_SORT").is_some_and(|v| v == "old") {
+        sort_clicks_old::<L>(ctx, lk, sc, ck, p, wide);
+    } else {
+        sort_clicks_counted::<L>(lk, sc, ck, p, wide);
     }
-    // clicks: ts ascending, then click_id DESCENDING, so the last click at or before
-    // a session start is the latest one with the smallest click_id.
-    sc.cks.sort_unstable_by(|a, b| a.k.cmp(&b.k).then(a.ts.cmp(&b.ts)).then_with(|| lk.ids.cmp(b.cid, a.cid)));
+    if let Some(t0) = click_t0 {
+        CLICK_INSN.fetch_add(hwi().wrapping_sub(t0), Relaxed);
+        CLICK_N.fetch_add(sc.cks.len() as u64, Relaxed);
+    }
 
     let Scratch { persons, evs, starts, cks, active, category_sales, .. } = sc;
     let mut ci = 0usize;
@@ -2344,6 +2512,8 @@ fn pipeline<'a, L: Layout>(
                     evs: Vec::new(),
                     spare: Vec::new(),
                     cks: Vec::new(),
+                    ck_spare: Vec::new(),
+                    ck_at: Vec::new(),
                     active: ActiveSet::new(ncamp),
                     category_sales: CategorySales { totals: vec![0i64; ncat], touched: Vec::new() },
                 };
@@ -2463,6 +2633,32 @@ fn main() {
     }
     // Every Parquet writer is closed (ArrowWriter::close flushed it, and its File was
     // dropped inside write_parquet), so nothing is left to flush. Skip the teardown.
+    if insn_probe() {
+        let (n, insn) = (CLICK_N.load(Relaxed), CLICK_INSN.load(Relaxed));
+        eprintln!(
+            "insn click_sort clicks={n} insn={insn} insn/click={:.1}",
+            if n == 0 { 0.0 } else { insn as f64 / n as f64 }
+        );
+    }
+    if sorted_probe() {
+        let (persons, rows, runs) = (CK_PERSONS.load(Relaxed), CK_ROWS.load(Relaxed), CK_RUNS.load(Relaxed));
+        let sp = CK_SORTED_PERSONS.load(Relaxed);
+        let sr = CK_SORTED_ROWS.load(Relaxed);
+        eprintln!(
+            "click-sorted persons={persons} sorted_persons={sp} ({:.2}%) rows={rows} sorted_rows={sr} ({:.2}%) runs={runs} runs/person={:.2}",
+            100.0 * sp as f64 / persons.max(1) as f64,
+            100.0 * sr as f64 / rows.max(1) as f64,
+            runs as f64 / persons.max(1) as f64
+        );
+        eprintln!(
+            "click-sorted row-buckets runs1={} runs2={} runs3-4={} runs5-8={} runs9+={}",
+            CK_BUCKET[0].load(Relaxed),
+            CK_BUCKET[1].load(Relaxed),
+            CK_BUCKET[2].load(Relaxed),
+            CK_BUCKET[3].load(Relaxed),
+            CK_BUCKET[4].load(Relaxed)
+        );
+    }
     std::process::exit(0);
 }
 
