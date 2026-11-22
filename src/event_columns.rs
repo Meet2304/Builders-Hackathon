@@ -92,7 +92,7 @@ impl Bytes {
     }
 
     #[inline(always)]
-    fn pack_id(self) -> (usize, u64) {
+    fn pack_id<const FIXED_LEN: usize>(self) -> Option<(usize, u64)> {
         unsafe {
             let v = self.0;
             let hi = vshrq_n_u8(v, 4);
@@ -101,8 +101,15 @@ impl Bytes {
                 vqtbl1q_u8(vld1q_u8(PK_LO.as_ptr()), lo),
                 vqtbl1q_u8(vld1q_u8(PK_HI.as_ptr()), hi),
             );
-            let n = Self::first_pos(vmvnq_u8(valid));
+            let n = if FIXED_LEN == 0 {
+                Self::first_pos(vmvnq_u8(valid))
+            } else {
+                FIXED_LEN
+            };
             let live = vcltq_u8(vld1q_u8(PK_IDX.as_ptr()), vdupq_n_u8(n as u8));
+            if FIXED_LEN != 0 && vmaxvq_u8(vbicq_u8(live, valid)) != 0 {
+                return None;
+            }
             let code = vaddq_u8(v, vqtbl1q_u8(vld1q_u8(PK_OFF.as_ptr()), hi));
             let code = vsubq_u8(code, vandq_u8(vceqq_u8(v, vdupq_n_u8(b'_')), vdupq_n_u8(4)));
             let w16 = vreinterpretq_u16_u8(vandq_u8(code, live));
@@ -113,10 +120,10 @@ impl Bytes {
                 w32,
                 16,
             ));
-            (
+            Some((
                 n,
                 pk_place(vgetq_lane_u64(quads, 0), vgetq_lane_u64(quads, 1)),
-            )
+            ))
         }
     }
 }
@@ -183,7 +190,7 @@ impl Bytes {
     }
 
     #[inline(always)]
-    fn pack_id(self) -> (usize, u64) {
+    fn pack_id<const FIXED_LEN: usize>(self) -> Option<(usize, u64)> {
         unsafe {
             let v = self.0;
             let ld = |t: &[u8; 16]| _mm_loadu_si128(t.as_ptr().cast());
@@ -195,7 +202,14 @@ impl Bytes {
                 _mm_shuffle_epi8(ld(&PK_HI), hi),
             );
             let bad = _mm_movemask_epi8(_mm_cmpeq_epi8(cls, _mm_setzero_si128()));
-            let n = (bad as u32 | (1 << 16)).trailing_zeros() as usize;
+            let n = if FIXED_LEN == 0 {
+                (bad as u32 | (1 << 16)).trailing_zeros() as usize
+            } else {
+                if bad & ((1 << FIXED_LEN) - 1) != 0 {
+                    return None;
+                }
+                FIXED_LEN
+            };
             let live = _mm_cmpgt_epi8(_mm_set1_epi8(n as i8), ld(&PK_IDX));
             let code = _mm_add_epi8(v, _mm_shuffle_epi8(ld(&PK_OFF), hi));
             let code = _mm_sub_epi8(
@@ -210,7 +224,7 @@ impl Bytes {
             let quads = _mm_madd_epi16(pairs, _mm_set1_epi32(0x0001_1000));
             let lo = _mm_cvtsi128_si64(quads) as u64;
             let hi = _mm_cvtsi128_si64(_mm_srli_si128(quads, 8)) as u64;
-            (n, pk_place(lo, hi))
+            Some((n, pk_place(lo, hi)))
         }
     }
 }
@@ -267,7 +281,14 @@ impl Column {
 
     #[inline(always)]
     unsafe fn id(&self) -> Option<(u64, *const u8)> {
-        let (len, key) = self.bytes.pack_id();
+        // A verified delimiter at the common width lets the next column's
+        // address be computed independently of packing the nine symbols.
+        if let Some(next) = unsafe { self.end::<b','>(9) }
+            && let Some((_, key)) = self.bytes.pack_id::<9>()
+        {
+            return Some((key, next));
+        }
+        let (len, key) = self.bytes.pack_id::<0>()?;
         if len > 10 {
             return None;
         }
