@@ -1,0 +1,545 @@
+{
+  "revisions": {
+    "baseline": "20b8e79f7401e01efb134d63584f645a33c880ed",
+    "prototype": "75f999346b73df14aee3cdeb4d127636b1752c14"
+  },
+  "native": {
+    "seed-42": {
+      "baseline": {
+        "sample": {
+          "returncode": 0,
+          "wall_s": 1.2286,
+          "phases": [
+            {
+              "key": "lookups",
+              "instructions": 613930243,
+              "cycles": 686588479
+            },
+            {
+              "key": "events parsed",
+              "instructions": 21107887825,
+              "cycles": 8487098728
+            },
+            {
+              "key": "clicks parsed",
+              "instructions": 3969184582,
+              "cycles": 1592679725
+            },
+            {
+              "key": "events deduped",
+              "instructions": 785760964,
+              "cycles": 1096753080
+            },
+            {
+              "key": "sessions + attribution",
+              "instructions": 7084368216,
+              "cycles": 2892487014
+            },
+            {
+              "key": "written",
+              "instructions": 2795130835,
+              "cycles": 948679214
+            },
+            {
+              "key": "(after last mark: exit/unmap)",
+              "instructions": 107134202,
+              "cycles": 42664155
+            }
+          ],
+          "stats_lines": [],
+          "instructions": 36463396867,
+          "cycles": 15746950395,
+          "phys_footprint_bytes": 0,
+          "canonical_hash": "3a77b9fd70f2a47435c182de701737f9c73df847f230772c0b2251ca6606e47a"
+        },
+        "summary": {
+          "n": 1,
+          "event_lines": 21507843,
+          "phases": {
+            "lookups": {
+              "instructions": 613930243,
+              "cycles": 686588479,
+              "instr_per_row": 28.54,
+              "cycles_per_row": 31.92,
+              "ipc": 0.894,
+              "share": 0.0168
+            },
+            "events parsed": {
+              "instructions": 21107887825,
+              "cycles": 8487098728,
+              "instr_per_row": 981.4,
+              "cycles_per_row": 394.6,
+              "ipc": 2.487,
+              "share": 0.5789
+            },
+            "clicks parsed": {
+              "instructions": 3969184582,
+              "cycles": 1592679725,
+              "instr_per_row": 184.55,
+              "cycles_per_row": 74.05,
+              "ipc": 2.492,
+              "share": 0.1089
+            },
+            "events deduped": {
+              "instructions": 785760964,
+              "cycles": 1096753080,
+              "instr_per_row": 36.53,
+              "cycles_per_row": 50.99,
+              "ipc": 0.716,
+              "share": 0.0215
+            },
+            "sessions + attribution": {
+              "instructions": 7084368216,
+              "cycles": 2892487014,
+              "instr_per_row": 329.39,
+              "cycles_per_row": 134.49,
+              "ipc": 2.449,
+              "share": 0.1943
+            },
+            "written": {
+              "instructions": 2795130835,
+              "cycles": 948679214,
+              "instr_per_row": 129.96,
+              "cycles_per_row": 44.11,
+              "ipc": 2.946,
+              "share": 0.0767
+            },
+            "(after last mark: exit/unmap)": {
+              "instructions": 107134202,
+              "cycles": 42664155,
+              "instr_per_row": 4.98,
+              "cycles_per_row": 1.98,
+              "ipc": 2.511,
+              "share": 0.0029
+            }
+          },
+          "instructions": 36463396867,
+          "instr_per_row": 1695.35,
+          "cycles_per_row": 732.15,
+          "ipc": 2.316
+        },
+        "clean_target": true
+      },
+      "prototype": {
+        "sample": {
+          "returncode": 0,
+          "wall_s": 0.4633,
+          "phases": [
+            {
+              "key": "lookups",
+              "instructions": 577355245,
+              "cycles": 621115994
+            },
+            {
+              "key": "events parsed",
+              "instructions": 15782700498,
+              "cycles": 6165312226
+            },
+            {
+              "key": "clicks parsed",
+              "instructions": 3206623924,
+              "cycles": 1192890716
+            },
+            {
+              "key": "events deduped",
+              "instructions": 777558900,
+              "cycles": 1067531821
+            },
+            {
+              "key": "sessions + attribution",
+              "instructions": 7031112439,
+              "cycles": 2966642238
+            },
+            {
+              "key": "written",
+              "instructions": 2767520630,
+              "cycles": 918614432
+            },
+            {
+              "key": "(after last mark: exit/unmap)",
+              "instructions": 145354042,
+              "cycles": 57417549
+            }
+          ],
+          "stats_lines": [],
+          "instructions": 30288225678,
+          "cycles": 12989524976,
+          "phys_footprint_bytes": 0,
+          "canonical_hash": "3a77b9fd70f2a47435c182de701737f9c73df847f230772c0b2251ca6606e47a"
+        },
+        "summary": {
+          "n": 1,
+          "event_lines": 21507843,
+          "phases": {
+            "lookups": {
+              "instructions": 577355245,
+              "cycles": 621115994,
+              "instr_per_row": 26.84,
+              "cycles_per_row": 28.88,
+              "ipc": 0.93,
+              "share": 0.0191
+            },
+            "events parsed": {
+              "instructions": 15782700498,
+              "cycles": 6165312226,
+              "instr_per_row": 733.81,
+              "cycles_per_row": 286.65,
+              "ipc": 2.56,
+              "share": 0.5211
+            },
+            "clicks parsed": {
+              "instructions": 3206623924,
+              "cycles": 1192890716,
+              "instr_per_row": 149.09,
+              "cycles_per_row": 55.46,
+              "ipc": 2.688,
+              "share": 0.1059
+            },
+            "events deduped": {
+              "instructions": 777558900,
+              "cycles": 1067531821,
+              "instr_per_row": 36.15,
+              "cycles_per_row": 49.63,
+              "ipc": 0.728,
+              "share": 0.0257
+            },
+            "sessions + attribution": {
+              "instructions": 7031112439,
+              "cycles": 2966642238,
+              "instr_per_row": 326.91,
+              "cycles_per_row": 137.93,
+              "ipc": 2.37,
+              "share": 0.2321
+            },
+            "written": {
+              "instructions": 2767520630,
+              "cycles": 918614432,
+              "instr_per_row": 128.67,
+              "cycles_per_row": 42.71,
+              "ipc": 3.013,
+              "share": 0.0914
+            },
+            "(after last mark: exit/unmap)": {
+              "instructions": 145354042,
+              "cycles": 57417549,
+              "instr_per_row": 6.76,
+              "cycles_per_row": 2.67,
+              "ipc": 2.532,
+              "share": 0.0048
+            }
+          },
+          "instructions": 30288225678,
+          "instr_per_row": 1408.24,
+          "cycles_per_row": 603.94,
+          "ipc": 2.332
+        },
+        "clean_target": true
+      }
+    },
+    "seed-43": {
+      "baseline": {
+        "sample": {
+          "returncode": 0,
+          "wall_s": 1.4345,
+          "phases": [
+            {
+              "key": "lookups",
+              "instructions": 1510525489,
+              "cycles": 1750150571
+            },
+            {
+              "key": "events parsed",
+              "instructions": 52622892523,
+              "cycles": 18514060746
+            },
+            {
+              "key": "clicks parsed",
+              "instructions": 9775046426,
+              "cycles": 3541036162
+            },
+            {
+              "key": "events deduped",
+              "instructions": 2252067683,
+              "cycles": 4766410556
+            },
+            {
+              "key": "sessions + attribution",
+              "instructions": 20831913753,
+              "cycles": 9051195011
+            },
+            {
+              "key": "written",
+              "instructions": 7626458937,
+              "cycles": 2159555489
+            },
+            {
+              "key": "(after last mark: exit/unmap)",
+              "instructions": 326411289,
+              "cycles": 109259310
+            }
+          ],
+          "stats_lines": [],
+          "instructions": 94945316100,
+          "cycles": 39891667845,
+          "phys_footprint_bytes": 0,
+          "canonical_hash": "5121c6474473be5a073e6bc293b2966dcd09bd7d9646c0004bf259297b65c5bd"
+        },
+        "summary": {
+          "n": 1,
+          "event_lines": 64150261,
+          "phases": {
+            "lookups": {
+              "instructions": 1510525489,
+              "cycles": 1750150571,
+              "instr_per_row": 23.55,
+              "cycles_per_row": 27.28,
+              "ipc": 0.863,
+              "share": 0.0159
+            },
+            "events parsed": {
+              "instructions": 52622892523,
+              "cycles": 18514060746,
+              "instr_per_row": 820.31,
+              "cycles_per_row": 288.6,
+              "ipc": 2.842,
+              "share": 0.5542
+            },
+            "clicks parsed": {
+              "instructions": 9775046426,
+              "cycles": 3541036162,
+              "instr_per_row": 152.38,
+              "cycles_per_row": 55.2,
+              "ipc": 2.761,
+              "share": 0.103
+            },
+            "events deduped": {
+              "instructions": 2252067683,
+              "cycles": 4766410556,
+              "instr_per_row": 35.11,
+              "cycles_per_row": 74.3,
+              "ipc": 0.472,
+              "share": 0.0237
+            },
+            "sessions + attribution": {
+              "instructions": 20831913753,
+              "cycles": 9051195011,
+              "instr_per_row": 324.74,
+              "cycles_per_row": 141.09,
+              "ipc": 2.302,
+              "share": 0.2194
+            },
+            "written": {
+              "instructions": 7626458937,
+              "cycles": 2159555489,
+              "instr_per_row": 118.88,
+              "cycles_per_row": 33.66,
+              "ipc": 3.531,
+              "share": 0.0803
+            },
+            "(after last mark: exit/unmap)": {
+              "instructions": 326411289,
+              "cycles": 109259310,
+              "instr_per_row": 5.09,
+              "cycles_per_row": 1.7,
+              "ipc": 2.987,
+              "share": 0.0034
+            }
+          },
+          "instructions": 94945316100,
+          "instr_per_row": 1480.05,
+          "cycles_per_row": 621.85,
+          "ipc": 2.38
+        },
+        "clean_target": true
+      },
+      "prototype": {
+        "sample": {
+          "returncode": 0,
+          "wall_s": 1.4385,
+          "phases": [
+            {
+              "key": "lookups",
+              "instructions": 1502504283,
+              "cycles": 1797782799
+            },
+            {
+              "key": "events parsed",
+              "instructions": 46882360366,
+              "cycles": 17942333402
+            },
+            {
+              "key": "clicks parsed",
+              "instructions": 9408919971,
+              "cycles": 3540028494
+            },
+            {
+              "key": "events deduped",
+              "instructions": 2277907034,
+              "cycles": 4887503723
+            },
+            {
+              "key": "sessions + attribution",
+              "instructions": 20842522166,
+              "cycles": 8875897544
+            },
+            {
+              "key": "written",
+              "instructions": 7632783290,
+              "cycles": 2177648000
+            },
+            {
+              "key": "(after last mark: exit/unmap)",
+              "instructions": 336860615,
+              "cycles": 111645678
+            }
+          ],
+          "stats_lines": [],
+          "instructions": 88883857725,
+          "cycles": 39332839640,
+          "phys_footprint_bytes": 0,
+          "canonical_hash": "5121c6474473be5a073e6bc293b2966dcd09bd7d9646c0004bf259297b65c5bd"
+        },
+        "summary": {
+          "n": 1,
+          "event_lines": 64150261,
+          "phases": {
+            "lookups": {
+              "instructions": 1502504283,
+              "cycles": 1797782799,
+              "instr_per_row": 23.42,
+              "cycles_per_row": 28.02,
+              "ipc": 0.836,
+              "share": 0.0169
+            },
+            "events parsed": {
+              "instructions": 46882360366,
+              "cycles": 17942333402,
+              "instr_per_row": 730.82,
+              "cycles_per_row": 279.69,
+              "ipc": 2.613,
+              "share": 0.5275
+            },
+            "clicks parsed": {
+              "instructions": 9408919971,
+              "cycles": 3540028494,
+              "instr_per_row": 146.67,
+              "cycles_per_row": 55.18,
+              "ipc": 2.658,
+              "share": 0.1059
+            },
+            "events deduped": {
+              "instructions": 2277907034,
+              "cycles": 4887503723,
+              "instr_per_row": 35.51,
+              "cycles_per_row": 76.19,
+              "ipc": 0.466,
+              "share": 0.0256
+            },
+            "sessions + attribution": {
+              "instructions": 20842522166,
+              "cycles": 8875897544,
+              "instr_per_row": 324.9,
+              "cycles_per_row": 138.36,
+              "ipc": 2.348,
+              "share": 0.2345
+            },
+            "written": {
+              "instructions": 7632783290,
+              "cycles": 2177648000,
+              "instr_per_row": 118.98,
+              "cycles_per_row": 33.95,
+              "ipc": 3.505,
+              "share": 0.0859
+            },
+            "(after last mark: exit/unmap)": {
+              "instructions": 336860615,
+              "cycles": 111645678,
+              "instr_per_row": 5.25,
+              "cycles_per_row": 1.74,
+              "ipc": 3.017,
+              "share": 0.0038
+            }
+          },
+          "instructions": 88883857725,
+          "instr_per_row": 1385.56,
+          "cycles_per_row": 613.14,
+          "ipc": 2.26
+        },
+        "clean_target": true
+      }
+    }
+  },
+  "correctness": {
+    "fixtures": 36,
+    "dev_match": true,
+    "fuzz": {
+      "gen_sha": "140eb0a87a45",
+      "cases_dir": "/Users/meet/.cache/sessions-eval.noindex/explorer/cache-skew.7tsvKx/data/fuzz/gen-140eb0a87a45-ref-83c8ac2d",
+      "seeds": [
+        0,
+        150
+      ],
+      "focus": null,
+      "strict": {
+        "total": 129,
+        "passed": 129,
+        "skipped": 0,
+        "failed": []
+      },
+      "robust": {
+        "total": 21,
+        "passed": 21,
+        "skipped": 0,
+        "failed": []
+      },
+      "by_focus": {
+        "dialect": {
+          "total": 9,
+          "failed": 0
+        },
+        "timestamps": {
+          "total": 19,
+          "failed": 0
+        },
+        "sessions": {
+          "total": 14,
+          "failed": 0
+        },
+        "clicks": {
+          "total": 15,
+          "failed": 0
+        },
+        "links": {
+          "total": 18,
+          "failed": 0
+        },
+        "dedup": {
+          "total": 12,
+          "failed": 0
+        },
+        "files": {
+          "total": 14,
+          "failed": 0
+        },
+        "overflow": {
+          "total": 15,
+          "failed": 0
+        },
+        "window": {
+          "total": 12,
+          "failed": 0
+        },
+        "mixed": {
+          "total": 15,
+          "failed": 0
+        },
+        "id-shapes": {
+          "total": 7,
+          "failed": 0
+        }
+      },
+      "failing_tags": {}
+    },
+    "timestamp_review_matches": 50
+  }
+}

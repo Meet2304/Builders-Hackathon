@@ -1,0 +1,668 @@
+{
+  "stage-base": {
+    "rev": "c9e1a0c",
+    "delta_per_record": {
+      "instructions": 152.31855981129422,
+      "cycles": 26.11761820445024
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1547220097,
+          "cycles": 541942849,
+          "elapsed_s": 0.19
+        },
+        {
+          "records": 2601298,
+          "instructions": 1435998216,
+          "cycles": 434610706,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1430924261,
+          "cycles": 425912823,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1430663854,
+          "cycles": 430728191,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1429461160,
+          "cycles": 427677447,
+          "elapsed_s": 0.09
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1828613878,
+          "cycles": 499922921,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1833357383,
+          "cycles": 504215230,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1826745254,
+          "cycles": 496778563,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1827150226,
+          "cycles": 498667899,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1824341650,
+          "cycles": 495908393,
+          "elapsed_s": 0.11
+        }
+      ]
+    },
+    "records": 2601298
+  },
+  "stage-fast": {
+    "rev": "919ec48",
+    "delta_per_record": {
+      "instructions": 102.12183456105375,
+      "cycles": 20.262777659460777
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1428141819,
+          "cycles": 429650380,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1426411760,
+          "cycles": 431988297,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1426117296,
+          "cycles": 429972627,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1425718406,
+          "cycles": 432503690,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1425775287,
+          "cycles": 428219557,
+          "elapsed_s": 0.09
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1696705905,
+          "cycles": 491984022,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1691766620,
+          "cycles": 481276491,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1690455702,
+          "cycles": 476282169,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1693862437,
+          "cycles": 484978558,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1690527553,
+          "cycles": 482682150,
+          "elapsed_s": 0.11
+        }
+      ]
+    },
+    "records": 2601298
+  },
+  "stage-lut": {
+    "rev": "scratch-lut",
+    "delta_per_record": {
+      "instructions": 89.42261171153785,
+      "cycles": 20.022588723014433
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1427021612,
+          "cycles": 429193184,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1425458035,
+          "cycles": 424827189,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1425636182,
+          "cycles": 429469679,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1424075151,
+          "cycles": 426092134,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1425151915,
+          "cycles": 424114804,
+          "elapsed_s": 0.09
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1666164184,
+          "cycles": 487243544,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1657837394,
+          "cycles": 477073427,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1656677996,
+          "cycles": 478176854,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1658072896,
+          "cycles": 476468773,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1663544119,
+          "cycles": 481434533,
+          "elapsed_s": 0.11
+        }
+      ]
+    },
+    "records": 2601298
+  },
+  "stage-hour": {
+    "rev": "scratch-hour",
+    "delta_per_record": {
+      "instructions": 86.01574214103881,
+      "cycles": 18.960362865000473
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1445312224,
+          "cycles": 448787630,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1438255948,
+          "cycles": 436191883,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1432236349,
+          "cycles": 430841579,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1431757360,
+          "cycles": 434705105,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1430983609,
+          "cycles": 436324314,
+          "elapsed_s": 0.1
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1658821198,
+          "cycles": 484479188,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1657608213,
+          "cycles": 484248827,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1655822895,
+          "cycles": 490546739,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1655004876,
+          "cycles": 485513437,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1655988927,
+          "cycles": 492033153,
+          "elapsed_s": 0.11
+        }
+      ]
+    },
+    "records": 2601298
+  },
+  "stage-only-ingest": {
+    "rev": "scratch-hour ingest only",
+    "delta_per_record": {
+      "instructions": 41.0540176481126,
+      "cycles": 3.7449500211048483
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1433727616,
+          "cycles": 434570285,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1432136414,
+          "cycles": 429055383,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1430382576,
+          "cycles": 427341493,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1430275306,
+          "cycles": 427693319,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1429289158,
+          "cycles": 428078265,
+          "elapsed_s": 0.09
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1539081655,
+          "cycles": 439157712,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1547784872,
+          "cycles": 447484603,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1537078397,
+          "cycles": 437819996,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1537176310,
+          "cycles": 436354662,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1536322076,
+          "cycles": 436671667,
+          "elapsed_s": 0.1
+        }
+      ]
+    },
+    "records": 2601298
+  },
+  "stage-only-event": {
+    "rev": "scratch-hour event only",
+    "delta_per_record": {
+      "instructions": 53.04394498438856,
+      "cycles": 17.523448678313674
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1444757606,
+          "cycles": 442500831,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1433731772,
+          "cycles": 430835413,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1434546177,
+          "cycles": 433694067,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1434268376,
+          "cycles": 431951485,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1434542102,
+          "cycles": 431585189,
+          "elapsed_s": 0.1
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1576479659,
+          "cycles": 481353204,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1577232102,
+          "cycles": 481045426,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1572295925,
+          "cycles": 471498547,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1572243057,
+          "cycles": 477535197,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1572525210,
+          "cycles": 473695819,
+          "elapsed_s": 0.11
+        }
+      ]
+    },
+    "records": 2601298
+  },
+  "stage-pair": {
+    "rev": "scratch-pair",
+    "delta_per_record": {
+      "instructions": 74.33820769477391,
+      "cycles": 17.69844400756853
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1435696822,
+          "cycles": 458136686,
+          "elapsed_s": 0.31
+        },
+        {
+          "records": 2601298,
+          "instructions": 1434255412,
+          "cycles": 430555913,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1434387579,
+          "cycles": 430989767,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1433482571,
+          "cycles": 430347121,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1434095091,
+          "cycles": 437770667,
+          "elapsed_s": 0.1
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1627202450,
+          "cycles": 476834633,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1627810343,
+          "cycles": 476098319,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1627631243,
+          "cycles": 481184104,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1627845352,
+          "cycles": 477028694,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1627272514,
+          "cycles": 480351164,
+          "elapsed_s": 0.11
+        }
+      ]
+    },
+    "records": 2601298
+  },
+  "stage-pair-merged": {
+    "rev": "scratch-pair merged",
+    "delta_per_record": {
+      "instructions": 77.07604703498023,
+      "cycles": 18.74123533712785
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1434752106,
+          "cycles": 438682361,
+          "elapsed_s": 0.2
+        },
+        {
+          "records": 2601298,
+          "instructions": 1433414128,
+          "cycles": 432187546,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1435004732,
+          "cycles": 436733038,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1433244491,
+          "cycles": 431087963,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1433134340,
+          "cycles": 430250263,
+          "elapsed_s": 0.09
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1634046609,
+          "cycles": 485311058,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1634544297,
+          "cycles": 481246109,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1633570980,
+          "cycles": 480939084,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1633911895,
+          "cycles": 479492418,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1633030024,
+          "cycles": 479347488,
+          "elapsed_s": 0.11
+        }
+      ]
+    },
+    "records": 2601298
+  },
+  "stage-pair-ptr": {
+    "rev": "scratch-pair pointer",
+    "delta_per_record": {
+      "instructions": 74.37896965284254,
+      "cycles": 16.3610993434816
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1449701226,
+          "cycles": 444515937,
+          "elapsed_s": 0.2
+        },
+        {
+          "records": 2601298,
+          "instructions": 1445089615,
+          "cycles": 439577168,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1434515875,
+          "cycles": 431620175,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1467889443,
+          "cycles": 475593457,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1448418093,
+          "cycles": 445500144,
+          "elapsed_s": 0.1
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1641899958,
+          "cycles": 487076032,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1630324523,
+          "cycles": 477840408,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1630289348,
+          "cycles": 476931843,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1652849413,
+          "cycles": 514736258,
+          "elapsed_s": 0.12
+        },
+        {
+          "records": 2601298,
+          "instructions": 1647294783,
+          "cycles": 493777543,
+          "elapsed_s": 0.11
+        }
+      ]
+    },
+    "records": 2601298
+  }
+}
