@@ -705,3 +705,4 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Orchestrator gates: fixtures 36/36; dev under `NO_FAST` 0–3; seed-42 at NCPU 1/2/8 (×4 at 8); `PARTS` 1/4096, `CHUNK=97`, `HASH_BITS=4` dev MATCH.
   - In flight: long-ID 100 seeds, bins fuzz 150, s535 ×8; Eval final gate; Red Team; x86 round 4 `45032998223`.
   - **ETA release about 10:05.**
+- **09:33: USER: "don't have limits, merge it" / "trial by fire".** **v17 released early:** `main` `bf93837` (tag `v17`), src identical to `integ/v17` `3929776`. Fixtures 36/36 and dev MATCH on main. Eval final gate, Red Team, x86 round 4 and Orchestrator stress (long-ID 100, bins fuzz 150, s535 ×8) are still running. A rejected submission doesn't change the best (v16 0.9378 s).
