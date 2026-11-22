@@ -3314,8 +3314,21 @@ fn pipeline<'a, L: Layout>(
     }
 
     // dedup per eid partition; the losers' drops go to their person partitions
-    let drops: Vec<Vec<u64>> =
-        (0..nb).into_par_iter().map_init(DedupScratch::default, |tab, q| dedup_part(&ev_out, q, hmask, tab)).collect();
+    // One table per thread, not per rayon leaf: map_init's init runs once per split
+    // job (hundreds), and each fresh table was a zeroed allocation of up to 2n slots.
+    // Generation tags make a reused table logically empty, as they do within a leaf.
+    let tabs: Vec<Mutex<DedupScratch>> = (0..rayon::current_num_threads()).map(|_| Mutex::default()).collect();
+    let drops: Vec<Vec<u64>> = (0..nb)
+        .into_par_iter()
+        .map_init(
+            || None::<DedupScratch>,
+            |own, q| match rayon::current_thread_index().and_then(|t| tabs.get(t)).and_then(|m| m.try_lock().ok()) {
+                Some(mut tab) => dedup_part(&ev_out, q, hmask, &mut tab),
+                None => dedup_part(&ev_out, q, hmask, own.get_or_insert_with(DedupScratch::default)),
+            },
+        )
+        .collect();
+    drop(tabs);
     let mut per = vec![0usize; nb];
     for &d in drops.iter().flatten() {
         per[(d >> 48) as usize] += 1;
