@@ -259,3 +259,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Neon Detective → hunt syscall and lock sources other than intern.
   - Neon Architect → ID-key widening design.
   - Eval → regenerate the suite on new data and make gVisor time the primary predictor.
+- **Analyst** (`3f66634`, `5fdfc02`, merged): the long IDs (about 1.1–1.4 s) plus the sandbox's futex, mmap and fault cost explain the 1.70 s. The linear fit is retired; **the gVisor harness on new data is the board predictor.** With the exact u128 path, the expected board is about 0.8–1.05 s.
+  - Release plan: **v7** = v5 + long-ID path + click sort + sessions moves, writer held back; Method commits by 02:30, submit about 03:15. **v8** by 07:00. Freeze at 08:00.
+  - Key ordering must be byte-exact across short-packed, 33-byte and interned forms.
+- **Explorer 4:** click and link decoder gated on the new data. Seed-42 clicks 632.5 → 493.0 and links 696.8 → 624.1 per line, 0.48% fallback, with a `pack_long` hook (`53604e7`, `af19cf5`). Now staging `stage/v7-pre` = `3671aeb` − writer + click decoder, gated and gVisor-timed, to rebase onto Method's move 6.
