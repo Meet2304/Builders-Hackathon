@@ -642,3 +642,11 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 
   - **v16 20M per-phase on x86:** lookups 0.08, **events parse 0.66 s (57%)**, clicks 0.10, dedup 0.06, sessions 0.21, write 0.04. In-process wall 1.16 s vs container wall 1.386 s, so about 0.23 s is runner and docker overhead.
   - Minor faults are only about 16k, so the floor is **events-parse memory stalls** (IPC about 1.4), not faults. Events and Neon threads redirected accordingly.
+- **08:50: Eval: v16 `d5e9ee3` final gate PASS** (579 s, `3220c1e`):
+  - fixtures; dev; all oracle diffs
+  - **60M consistency** (seed-43, exact vs v8's cached output)
+  - fuzz 1000 + window fuzz; every knob with fuzz 1000
+  - long-ID 900/900; v3-review
+  - clean cascadelake build; amd64 container (also `NO_FAST=3`); x86 seed-42 at NCPU=8; 50 x86 fuzz seeds
+
+  x86 Ir 912.6/line. The v17 gate is staged (about 10 min).
