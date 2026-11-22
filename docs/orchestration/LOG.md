@@ -10,7 +10,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 | v1 | 3e48662 | main (tag v1) | 1.550 s (5 runs, sd 0.03) | 5.79 s (3 runs) | 11.46 GB footprint (16.6 GB RSS incl. page cache) | **SUBMIT-READY** | no | n/a |
 | v3 | 29b64bf | main (tag v3) | **0.626 s** (interleaved vs v1 1.609 s, +61.1%) | 1.97 s | 5.62 GB footprint (11.6 GB RSS) | **SUBMIT-READY** | **yes (BB-93D28A6B, Sat 19:23 ET)** | **1.9424 s** (wait 141 ms; entered in final as best) |
 | v2 | 953af43 | method/v2 | 1.661 s (interleaved 1.610 vs v1 1.659) | 5.367 s | 11.41 GB footprint (17.76 GB RSS) | HOLD (Gate C: only 2.94% faster, needs 5%) | no | n/a |
-| v7b | 96af24b → main ddbf1a3 (tag v7b) | method/v7b | gVisor 20M **1.360 s** (v5 1.910 s, same session); native 0.545 s; 1,359 instr/row | predicted board 60M 3.06 s | 11.54 GB RSS | HOLD → **SUBMIT-READY (Orchestrator override; Gate C noise)** | asked user 02:47 | pending |
+| v7b | 96af24b → main ddbf1a3 (tag v7b) | method/v7b | gVisor 20M **1.360 s** (v5 1.910 s, same session); native 0.545 s; 1,359 instr/row | predicted board 60M 3.06 s | 11.54 GB RSS | HOLD → **SUBMIT-READY (Orchestrator override; Gate C noise)** | **yes (BB-870A1088, Sun 02:51 ET)** | **1.5275 s** (rank 132; entered in final as best) |
 
 ## Thread registry
 
@@ -332,3 +332,6 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Override → SUBMIT-READY.** The mechanism is known (futex 58k → 79), a submission is free (best counts), and it gives a calibration point.
   - Released as `ddbf1a3` (src identical to `96af24b`); fixtures 36/36 and dev MATCH on main; tag `v7b` pushed; **user asked to submit.**
   - Eval told to use ≥ 7 interleaved pairs (or a paired-ratio test) for the gVisor Gate C, then to run v8 full against the v7b baseline.
+- **USER SUBMITTED v7b** (`ddbf1a3`): board **1.5275 s** (BB-870A1088, wait 182 ms, rank 132). It's our best and is entered in the final. Previous best: v5 at 2.1461 s.
+  - **Calibration: board ≈ 1.12 × local gVisor 20M process time.** v7b: 1.5275 / 1.360 = 1.123; v5: 2.1461 / 1.910 = 1.124, same session. **The gVisor harness is now the trusted predictor.**
+  - **What the leaders' ~0.45 s needs:** about 0.40 s of local gVisor time. v7b is plain Docker 0.55 s, plus **0.81 s of gVisor overhead**, with cgroup pgfault **2.40M under gVisor vs 18.8k plain** (peak RSS 4.06 GiB). gVisor gives no THP to app memory, so every 4 KB page of the ~4 GiB footprint plus the mmapped input faults individually. **The #1 lever is memory footprint and touched bytes, not instructions.** Second is the write path (165 ms vs 35 ms).
