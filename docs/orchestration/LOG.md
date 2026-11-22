@@ -689,3 +689,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   | chunk 128K | +18.8% |
 
   **No lever wins on x86; the arm64-container gains don't transfer. Levers are not shipped**, and Neon is stood down. The write −1.26% Ir is within wall noise (≈0.4% expected per the board model).
+- **09:10: memcpy/memset `23a10bf`** (`explore/v17-mem`): rayon `fold`/`map_init` made about 208 accumulators at NCPU=8, each zeroing and regrowing big buffers (campaign totals 1.35 MB each, summed serially). Replaced with **per-thread state** (`try_lock`, private-copy fallback on a nested steal). x86 Ir at NCPU=8: −8.85% raw / **−2.26% corrected**; at NCPU=1 flat. All gates pass, including x86 at NCPU=8.
+- **User asked whether to start more exploration.** Answer: no. There's under 1 h to the 10:30 release, so the risk of a wrong answer outweighs the gain. Usage: claudeAgent is out until 11:20, Antigravity's Claude models for a week. Remaining capacity goes to verifying and shipping v17.
+- **v17-pre = `integ/v17` @ `c97d604`** (pushed) = v16 + write `92a2834` + mem `23a10bf`.
+  - Orchestrator gates: fixtures 36/36; dev under `NO_FAST` 0–3; seed-42 at NCPU 1/2/8 (6× at 8); seed-535 at `PARTS=4096` ×8; long-ID 240/240; bins fuzz 400/400; `PARTS=1`, `CHUNK=97`, `HASH_BITS=4` dev MATCH.
+  - In flight: Eval final gate (+ determinism); Red Team attack (`try_lock` fallback, stale state, writer edges); x86 lab round 3 `45031637997` (v16 vs v17pre, 8 reps at 20M + 4 at 60M).
