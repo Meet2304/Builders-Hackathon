@@ -79,10 +79,13 @@ impl Bytes {
     }
 
     #[inline(always)]
-    fn special_len(self) -> usize {
+    fn special_len<const IGNORE_OPEN_QUOTE: bool>(self) -> usize {
         unsafe {
             let comma = vceqq_u8(self.0, vdupq_n_u8(b','));
-            let quote = vceqq_u8(self.0, vdupq_n_u8(b'"'));
+            let mut quote = vceqq_u8(self.0, vdupq_n_u8(b'"'));
+            if IGNORE_OPEN_QUOTE {
+                quote = vsetq_lane_u8(0, quote, 0);
+            }
             let newline = vceqq_u8(self.0, vdupq_n_u8(b'\n'));
             Self::first_pos(vorrq_u8(vorrq_u8(comma, quote), newline))
         }
@@ -165,10 +168,13 @@ impl Bytes {
     }
 
     #[inline(always)]
-    fn special_len(self) -> usize {
+    fn special_len<const IGNORE_OPEN_QUOTE: bool>(self) -> usize {
         unsafe {
             let comma = _mm_cmpeq_epi8(self.0, _mm_set1_epi8(b',' as i8));
-            let quote = _mm_cmpeq_epi8(self.0, _mm_set1_epi8(b'"' as i8));
+            let mut quote = _mm_cmpeq_epi8(self.0, _mm_set1_epi8(b'"' as i8));
+            if IGNORE_OPEN_QUOTE {
+                quote = _mm_and_si128(quote, _mm_set_epi64x(-1, -256));
+            }
             let newline = _mm_cmpeq_epi8(self.0, _mm_set1_epi8(b'\n' as i8));
             (_mm_movemask_epi8(_mm_or_si128(_mm_or_si128(comma, quote), newline)) as u32
                 | (1 << 16))
@@ -215,6 +221,31 @@ struct Column {
     bytes: Bytes,
 }
 
+#[inline(always)]
+unsafe fn terminate<const TERM: u8>(last: *const u8, quote: usize) -> Option<*const u8> {
+    unsafe {
+        let term = last.add(quote);
+        if (*term == TERM) & ((quote == 0) | (*last == b'"')) {
+            Some(term.add(1))
+        } else {
+            None
+        }
+    }
+}
+
+#[inline(always)]
+unsafe fn skip_ignored<const TERM: u8>(p: *const u8) -> Option<(bool, *const u8)> {
+    unsafe {
+        let bytes = Bytes::load(p);
+        let end = bytes.special_len::<true>();
+        if end == 16 {
+            return None;
+        }
+        let quote = (bytes.words().0 as u8 == b'"') as usize;
+        Some((end != quote, terminate::<TERM>(p.add(end), quote)?))
+    }
+}
+
 impl Column {
     #[inline(always)]
     unsafe fn open(p: *const u8) -> Self {
@@ -231,15 +262,7 @@ impl Column {
 
     #[inline(always)]
     unsafe fn end<const TERM: u8>(&self, len: usize) -> Option<*const u8> {
-        unsafe {
-            let last = self.start.add(len);
-            let term = last.add(self.quote);
-            if (*term == TERM) & ((self.quote == 0) | (*last == b'"')) {
-                Some(term.add(1))
-            } else {
-                None
-            }
-        }
+        unsafe { terminate::<TERM>(self.start.add(len), self.quote) }
     }
 
     #[inline(always)]
@@ -253,7 +276,7 @@ impl Column {
 
     #[inline(always)]
     unsafe fn skip<const TERM: u8>(&self) -> Option<(usize, *const u8)> {
-        let len = self.bytes.special_len();
+        let len = self.bytes.special_len::<false>();
         if len == 16 {
             return None;
         }
@@ -318,7 +341,7 @@ fn decimal_prefix(word: u64, len: usize) -> u64 {
 }
 
 #[inline(always)]
-fn decimal_field(lo: u64, hi: u64, len: usize) -> i64 {
+fn decimal_field(lo: u64, hi: u64, len: usize, dec: &TimestampDecoder) -> i64 {
     const POW10: [u64; 9] = [
         1,
         10,
@@ -331,9 +354,15 @@ fn decimal_field(lo: u64, hi: u64, len: usize) -> i64 {
         100_000_000,
     ];
     if len == 13 {
-        let a = decimal_prefix(lo, 5);
+        let prefix = lo & 0xff_ffff_ffff;
+        let (expected, base) = dec.numeric[TimestampDecoder::numeric_index(prefix)];
+        let high = if prefix == expected {
+            base
+        } else {
+            (decimal_prefix(lo, 5) * 100_000_000) as i64
+        };
         let b = decimal_prefix((lo >> 40) | (hi << 24), 8);
-        return (a * 100_000_000 + b) as i64;
+        return high + b as i64;
     }
     if len == 0 {
         i64::MAX
@@ -384,7 +413,11 @@ unsafe fn event_time(c: &Column, dec: &TimestampDecoder) -> Option<(EventTime, u
     } else {
         let len = c.bytes.digit_len::<0>();
         let next = unsafe { c.end::<b','>(len)? };
-        Some((EventTime::Millis(decimal_field(lo, hi, len)), len, next))
+        Some((
+            EventTime::Millis(decimal_field(lo, hi, len, dec)),
+            len,
+            next,
+        ))
     }
 }
 
@@ -412,10 +445,20 @@ unsafe fn timestamp_pair(
                 && let Some(midnight) = midnight
                 && date.same_day(ingest_date)
             {
-                direct_clock::<true>(dec.table, date.clock, midnight)
+                let ms = direct_clock::<false>(dec.table, date.clock, 0);
+                if ms < BAD_CLOCK as i64 {
+                    midnight + ms
+                } else {
+                    i64::MAX
+                }
             } else if let Some(hour) = date.hour(dec) {
-                let local = clock_millis::<true>(dec.table, date.clock >> 16, hour);
-                if local == i64::MAX { local } else { local - tz }
+                // The field template already checked both clock separators.
+                let ms = clock_millis::<false>(dec.table, date.clock >> 16, 0);
+                if ms < BAD_CLOCK as i64 {
+                    hour + ms - tz
+                } else {
+                    i64::MAX
+                }
             } else {
                 fallback_timestamp(unsafe { std::slice::from_raw_parts(event.start, event_len) })
             }
@@ -490,30 +533,33 @@ unsafe fn try_line(
         {
             (4, false, true)
         } else {
-            (kind.bytes.special_len(), false, false)
+            (kind.bytes.special_len::<false>(), false, false)
         };
         if kind_len == 16 {
             return None;
         }
         let p = kind.end::<b','>(kind_len)?;
 
-        let prod = Column::open(p);
-        let (prod_len, product_digits, p) = if purchase && prod.bytes.words().0 as u8 == b'p' {
-            let len = prod.bytes.digit_len::<1>();
-            if let Some(p) = prod.end::<b','>(len) {
-                (len, true, p)
+        let (ts, ingest) = timestamp_pair(dec, event_time, &event, event_len, &ing, date);
+        let valid_time_user =
+            user != 0 && ts >= w.start && ts < w.end && ingest.saturating_sub(ts) <= DAY_MS;
+        let (next, row) = if purchase {
+            let prod = Column::open(p);
+            let (prod_len, product_digits, p) = if prod.bytes.words().0 as u8 == b'p' {
+                let len = prod.bytes.digit_len::<1>();
+                if let Some(p) = prod.end::<b','>(len) {
+                    (len, true, p)
+                } else {
+                    let (len, p) = prod.skip::<b','>()?;
+                    (len, false, p)
+                }
             } else {
                 let (len, p) = prod.skip::<b','>()?;
                 (len, false, p)
-            }
-        } else {
-            let (len, p) = prod.skip::<b','>()?;
-            (len, false, p)
-        };
-        let raw_price = Column::open(p);
-        let (price, next) = if purchase {
+            };
+            let raw_price = Column::open(p);
             let len = raw_price.bytes.digit_len::<0>();
-            if let Some(p) = raw_price.end::<b'\n'>(len) {
+            let (price, next) = if let Some(p) = raw_price.end::<b'\n'>(len) {
                 // More than eight digits can be valid with leading zeros.
                 if len > 8 {
                     return None;
@@ -522,41 +568,27 @@ unsafe fn try_line(
             } else {
                 let (_, p) = raw_price.skip::<b'\n'>()?;
                 (0, p)
-            }
+            };
+            let row = (valid_time_user && prod_len != 0 && price != 0).then(|| EventValues {
+                user,
+                ts,
+                price,
+                cat: category(&prod, prod_len, product_digits, lk),
+            });
+            (next, row)
         } else {
-            let (_, p) = raw_price.skip::<b'\n'>()?;
-            (0, p)
+            let (product, p) = skip_ignored::<b','>(p)?;
+            let (_, next) = skip_ignored::<b'\n'>(p)?;
+            let row = (valid_time_user && valid_type && product).then_some(EventValues {
+                user,
+                ts,
+                price: 0,
+                cat: 0,
+            });
+            (next, row)
         };
         if eid == 0 {
             return Some((next, None));
-        }
-
-        let (ts, ingest) = timestamp_pair(dec, event_time, &event, event_len, &ing, date);
-        let mut row = None;
-        if user != 0
-            && prod_len != 0
-            && valid_type
-            && ts >= w.start
-            && ts < w.end
-            && ingest.saturating_sub(ts) <= DAY_MS
-        {
-            if purchase {
-                if price != 0 {
-                    row = Some(EventValues {
-                        user,
-                        ts,
-                        price,
-                        cat: category(&prod, prod_len, product_digits, lk),
-                    });
-                }
-            } else {
-                row = Some(EventValues {
-                    user,
-                    ts,
-                    price: 0,
-                    cat: 0,
-                });
-            }
         }
         Some((next, Some(EvRec { eid, ingest, row })))
     }
