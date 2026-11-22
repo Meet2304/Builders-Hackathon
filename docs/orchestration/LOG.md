@@ -600,3 +600,4 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Events micro-cuts** (claude_andrew, `explore/v17-events`): x86 callgrind hot spots in events decode, safe local cuts, ≥ 1% to ship.
   - **Memcpy/memset waste** (claude_master, `explore/v17-mem`): presize `user_daily`, avoid the dedup memset (`alloc_zeroed`), reused-buffer copies. Wall time decides.
   - Plan: whatever passes the gates by 09:15 gets integrated as v17, released by 09:30. Otherwise v16 is final.
+- **USER SUBMITTED v15** (`12c449e`): board **0.9504 s** (BB-1C15BD67, Sun 08:33 ET, rank 84). It's our best and is entered in the final. That's −11.8% vs v13's 1.0770, matching the ~10% x86 Ir cut. The user says it's still not enough to win. v16 (−9.3% on 60M in Linux) has not been submitted yet.
