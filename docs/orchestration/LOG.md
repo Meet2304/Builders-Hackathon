@@ -596,3 +596,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Gates in Linux (default, mode 1, stress mode 3): fixtures, dev under `NO_FAST` 0–3, seed-42, long-ID 240/240. amd64: fixtures, dev.
   - Heap left as is (it's on mimalloc 2 MB THP, so teardown is cheap). Nothing is unmapped, so late input reads simply refault.
   - **User asked to submit v16.**
+- **08:43: final-hour threads, both from `v16`, due 09:15:**
+  - **Events micro-cuts** (claude_andrew, `explore/v17-events`): x86 callgrind hot spots in events decode, safe local cuts, ≥ 1% to ship.
+  - **Memcpy/memset waste** (claude_master, `explore/v17-mem`): presize `user_daily`, avoid the dedup memset (`alloc_zeroed`), reused-buffer copies. Wall time decides.
+  - Plan: whatever passes the gates by 09:15 gets integrated as v17, released by 09:30. Otherwise v16 is final.
