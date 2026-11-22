@@ -45,6 +45,9 @@
 //!   SESSIONS_PURGE=on           keep mimalloc's purging (default: never purge)
 //!   SESSIONS_EXIT=normal        exit through std::process::exit (default: _exit after
 //!                               every output file is closed)
+//!   SESSIONS_FREE=0|1|2|3       Linux: zap the input maps' page tables before _exit
+//!                               (default 2: by every worker after the last write; 0 off)
+//!   SESSIONS_DEBUG_SMAPS=1      print the resident set left for the exit teardown
 
 #[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
 mod columns;
@@ -102,6 +105,104 @@ fn no_purge() {
         mi_option_set(MI_OPTION_PURGE_DELAY, -1);
         mi_option_set(MI_OPTION_PURGE_DECOMMITS, 0);
     }
+}
+
+/// Exit-tail reaper. At exit the kernel tears down every live mapping on one thread
+/// (60M: ~117 ms of a 1.3 s run on Linux). The input files are read-only MAP_SHARED
+/// mappings, so MADV_DONTNEED on them only drops their page-table entries: a later read
+/// (an interned ID's bytes, a tag-3 click key) refaults the same bytes from the page
+/// cache. That makes zapping them safe whatever still points into them. It runs off the
+/// critical path: across the rayon workers at the end (or, SESSIONS_FREE=1, on an idle
+/// background thread while later phases run). SESSIONS_FREE=0 turns it off. Linux only.
+///
+/// SESSIONS_FREE: 0 off; 1 an idle-priority reaper zaps the event and link maps while
+/// later phases run, the rest drained at the end (60M arm64 Linux: tail 8 ms, but it can
+/// hold mmap_lock while preempted, and the phases looked slower); 2 (default) every
+/// worker zaps all of it after the last file is written (tail 106 -> 20 ms); 3 (test
+/// only) zap each input right after its parse and again before writing, so every later
+/// read of input bytes (interned IDs, tag-3 click keys) must refault.
+fn free_mode() -> u8 {
+    if !cfg!(target_os = "linux") {
+        return 0;
+    }
+    match env::var("SESSIONS_FREE").as_deref() {
+        Ok("0") => 0,
+        Ok("1") => 1,
+        Ok("3") => 3,
+        _ => 2,
+    }
+}
+
+const ZAP_STEP: usize = 16 << 20;
+
+/// Page-aligned 16 MB pieces of every mapping in `inputs`, taken by an atomic cursor so
+/// the reaper and the workers at the end never zap one twice.
+struct ZapQueue {
+    pieces: Vec<(usize, usize)>,
+    next: std::sync::atomic::AtomicUsize,
+}
+
+impl ZapQueue {
+    fn new(inputs: &[&Input]) -> Self {
+        let mut pieces = Vec::new();
+        for i in inputs {
+            for m in &i.maps {
+                let (p, n) = (m.as_ptr() as usize, m.len());
+                let mut o = 0;
+                while o < n {
+                    pieces.push((p + o, ZAP_STEP.min(n - o)));
+                    o += ZAP_STEP;
+                }
+            }
+        }
+        ZapQueue { pieces, next: Default::default() }
+    }
+
+    fn drain(&self) {
+        loop {
+            let i = self.next.fetch_add(1, Relaxed);
+            let Some(&(p, n)) = self.pieces.get(i) else { return };
+            #[cfg(target_os = "linux")]
+            unsafe {
+                libc::madvise(p as *mut libc::c_void, n, libc::MADV_DONTNEED);
+            }
+            #[cfg(not(target_os = "linux"))]
+            let _ = (p, n);
+        }
+    }
+
+    /// Every worker takes pieces until none are left.
+    fn drain_all(&self) {
+        let n = rayon::current_num_threads().min(self.pieces.len().saturating_sub(self.next.load(Relaxed)));
+        (0..n).into_par_iter().for_each(|_| self.drain());
+    }
+}
+
+/// Drain `q` on a SCHED_IDLE thread: it only runs on a hardware thread nothing else
+/// wants (phase tails, serial stretches), so it never slows the pipeline down.
+fn zap_background(q: Arc<ZapQueue>) {
+    std::thread::Builder::new()
+        .name("reaper".into())
+        .stack_size(64 << 10)
+        .spawn(move || {
+            #[cfg(target_os = "linux")]
+            unsafe {
+                let p: libc::sched_param = std::mem::zeroed();
+                libc::sched_setscheduler(0, libc::SCHED_IDLE, &p);
+            }
+            q.drain()
+        })
+        .ok();
+}
+
+/// SESSIONS_DEBUG_SMAPS=1: what the kernel still has to tear down at exit.
+fn smaps_summary() -> String {
+    let Ok(s) = fs::read_to_string("/proc/self/smaps_rollup") else { return String::new() };
+    s.lines()
+        .filter(|l| ["Rss:", "Anonymous:", "AnonHugePages:", "Shared_Clean:", "Private_Clean:"].iter().any(|k| l.starts_with(k)))
+        .map(|l| l.split_whitespace().take(2).collect::<Vec<_>>().join("="))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 type HashMap<K, V> = std::collections::HashMap<K, V, foldhash::fast::RandomState>;
@@ -3135,6 +3236,7 @@ fn pipeline<'a, L: Layout>(
     win: &Win,
     events_in: &'a Input,
     clicks_in: &'a Input,
+    zq: &Arc<ZapQueue>,
     knobs: &Knobs,
     scan: Scan,
     lap: &dyn Fn(&str),
@@ -3163,6 +3265,15 @@ fn pipeline<'a, L: Layout>(
         .collect();
     assert!(ev_out.len() < 1 << 24, "task index overflows the 24-bit drop field");
     lap("events parsed");
+    if free_mode() == 3 {
+        ZapQueue::new(&[events_in]).drain();
+        zq.drain();
+    }
+    if free_mode() == 1 {
+        // Nothing reads the event or link bytes from here on except rare interned IDs,
+        // which refault. Clicks stay mapped: tag-3 click keys are compared in sessions.
+        zap_background(zq.clone());
+    }
 
     // clicks: parse + validate + scatter by person
     let ck_chunks = clicks_in.chunks(knobs.chunk);
@@ -3198,6 +3309,9 @@ fn pipeline<'a, L: Layout>(
         })
         .collect();
     lap("clicks parsed");
+    if free_mode() == 3 {
+        ZapQueue::new(&[clicks_in]).drain();
+    }
 
     // dedup per eid partition; the losers' drops go to their person partitions
     let drops: Vec<Vec<u64>> =
@@ -3335,13 +3449,17 @@ fn main() {
     let ncat = lk.cat_names.len();
     // 16 B rows unless a ts offset (ms) or a category index wouldn't fit them
     let compact = knobs.no_fast != 1 && win.end.saturating_sub(base) < 1i64 << 32 && ncat <= 256;
+    let zq = Arc::new(ZapQueue::new(&[&events_in, &links_in]));
     let accs = if compact {
-        pipeline::<Row16>(&ctx, &win, &events_in, &clicks_in, &knobs, scan, &lap)
+        pipeline::<Row16>(&ctx, &win, &events_in, &clicks_in, &zq, &knobs, scan, &lap)
     } else {
-        pipeline::<Row24>(&ctx, &win, &events_in, &clicks_in, &knobs, scan, &lap)
+        pipeline::<Row24>(&ctx, &win, &events_in, &clicks_in, &zq, &knobs, scan, &lap)
     };
     lap("sessions + attribution");
 
+    if free_mode() == 3 {
+        ZapQueue::new(&[&events_in, &clicks_in, &links_in]).drain();
+    }
     let ud_dir = out.join("user_daily");
     let cd_dir = out.join("campaign_daily");
     fs::create_dir_all(&ud_dir).expect("mkdir user_daily");
@@ -3370,6 +3488,20 @@ fn main() {
     );
     let rows: usize = accs.iter().map(|a| a.users.len()).sum();
     lap(&format!("written ({rows} user_daily rows)"));
+    let smaps = env::var_os("SESSIONS_DEBUG_SMAPS").is_some();
+    if smaps {
+        eprintln!("smaps before zap: {}", smaps_summary());
+    }
+    if free_mode() != 0 {
+        // Every output file is written: the click bytes are dead too. Zap what's left
+        // across the workers rather than leave it to the single-threaded exit teardown.
+        let cq = ZapQueue::new(&[&clicks_in]);
+        rayon::join(|| zq.drain_all(), || cq.drain_all());
+        lap("inputs released");
+    }
+    if smaps {
+        eprintln!("smaps at exit: {}", smaps_summary());
+    }
     if STATS_ON.load(Relaxed) {
         for (n, what) in [(7, "events"), (4, "clicks"), (2, "links")] {
             let (f, sl) = (STATS[n][0].load(Relaxed), STATS[n][1].load(Relaxed));
