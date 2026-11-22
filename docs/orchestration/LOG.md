@@ -706,3 +706,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - In flight: long-ID 100 seeds, bins fuzz 150, s535 ×8; Eval final gate; Red Team; x86 round 4 `45032998223`.
   - **ETA release about 10:05.**
 - **09:33: USER: "don't have limits, merge it" / "trial by fire".** **v17 released early:** `main` `bf93837` (tag `v17`), src identical to `integ/v17` `3929776`. Fixtures 36/36 and dev MATCH on main. Eval final gate, Red Team, x86 round 4 and Orchestrator stress (long-ID 100, bins fuzz 150, s535 ×8) are still running. A rejected submission doesn't change the best (v16 0.9378 s).
+- **09:38: v17 stress (Orchestrator):** long-ID 600/600, bins fuzz 750/750, s535 at `PARTS=4096` ×8 MATCH.
+- **Real-x86 round 4 `45032998223`** (AVX-512 runner, v3 builds, interleaved):
+  - **v17 vs v16 at 20M: −2.89% median (1.843 vs 1.898 s), −3.0% min**
+  - **at 60M: −2.44% median (5.330 vs 5.463 s), −1.8% min**
+  - A consistent wall gain at both sizes. (This runner is slower overall than round 1's.)
