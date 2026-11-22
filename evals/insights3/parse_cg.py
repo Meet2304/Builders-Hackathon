@@ -158,7 +158,13 @@ def main():
     owner = fn_map(srcf)
     files = sorted(glob.glob(os.path.join(run, "callgrind.out*")),
                    key=lambda p: int(p.rsplit(".", 1)[1]) if p.rsplit(".", 1)[1].isdigit() else 99)
-    labels = {1: "lookups", 2: "events", 3: "clicks", 4: "dedup", 5: "sessions", 6: "write", 99: "exit"}
+    # dump i ends at the i-th lap() mark; name it from that mark's text (stderr.txt)
+    KEY = [("link parsing start", "startup"), ("lookups", "lookups"), ("events parsed", "events"),
+           ("clicks parsed", "clicks"), ("events deduped", "dedup"), ("sessions", "sessions"), ("written", "write")]
+    marks = [l for l in open(os.path.join(run, "stderr.txt")) if re.match(r"\[\s*[\d.]+s\] ", l)]
+    labels = {99: "exit"}
+    for i, l in enumerate(marks, 1):
+        labels[i] = next((v for k, v in KEY if k in l), f"mark{i}")
     res = {}
     for p in files:
         suf = p.rsplit(".", 1)[1]; idx = int(suf) if suf.isdigit() else 99

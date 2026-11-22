@@ -138,3 +138,32 @@ From the dev per-line figures. A full 20M callgrind takes about 25 min per commi
 The board fit's 1.70 s constant is mostly the intern contention under gVisor, and v7 removes exactly that. So the fit can't price v7. Use Eval's gVisor 20M run (`lib/gvisor.py`).
 
 The old instruction-only model is dead (see `evals/insights/board-fit.md`). x86 counts don't rescue it: x86 retires about 4–7% *fewer* instructions than ARM for the same work, so it predicts slightly faster times, not slower. The gap to the board is contention plus sandbox cost, which Ir can't see. Use the gVisor reproduction for the board. Use these counts to rank pure-compute moves only.
+
+## Submission gate: v7b `96af24b` and v8 head `2b9aecd` (01:50 ET)
+
+| check | `96af24b` (v7 + no-purge + `_exit`) | `2b9aecd` (v8 head) |
+| --- | --- | --- |
+| x86-64-v2, valgrind, NCPU=1, new dev | **MATCH** (bin 5005cffe…) | **MATCH** (bin b09246f1…) |
+| x86 NCPU=8 under valgrind `--fair-sched=yes` | **MATCH** | – |
+| x86 NCPU=8 native under Rosetta, 2 runs | **MATCH**, MATCH | – |
+| mimalloc option numbers | `purge_decommits` = 5 and `purge_delay` = 15 in the libmimalloc-sys 0.1.49 headers, v3 (default) and v2 | |
+| exit dump | 54,915 → 3,518 Ir, so `_exit` is taken | |
+
+x86 instructions per event line, dev, corrected (`results/dev-table-v7-v7b-v8.md`):
+
+| phase | v7 `e693e18` | v7b `96af24b` | v8 `2b9aecd` | v8 ARM | v8 x86/ARM |
+|---|---:|---:|---:|---:|---:|
+| lookups | 51 | 51 | 50 | 119 | * |
+| events | 804 | 804 | **753** | 737 | 1.02 |
+| clicks | 150 | 149 | **106** | 107 | 0.99 |
+| dedup | 49 | 48 | 48 | 34 | 1.41 |
+| sessions | 253 | 253 | 253 | 236 | 1.08 |
+| write | 174 | 173 | 173 | 178 | 0.97 |
+| **total** | **1,480** | **1,480** | **1,384** | 1,411 | 0.98 |
+
+- **v7b and v7 have identical Ir per phase**, which is expected: no-purge and `_exit` save syscalls and faults, not instructions.
+- **v8 fixes the x86 `hex32` weak spot.**
+  - The SSSE3 kernel replaces the scalar loop: the long-ID path goes from about 298 to about 90 Ir per ID. The SIMD hex part is about 48 Ir per call, against 256 before.
+  - Events go 804 → 753 on x86. The x86/ARM ratio for events returns from 1.05 to 1.02.
+  - The click column decoder (`columns.rs`, 41M) replaces the generic scan (`for_each_record` 25M plus `IdIndex::direct_slot` 15M plus `parse_click` 7M): clicks go 628 → 446 per click line on x86, 450 on ARM.
+- Dedup's x86/ARM ratio of 1.41 is residual after the rep correction (48 against 34). It's small in absolute terms (14 per line).

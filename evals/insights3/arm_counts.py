@@ -14,6 +14,8 @@ for _ in range(runs):
     err = subprocess.run(["nice", "-n", "19", binp], env=env, capture_output=True, text=True).stderr
     shutil.rmtree(out, ignore_errors=True)
     cum = [float(x) * 1e9 for x in re.findall(r"instr=([\d.]+)G", err)]
+    if len(cum) == 7 and "link parsing start" in err:  # v8+: extra mark inside lookups
+        cum = cum[1:]
     if len(cum) != 6:
         sys.exit("no instr= marks (needs a macOS build with the instr lap field):\n" + err)
     d = [cum[0]] + [b - a for a, b in zip(cum, cum[1:])]

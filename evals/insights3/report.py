@@ -44,6 +44,12 @@ def main():
         armf = os.path.join(here, "results", f"arm-{c}-{label}.json")
         arm = json.load(open(armf)) if os.path.exists(armf) else {}
         out = {"commit": c, "sha": s, "lines": nl, "phases": {}}
+        if "startup" in summ:  # v8+: an extra mark before link parsing; fold it into lookups
+            st, lk = summ.pop("startup"), summ["lookups"]
+            lk["totals"] = [a + b for a, b in zip(st["totals"], lk["totals"])]
+            for key in ("memlines", "focus_incl", "focus_calls"):
+                for k, v in st[key].items():
+                    lk[key][k] = lk[key].get(k, 0) + v
         for ph in PH:
             r = summ[ph]
             raw = r["totals"][0]
