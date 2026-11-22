@@ -453,3 +453,10 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **At 07:21 (claude_master reset), Neon Architect → Opus medium + Neon: a one-command candidate pipeline** (build → parallel gate → paired gVisor A/B vs best → verdict in about 10 min).
 - **Eval: v10.1 `be41e2e` SUBMIT-READY.** Gates A, B, C pass: clean arm64, amd64 and cascadelake builds; amd64 fixtures and dev plus `NO_FAST=3` MATCH; seed-42 and seed-43 consistency MATCH; 22 GiB cgroup OK. Gate C carried from the `def3d26` paired gVisor A/B (+5.3% at 20M, +5.5%/+6.6% at 60M). Predicted board about 1.20 s (but v8 beat its prediction by about 15%).
 - **Orchestrator: released v10.1 to main** (src identical to `be41e2e`), with fixtures 36/36 and dev MATCH on main. Tag `v10.1` pushed; user asked to submit.
+- **06:25:**
+  - **Sol: v11 (`explore/sol-v11` @ `2b93686`, on `be41e2e`) DROPPED.** 60M gVisor median 3.89 vs 3.79 s (1.026× slower), 20M 1.037×. Dedup −40 ms and sessions −33 ms, but events parse +80 ms. Gates pass.
+  - **Providers:** the main Claude account (Orchestrator lane) hit its 5-hour limit (resets **10:30**) and killed the Neon Detective mid-run. claude_master resets 07:20; claude_andrew is user-banned. **Codex and Codex-Andrew are working.**
+  - Stale bench lock (Detective pid 59389, dead) released.
+  - **Sol → v13 events phase:** gVisor sub-phase split, fault-serialization microbenchmark, then build the top lever (`explore/v13-events`).
+  - **Neon Detective → Codex-Andrew 6.1 Sol + Gemini Neon:** design ranking of events-phase page-touch reductions, top-2 sketches to Sol by 07:15.
+  - **Explorer 4: v12 (4 B dedup offsets)** correctness running lock-free, then 20M/60M gVisor A/B vs `be41e2e`.
