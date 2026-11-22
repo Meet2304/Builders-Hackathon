@@ -585,6 +585,7 @@ pub(super) fn clicks<'a>(
     }
 }
 
+#[allow(dead_code)]
 pub(super) fn links<'a>(
     buf: &'a [u8],
     start: usize,
@@ -592,13 +593,23 @@ pub(super) fn links<'a>(
     ids: &Ids<'a>,
     out: &mut Vec<(u64, u64)>,
 ) {
+    links_for_each(buf, start, end, ids, |pair| out.push(pair));
+}
+
+pub(super) fn links_for_each<'a>(
+    buf: &'a [u8],
+    start: usize,
+    end: usize,
+    ids: &Ids<'a>,
+    mut emit: impl FnMut((u64, u64)),
+) {
     let (fast, fallback) = for_each_decoded::<2, LINK_GUARD, _>(
         buf,
         start,
         end,
         |p| unsafe { link_line(p, ids) },
         |f| decode_link(f, ids),
-        |pair| out.push(pair),
+        |pair| emit(pair),
     );
     if STATS_ON.load(Relaxed) {
         STATS[2][0].fetch_add(fast, Relaxed);

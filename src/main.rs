@@ -636,44 +636,41 @@ impl<'a> Ids<'a> {
 }
 
 /// Open-addressing map u64 -> u64 (key 0 = empty slot), safe to fill from many threads.
-struct LinkTable {
-    slots: Vec<[AtomicU64; 2]>,
-    mask: usize,
-    shift: u32, // 64 - log2(slots.len())
-    hmask: u64,
+pub(crate) struct LinkTable {
+    pub(crate) slots: Vec<[AtomicU64; 2]>,
+    pub(crate) mask: usize,
+    pub(crate) shift: u32, // 64 - log2(slots.len())
+    pub(crate) hmask: u64,
 }
 
 impl LinkTable {
-    fn new(n: usize, hmask: u64) -> Self {
-        let cap = (2 * n).next_power_of_two().max(16);
-        let slots = (0..cap).map(|_| [AtomicU64::new(0), AtomicU64::new(0)]).collect();
+    pub(crate) fn new_with_cap(cap: usize, hmask: u64) -> Self {
+        let cap = cap.next_power_of_two().max(16);
+        let layout = std::alloc::Layout::array::<[AtomicU64; 2]>(cap).unwrap();
+        let ptr = unsafe { std::alloc::alloc_zeroed(layout) as *mut [AtomicU64; 2] };
+        if ptr.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+        let slots = unsafe { Vec::from_raw_parts(ptr, cap, cap) };
         LinkTable { slots, mask: cap - 1, shift: 64 - cap.trailing_zeros(), hmask }
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn new(n: usize, hmask: u64) -> Self {
+        Self::new_with_cap((2 * n).max(16), hmask)
+    }
+
     /// Home slot: the high bits of a multiplicative hash (as `Lookups::hpart`).
-    #[inline]
-    fn slot(&self, k: u64) -> usize {
+    #[inline(always)]
+    pub(crate) fn slot(&self, k: u64) -> usize {
         ((k.wrapping_mul(PART_MULTIPLIER) & self.hmask) >> self.shift) as usize
     }
 
-    /// Insert a key that isn't in the table yet.
-    fn insert(&self, k: u64, v: u64) {
-        let mut s = self.slot(k);
-        loop {
-            let e = &self.slots[s];
-            if e[0].compare_exchange(0, k, Relaxed, Relaxed).is_ok() {
-                e[1].store(v, Relaxed);
-                return;
-            }
-            s = (s + 1) & self.mask;
-        }
-    }
-
     /// The person of user key `k` (itself when it isn't linked to a smaller ID).
-    #[inline]
-    fn get_at(&self, k: u64, mut s: usize) -> u64 {
+    #[inline(always)]
+    pub(crate) fn get_at(&self, k: u64, mut s: usize) -> u64 {
         loop {
-            let e = &self.slots[s];
+            let e = unsafe { self.slots.get_unchecked(s) };
             let kk = e[0].load(Relaxed);
             if kk == k {
                 return e[1].load(Relaxed);
