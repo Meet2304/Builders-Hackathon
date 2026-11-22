@@ -616,3 +616,4 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
     - **Eval:** record the v15 board point; v16 untimed full + 60M consistency + amd64; pre-stage the v17 final gate
     - **Sessions deep cut** (`explore/v17-sessions`)
     - **Dedup + links deep cut** (`explore/v17-dedup`)
+- **USER SUBMITTED v16** (`d5e9ee3`): board **0.9378 s** (BB-86EECFA6, rank 83). It's our best and is entered in the final. That's −1.3% vs v15's 0.9504 (within board noise; consistent with the exit-teardown fix).
