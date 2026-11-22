@@ -3157,8 +3157,14 @@ fn pipeline<'a, L: Layout>(
         .par_chunks(task_group(ck_chunks.len(), nb, knobs.chunk))
         .map_init(Vec::new, |flat, task| {
             let bytes: usize = task.iter().map(|&(_, s, e)| e - s).sum();
+            // > lines per task (~53 B each); virtual until touched. The returned buffer
+            // still holds the last task's rows: clear it before sizing, and take a fresh
+            // allocation rather than let a realloc copy rows that are already dead.
             let mut buf = std::mem::take(flat);
-            buf.reserve(bytes / 40); // > lines per task (~53 B each); virtual until touched
+            buf.clear();
+            if buf.capacity() < bytes / 40 {
+                buf = Vec::with_capacity(bytes / 40);
+            }
             let mut o = CkOut::new(nb, buf);
             for &(fi, s, e) in task {
                 let buf: &[u8] = &clicks_in.maps[fi];
