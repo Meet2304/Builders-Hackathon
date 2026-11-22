@@ -444,6 +444,7 @@ impl<'a> Ids<'a> {
 struct LinkTable {
     slots: Vec<[AtomicU64; 2]>,
     mask: usize,
+    shift: u32, // 64 - log2(slots.len())
     hmask: u64,
 }
 
@@ -451,12 +452,13 @@ impl LinkTable {
     fn new(n: usize, hmask: u64) -> Self {
         let cap = (2 * n).next_power_of_two().max(16);
         let slots = (0..cap).map(|_| [AtomicU64::new(0), AtomicU64::new(0)]).collect();
-        LinkTable { slots, mask: cap - 1, hmask }
+        LinkTable { slots, mask: cap - 1, shift: 64 - cap.trailing_zeros(), hmask }
     }
 
+    /// Home slot: the high bits of a multiplicative hash (as `Lookups::hpart`).
     #[inline]
     fn slot(&self, k: u64) -> usize {
-        (mix(k) & self.hmask) as usize & self.mask
+        ((k.wrapping_mul(0x9e37_79b9_7f4a_7c15) & self.hmask) >> self.shift) as usize
     }
 
     /// Insert a key that isn't in the table yet.
@@ -1176,10 +1178,13 @@ struct Lookups<'a> {
 }
 
 impl<'a> Lookups<'a> {
-    /// Engine hash of a key, masked by the debug knob.
+    /// Partition hash of a key (for `bucket`): one multiply, whose high bits depend on
+    /// every bit of `k`. Independent of the low bits of `mix`, which index the tables
+    /// inside a partition. Masked by the same debug knob. The link table's home slot uses the same
+    /// high bits; it's a separate table, so that doesn't cluster anything.
     #[inline]
-    fn hk(&self, k: u64) -> u64 {
-        mix(k) & self.hmask
+    fn hpart(&self, k: u64) -> u64 {
+        k.wrapping_mul(0x9e37_79b9_7f4a_7c15) & self.hmask
     }
 
     #[inline]
@@ -1210,6 +1215,7 @@ trait Layout: Copy + Send + Sync {
     type Elem: Copy + Ord + Default + Send + Sync;
     fn row(person: u64, ts: i64, price: u32, cat: u32, base: i64) -> Self;
     fn person(&self) -> u64;
+    fn set_person(&mut self, person: u64);
     fn elem(&self) -> Self::Elem;
     fn ts(e: Self::Elem, base: i64) -> i64;
     fn price(e: Self::Elem) -> u32;
@@ -1235,6 +1241,10 @@ impl Layout for Row16 {
     #[inline]
     fn person(&self) -> u64 {
         self.person
+    }
+    #[inline]
+    fn set_person(&mut self, person: u64) {
+        self.person = person;
     }
     #[inline]
     fn elem(&self) -> u64 {
@@ -1284,6 +1294,10 @@ impl Layout for Row24 {
     #[inline]
     fn person(&self) -> u64 {
         self.person
+    }
+    #[inline]
+    fn set_person(&mut self, person: u64) {
+        self.person = person;
     }
     #[inline]
     fn elem(&self) -> (i64, u32, u32) {
@@ -1387,7 +1401,8 @@ struct EvOut<L> {
     e: Vec<Vec<EidEnt>>, // by eid partition
     rf: Vec<Vec<u32>>,   // parallel to e: dest << 20 | seq, or INVALID
     r: Vec<Vec<L>>,      // by person partition
-    pend: Vec<PendEv>,   // valid rows waiting on their (prefetched) link lookup
+    pend: [PendEv<L>; BATCH], // valid rows waiting on their (prefetched) link lookup
+    np: usize,                // rows in `pend`
     base: i64,
 }
 
@@ -1395,15 +1410,13 @@ struct EvOut<L> {
 /// parsed and probed BATCH rows later, so the DRAM misses overlap.
 const BATCH: usize = 16;
 
+/// A valid row whose `person` still holds the user key, and that key's link slot.
 #[derive(Clone, Copy)]
-struct PendEv {
+struct PendEv<L> {
+    row: L,
     eid: u64,
     ingest: i64,
-    user: u64,
     slot: usize,
-    ts: i64,
-    price: u32,
-    cat: u32,
 }
 
 fn buckets_with<T>(nb: usize, per: usize) -> Vec<Vec<T>> {
@@ -1414,22 +1427,42 @@ impl<L: Layout> EvOut<L> {
     fn new(nb: usize, bytes: usize, base: i64) -> Self {
         // ~75 bytes per line; reserve 25% headroom (virtual memory only until touched)
         let per = bytes / 75 / nb * 5 / 4 + 16;
-        EvOut { e: buckets_with(nb, per), rf: buckets_with(nb, per), r: buckets_with(nb, per), pend: Vec::with_capacity(BATCH), base }
+        let pend = [PendEv { row: L::row(0, base, 0, 0, base), eid: 0, ingest: 0, slot: 0 }; BATCH];
+        EvOut { e: buckets_with(nb, per), rf: buckets_with(nb, per), r: buckets_with(nb, per), pend, np: 0, base }
+    }
+
+    /// Queue a valid row (person = user key): its link slot is prefetched now and probed
+    /// when the batch is full.
+    #[inline(always)]
+    fn queue(&mut self, row: L, eid: u64, ingest: i64, lk: &Lookups) {
+        let slot = lk.links.slot(row.person());
+        prefetch(&lk.links.slots[slot]);
+        self.pend[self.np & (BATCH - 1)] = PendEv { row, eid, ingest, slot };
+        self.np += 1;
+        if self.np == BATCH {
+            self.flush(lk);
+        }
     }
 
     /// Resolve the pending rows' persons and emit them.
+    #[inline]
     fn flush(&mut self, lk: &Lookups) {
         let nb = self.r.len();
-        for x in self.pend.drain(..) {
-            let person = lk.links.get_at(x.user, x.slot);
-            let d = bucket(lk.hk(person), nb);
-            let seq = self.r[d].len();
+        let np = std::mem::take(&mut self.np);
+        for x in &self.pend[..np] {
+            let (mut row, user) = (x.row, x.row.person());
+            let person = lk.links.get_at(user, x.slot);
+            row.set_person(person);
+            let d = bucket(lk.hpart(person), nb);
+            let q = bucket(lk.hpart(x.eid), nb);
+            // SAFETY: bucket(_, nb) < nb == self.r.len() == self.e.len() == self.rf.len()
+            let (r, e, rf) = unsafe { (self.r.get_unchecked_mut(d), self.e.get_unchecked_mut(q), self.rf.get_unchecked_mut(q)) };
+            let seq = r.len();
             // MAX_TASK_BYTES keeps this far below 2^20; fail loudly rather than corrupt
             assert!(seq < 1 << 20, "rows per (task, partition) overflow the 20-bit ref");
-            self.r[d].push(L::row(person, x.ts, x.price, x.cat, self.base));
-            let q = bucket(lk.hk(x.eid), nb);
-            self.e[q].push(EidEnt { eid: x.eid, ingest: x.ingest });
-            self.rf[q].push((d as u32) << 20 | seq as u32);
+            r.push(row);
+            e.push(EidEnt { eid: x.eid, ingest: x.ingest });
+            rf.push((d as u32) << 20 | seq as u32);
         }
     }
 }
@@ -1466,19 +1499,17 @@ fn parse_event<'a, L: Layout>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &
     match validate(f, ingest, w) {
         Some((user, ts, price)) => {
             let user = lk.ids.key(user);
-            let slot = lk.links.slot(user);
-            prefetch(&lk.links.slots[slot]);
             // only purchases (price >= 1) ever read the category; views/carts skip the lookup
             let cat = if price > 0 { lk.category(f[5]) } else { 0 };
-            o.pend.push(PendEv { eid, ingest, user, slot, ts, price, cat });
-            if o.pend.len() == BATCH {
-                o.flush(lk);
-            }
+            o.queue(L::row(user, ts, price, cat, o.base), eid, ingest, lk);
         }
         None => {
-            let q = bucket(lk.hk(eid), o.r.len());
-            o.e[q].push(EidEnt { eid, ingest });
-            o.rf[q].push(INVALID);
+            let q = bucket(lk.hpart(eid), o.e.len());
+            // SAFETY: q < nb == o.e.len() == o.rf.len()
+            unsafe {
+                o.e.get_unchecked_mut(q).push(EidEnt { eid, ingest });
+                o.rf.get_unchecked_mut(q).push(INVALID);
+            }
         }
     }
 }
@@ -1503,7 +1534,7 @@ fn parse_click<'a>(f: &[&'a [u8]; 4], lk: &Lookups<'a>, w: &Win) -> Option<(Ck, 
 fn flush_clicks(pend: &mut Vec<(Ck, usize)>, lk: &Lookups, b: &mut [Vec<Ck>]) {
     for (mut c, slot) in pend.drain(..) {
         c.person = lk.links.get_at(c.person, slot);
-        b[bucket(lk.hk(c.person), b.len())].push(c);
+        b[bucket(lk.hpart(c.person), b.len())].push(c);
     }
 }
 
