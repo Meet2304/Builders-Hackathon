@@ -296,3 +296,4 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **v7b x86 MATCH at NCPU=8** (valgrind fair-sched, plus 2× under Rosetta).
   - **v8 head `2b9aecd` x86 MATCH** on new dev.
   - x86 instructions per event line: v7 and v7b 1,480; **v8 1,384 (−96)**. Events 804 → 753 (the SSSE3 hex kernel is about 48 Ir per long ID, against 256 scalar); clicks 150 → 106. No x86 regressions.
+- **Orchestrator incident (fixed):** merging `analysis3` (branched from `1f02cb2`) carried v6's `src/main.rs` into main (`b43bf46`). **Restored main src to v5 `5b7bcc2` in `d4917b0`**; it was on origin for about 1 min, and nothing was submitted from it. **Rule from now on:** bring notes branches onto main with `git checkout <branch> -- <notes dir>`, never a full merge, unless `git diff --name-only main...<branch>` is notes-only.
