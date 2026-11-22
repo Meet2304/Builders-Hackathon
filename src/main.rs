@@ -42,6 +42,9 @@
 //!                               instead of NEON/SSE2 and NEON/SSSE3 (knobs 1 and 2
 //!                               also use the scalar packer)
 //!   SESSIONS_DEBUG_STATS=1      print fast-path / split_fields line counts per input kind
+//!   SESSIONS_PURGE=on           keep mimalloc's purging (default: never purge)
+//!   SESSIONS_EXIT=normal        exit through std::process::exit (default: _exit after
+//!                               every output file is closed)
 
 mod links;
 
@@ -51,7 +54,7 @@ use std::cmp::Ordering;
 use std::env;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+use std::sync::atomic::{AtomicU64, Ordering::{Acquire, Relaxed, Release}};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -71,6 +74,26 @@ use xxhash_rust::xxh3::xxh3_64;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+// mimalloc v3 (libmimalloc-sys 0.1.49 default) options, by their mi_option_t values.
+unsafe extern "C" {
+    fn mi_option_set(option: libc::c_int, value: libc::c_long);
+}
+const MI_OPTION_PURGE_DECOMMITS: libc::c_int = 5;
+const MI_OPTION_PURGE_DELAY: libc::c_int = 15;
+
+/// Never hand freed memory back to the OS: the process is short-lived, and every
+/// purge is an madvise now plus page faults on reuse, both slow under gVisor
+/// (Explorer 5: about -365 ms). SESSIONS_PURGE=on keeps mimalloc's defaults.
+fn no_purge() {
+    if env::var_os("SESSIONS_PURGE").is_some_and(|v| v == "on") {
+        return;
+    }
+    unsafe {
+        mi_option_set(MI_OPTION_PURGE_DELAY, -1);
+        mi_option_set(MI_OPTION_PURGE_DECOMMITS, 0);
+    }
+}
+
 type HashMap<K, V> = std::collections::HashMap<K, V, foldhash::fast::RandomState>;
 
 const DAY_MS: i64 = 86_400_000;
@@ -84,6 +107,9 @@ const MAX_NB: usize = 4096;
 /// `seq` always fits the 20 bits it gets in a ref.
 const MAX_TASK_BYTES: usize = 8 << 20;
 const INVALID: u32 = u32::MAX;
+const PART_MULTIPLIER: u64 = 0x9e37_79b9_7f4a_7c15;
+// Its inverse modulo 2^64, used once per person when emitting user-day rows.
+const PART_INVERSE: u64 = 0xf1de_83e1_9937_733d;
 
 /// Partition of hash `h` among `nb` buckets: the high bits of h * nb. For nb = 2^k this
 /// equals h >> (64 - k); it also works for nb = 1 and for any nb that isn't a power of 2.
@@ -346,26 +372,135 @@ fn is_packed(k: u64) -> bool {
     k & 15 == 0
 }
 
+/// Lowercase hex digit value, or 0xff.
+const HEX: [u8; 256] = {
+    let mut t = [0xffu8; 256];
+    let mut i = 0;
+    while i < 10 {
+        t[b'0' as usize + i] = i as u8;
+        i += 1;
+    }
+    i = 0;
+    while i < 6 {
+        t[b'a' as usize + i] = 10 + i as u8;
+        i += 1;
+    }
+    t
+};
+
+/// 32 lowercase hex digits -> (hi, lo): digit 0 in the top nibble of hi, so (hi, lo)
+/// order is the digits' byte order ('0'..'9' < 'a'..'f' in ASCII and in value).
+#[inline]
+fn hex32(d: &[u8; 32]) -> Option<(u64, u64)> {
+    let (mut hi, mut lo, mut bad) = (0u64, 0u64, 0u8);
+    for i in 0..16 {
+        let (x, y) = (HEX[d[i] as usize], HEX[d[16 + i] as usize]);
+        bad |= x | y;
+        hi = hi << 4 | (x & 15) as u64;
+        lo = lo << 4 | (y & 15) as u64;
+    }
+    (bad & 0x80 == 0).then_some((hi, lo))
+}
+
+/// Lock-free, insert-only set of 128-bit values: the hex digits of long IDs (a packable
+/// prefix byte + 32 lowercase hex digits, the generator's 1-in-8 long form). A value's
+/// slot index never changes, so it is the ID's key. No locks, no syscalls: a racing
+/// reader spins over the two stores of a slot being written.
+struct LongTable {
+    slots: Box<[[AtomicU64; 3]]>, // state (0 empty, 1 writing, 2 ready), hi, lo
+    mask: usize,
+    shift: u32,
+    hmask: u64, // SESSIONS_DEBUG_HASH_BITS
+}
+
+/// Probes before a value goes to the interner instead. Slots only ever fill, so a value
+/// that once found its probe window full always does: the split stays exact.
+const LONG_PROBES: usize = 128;
+
+impl LongTable {
+    fn new(cap: usize, hmask: u64) -> Self {
+        let cap = cap.next_power_of_two().max(64);
+        // zeroed straight from the allocator: untouched pages stay unfaulted
+        let layout = std::alloc::Layout::array::<[AtomicU64; 3]>(cap).unwrap();
+        let slots = unsafe {
+            let p = std::alloc::alloc_zeroed(layout) as *mut [AtomicU64; 3];
+            assert!(!p.is_null(), "long-ID table allocation");
+            Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, cap))
+        };
+        LongTable { slots, mask: cap - 1, shift: 64 - cap.trailing_zeros(), hmask }
+    }
+
+    /// Slot of (hi, lo), inserting it if absent; None if its probe window is full.
+    #[inline]
+    fn slot(&self, hi: u64, lo: u64) -> Option<usize> {
+        let h = (hi.wrapping_mul(0x9e37_79b9_7f4a_7c15) ^ lo).wrapping_mul(0xbf58_476d_1ce4_e5b9) & self.hmask;
+        let mut s = (h >> self.shift) as usize;
+        for _ in 0..LONG_PROBES {
+            let e = &self.slots[s];
+            let mut st = e[0].load(Acquire);
+            if st == 0 {
+                match e[0].compare_exchange(0, 1, Acquire, Acquire) {
+                    Ok(_) => {
+                        e[1].store(hi, Relaxed);
+                        e[2].store(lo, Relaxed);
+                        e[0].store(2, Release);
+                        return Some(s);
+                    }
+                    Err(now) => st = now,
+                }
+            }
+            while st == 1 {
+                std::hint::spin_loop();
+                st = e[0].load(Acquire);
+            }
+            if e[1].load(Relaxed) == hi && e[2].load(Relaxed) == lo {
+                return Some(s);
+            }
+            s = (s + 1) & self.mask;
+        }
+        None
+    }
+
+    #[inline]
+    fn value(&self, s: usize) -> (u64, u64) {
+        let e = &self.slots[s];
+        debug_assert_eq!(e[0].load(Acquire), 2);
+        (e[1].load(Relaxed), e[2].load(Relaxed))
+    }
+}
+
+/// Decoded ID bytes: up to 10 for a packed key, 33 for a long one.
+type IdBuf = [u8; 33];
+
 struct Shard<'a> {
     map: HashMap<&'a [u8], u32>,
     strs: Vec<&'a [u8]>,
 }
 
-/// Every ID that can't be packed: key = (index << 4) | 1, index = local * 64 + shard.
+/// Keys of IDs that don't pack into 6-bit symbols, by low nibble:
+///   1: interned (cold, sharded Mutex map): key = (index << 4) | 1, index = local * 64 + shard
+///   2: long hex (lock-free LongTable): key = (slot << 10) | (SYM[prefix] << 4) | 2
 struct Ids<'a> {
     shards: Vec<Mutex<Shard<'a>>>,
+    long: LongTable,
     no_fast: u8,
     simd_pack: bool, // off under any NO_FAST knob or if the startup self-test fails
 }
 
 impl<'a> Ids<'a> {
+    #[cfg(test)]
     fn new(no_fast: u8) -> Self {
+        Self::with_long(no_fast, 1 << 16, u64::MAX)
+    }
+
+    /// `long_cap`: long-ID table slots (rounded up to a power of two).
+    fn with_long(no_fast: u8, long_cap: usize, hmask: u64) -> Self {
         let shards = (0..64).map(|_| Mutex::new(Shard { map: new_map(0), strs: Vec::new() })).collect();
         let simd_pack = no_fast == 0 && pack_simd_self_test();
         if !simd_pack && no_fast == 0 {
             eprintln!("warning: SIMD ID packer failed its self-test; using the scalar packer");
         }
-        Ids { shards, no_fast, simd_pack }
+        Ids { shards, long: LongTable::new(long_cap, hmask), no_fast, simd_pack }
     }
 
     /// Key of a non-empty ID.
@@ -375,9 +510,25 @@ impl<'a> Ids<'a> {
             if let Some(k) = pack_fast(b) {
                 return k;
             }
+            if let Some(k) = self.long_key(b) {
+                return k;
+            }
             return self.intern(b);
         }
         self.key_slow(b)
+    }
+
+    /// Key of a long ID (prefix symbol + 32 lowercase hex digits), lock-free.
+    #[inline]
+    fn long_key(&self, b: &[u8]) -> Option<u64> {
+        let b: &[u8; 33] = b.try_into().ok()?;
+        let sym = SYM[b[0] as usize];
+        if sym == 0 {
+            return None;
+        }
+        let (hi, lo) = hex32(b[1..].try_into().unwrap())?;
+        let s = self.long.slot(hi, lo)?;
+        Some((s as u64) << 10 | (sym as u64) << 4 | 2)
     }
 
     /// `key` under a debug knob or a failed self-test.
@@ -388,8 +539,13 @@ impl<'a> Ids<'a> {
             2 => xxh3_64(b) & 1 == 0,
             _ => true,
         };
-        if try_pack && let Some(k) = pack(b) {
-            return k;
+        if try_pack {
+            if let Some(k) = pack(b) {
+                return k;
+            }
+            if let Some(k) = self.long_key(b) {
+                return k;
+            }
         }
         self.intern(b)
     }
@@ -406,8 +562,8 @@ impl<'a> Ids<'a> {
         (((local as u64) * 64 + s as u64) << 4) | 1
     }
 
-    /// The bytes of key `k`; `buf` holds a decoded packed key.
-    fn bytes<'s>(&self, k: u64, buf: &'s mut [u8; 10]) -> &'s [u8]
+    /// The bytes of key `k`; `buf` holds a decoded packed or long key.
+    fn bytes<'s>(&self, k: u64, buf: &'s mut IdBuf) -> &'s [u8]
     where
         'a: 's,
     {
@@ -422,6 +578,15 @@ impl<'a> Ids<'a> {
                 n += 1;
             }
             &buf[..n]
+        } else if k & 15 == 2 {
+            const DIGITS: &[u8; 16] = b"0123456789abcdef";
+            let (hi, lo) = self.long.value((k >> 10) as usize);
+            buf[0] = DESYM[((k >> 4) & 63) as usize];
+            for i in 0..16 {
+                buf[1 + i] = DIGITS[(hi >> (60 - 4 * i)) as usize & 15];
+                buf[17 + i] = DIGITS[(lo >> (60 - 4 * i)) as usize & 15];
+            }
+            &buf[..33]
         } else {
             let i = k >> 4;
             let sh = self.shards[(i % 64) as usize].lock().unwrap();
@@ -435,7 +600,12 @@ impl<'a> Ids<'a> {
         if is_packed(a) && is_packed(b) {
             return a.cmp(&b);
         }
-        let (mut x, mut y) = ([0u8; 10], [0u8; 10]);
+        if a & 15 == 2 && b & 15 == 2 {
+            // same length: prefix byte, then the 32 digits
+            let (pa, pb) = ((a >> 4) & 63, (b >> 4) & 63);
+            return pa.cmp(&pb).then_with(|| self.long.value((a >> 10) as usize).cmp(&self.long.value((b >> 10) as usize)));
+        }
+        let (mut x, mut y) = ([0u8; 33], [0u8; 33]);
         self.bytes(a, &mut x).cmp(self.bytes(b, &mut y))
     }
 }
@@ -458,7 +628,7 @@ impl LinkTable {
     /// Home slot: the high bits of a multiplicative hash (as `Lookups::hpart`).
     #[inline]
     fn slot(&self, k: u64) -> usize {
-        ((k.wrapping_mul(0x9e37_79b9_7f4a_7c15) & self.hmask) >> self.shift) as usize
+        ((k.wrapping_mul(PART_MULTIPLIER) & self.hmask) >> self.shift) as usize
     }
 
     /// Insert a key that isn't in the table yet.
@@ -497,26 +667,58 @@ struct Interner {
     tab: Vec<(u64, u32)>,
     keys: Vec<u64>,
     mask: usize,
+    shift: u32,
+    probe_mask: usize,
+    partition_bits: u32,
+    hash_mask: u64,
 }
 
 impl Interner {
-    fn reset(&mut self, n: usize) {
-        let cap = (2 * n).next_power_of_two().max(16);
+    fn reset(&mut self, n: usize, partitions: usize, hmask: u64) {
+        self.partition_bits = partitions.next_power_of_two().trailing_zeros();
+        self.hash_mask = hmask;
+        self.keys.clear();
+        // Estimate distinct people from row count. The table grows on demand
+        // for partitions with unusually few rows per person.
+        self.clear_table(n.div_ceil(8).next_power_of_two().max(16));
+    }
+
+    fn clear_table(&mut self, cap: usize) {
         self.tab.clear();
         self.tab.resize(cap, (0, 0));
         self.mask = cap - 1;
-        self.keys.clear();
+        // The outer partition consumes the high bits. Use the next bits of
+        // the stored product for the local home slot.
+        self.shift = 64u32.saturating_sub(self.partition_bits + cap.trailing_zeros());
+        self.probe_mask = (self.hash_mask >> self.shift) as usize & self.mask;
+    }
+
+    #[cold]
+    fn grow_and_intern(&mut self, k: u64) -> u32 {
+        self.clear_table(self.tab.len() * 2);
+        for (id, &key) in self.keys.iter().enumerate() {
+            let mut slot = (key >> self.shift) as usize & self.probe_mask;
+            while self.tab[slot].0 != 0 {
+                slot = (slot + 1) & self.mask;
+            }
+            self.tab[slot] = (key, id as u32);
+        }
+        self.intern(k)
     }
 
     #[inline]
-    fn intern(&mut self, k: u64, hmask: u64) -> u32 {
-        let mut s = (mix(k) & hmask) as usize & self.mask;
+    fn intern(&mut self, k: u64) -> u32 {
+        let mut s = (k >> self.shift) as usize & self.probe_mask;
+        let grow_at = self.tab.len() / 2;
         loop {
             let e = &mut self.tab[s];
             if e.0 == k {
                 return e.1;
             }
             if e.0 == 0 {
+                if self.keys.len() == grow_at {
+                    return self.grow_and_intern(k);
+                }
                 let id = self.keys.len() as u32;
                 *e = (k, id);
                 self.keys.push(k);
@@ -527,8 +729,8 @@ impl Interner {
     }
 
     #[inline]
-    fn get(&self, k: u64, hmask: u64) -> Option<u32> {
-        let mut s = (mix(k) & hmask) as usize & self.mask;
+    fn get(&self, k: u64) -> Option<u32> {
+        let mut s = (k >> self.shift) as usize & self.probe_mask;
         loop {
             let e = &self.tab[s];
             if e.0 == k {
@@ -1194,7 +1396,8 @@ fn parse_price(s: &[u8]) -> Option<u32> {
 /// every other ID (and all of them with SESSIONS_DEBUG_NO_FAST=1) goes to a hash map.
 /// The canonical value is unique per string, so the split is exact.
 struct IdIndex<'a> {
-    prefix: &'static [u8],
+    prefix: [u8; 8], // zero padded
+    plen: usize,     // 1..=8
     direct_on: bool,
     direct: Vec<u32>, // u32::MAX = absent
     map: HashMap<&'a [u8], u32>,
@@ -1202,35 +1405,56 @@ struct IdIndex<'a> {
 
 impl<'a> IdIndex<'a> {
     fn new(prefix: &'static [u8], direct_on: bool) -> Self {
-        IdIndex { prefix, direct_on, direct: Vec::new(), map: new_map(64) }
+        assert!((1..=8).contains(&prefix.len()));
+        let mut p = [0u8; 8];
+        p[..prefix.len()].copy_from_slice(prefix);
+        IdIndex { prefix: p, plen: prefix.len(), direct_on, direct: Vec::new(), map: new_map(64) }
     }
 
-    #[inline]
+    /// Canonical value of `b`: prefix, then 1..=7 digits without a leading zero.
+    #[inline(always)]
     fn direct_slot(&self, b: &[u8]) -> Option<usize> {
-        if !self.direct_on || !b.starts_with(self.prefix) {
+        let (n, pl) = (b.len(), self.plen);
+        if !self.direct_on || n <= pl || n > pl + 7 {
             return None;
         }
-        let d = &b[self.prefix.len()..];
-        if d.is_empty() || d.len() > 7 || (d[0] == b'0' && d.len() > 1) {
+        // byte loop, not starts_with: a runtime-length slice compare is a bcmp call
+        let mut i = 0;
+        while i < pl {
+            if b[i] != self.prefix[i] {
+                return None;
+            }
+            i += 1;
+        }
+        if b[pl] == b'0' && n > pl + 1 {
             return None;
         }
         let mut v = 0usize;
-        for &c in d {
-            let x = c.wrapping_sub(b'0');
+        while i < n {
+            let x = b[i].wrapping_sub(b'0');
             if x >= 10 {
                 return None;
             }
             v = v * 10 + x as usize;
+            i += 1;
         }
         (v < 1 << 22).then_some(v)
     }
 
-    #[inline]
+    #[inline(always)]
     fn get(&self, b: &[u8]) -> Option<u32> {
         match self.direct_slot(b) {
             Some(v) => self.direct.get(v).copied().filter(|&x| x != u32::MAX),
-            None => self.map.get(b).copied(),
+            None => self.get_map(b),
         }
+    }
+
+    /// Non-canonical IDs. Out of line: the inlined hash-map probe would otherwise make
+    /// every `get` save and restore most callee-saved registers.
+    #[cold]
+    #[inline(never)]
+    fn get_map(&self, b: &[u8]) -> Option<u32> {
+        self.map.get(b).copied()
     }
 
     fn set(&mut self, b: &'a [u8], val: u32) {
@@ -1276,12 +1500,11 @@ struct Lookups<'a> {
 
 impl<'a> Lookups<'a> {
     /// Partition hash of a key (for `bucket`): one multiply, whose high bits depend on
-    /// every bit of `k`. Independent of the low bits of `mix`, which index the tables
-    /// inside a partition. Masked by the same debug knob. The link table's home slot uses the same
-    /// high bits; it's a separate table, so that doesn't cluster anything.
+    /// every bit of `k`. Masked by the same debug knob. The link table's home slot
+    /// uses the same high bits; it's a separate table.
     #[inline]
     fn hpart(&self, k: u64) -> u64 {
-        k.wrapping_mul(0x9e37_79b9_7f4a_7c15) & self.hmask
+        k.wrapping_mul(PART_MULTIPLIER) & self.hmask
     }
 
     #[inline]
@@ -1556,9 +1779,9 @@ impl<L: Layout> EvOut<L> {
         let np = std::mem::take(&mut self.np);
         for x in &self.pend[..np] {
             let (mut row, user) = (x.row, x.row.person());
-            let person = lk.links.get_at(user, x.slot);
+            let person = lk.links.get_at(user, x.slot).wrapping_mul(PART_MULTIPLIER);
             row.set_person(person);
-            let d = bucket(lk.hpart(person), nb);
+            let d = bucket(person & lk.hmask, nb);
             let q = bucket(lk.hpart(x.eid), nb);
             // SAFETY: bucket(_, nb) < nb == self.r.len() == self.e.len() == self.rf.len()
             let (r, e, rf) = unsafe { (self.r.get_unchecked_mut(d), self.e.get_unchecked_mut(q), self.rf.get_unchecked_mut(q)) };
@@ -1618,28 +1841,56 @@ fn parse_event<'a, L: Layout>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &
     }
 }
 
-/// A valid click; `person` holds the user key until the batched lookup resolves it.
-#[inline]
-fn parse_click<'a>(f: &[&'a [u8]; 4], lk: &Lookups<'a>, w: &Win) -> Option<(Ck, usize)> {
-    if f[0].is_empty() || f[1].is_empty() {
-        return None;
-    }
-    let camp = lk.campaign(f[2])?;
-    let ts = w.parse_ts(f[3]);
-    if ts < w.start - WEEK_MS || ts >= w.end {
-        return None;
-    }
-    let user = lk.ids.key(f[1]);
-    let slot = lk.links.slot(user);
-    prefetch(&lk.links.slots[slot]);
-    Some((Ck { person: user, ts, cid: lk.ids.key(f[0]), camp }, slot))
+/// One parse task's output for clicks: valid clicks by person partition, with the same
+/// batched link lookup as events.
+struct CkOut {
+    b: Vec<Vec<Ck>>,
+    pend: [(Ck, usize); BATCH], // `person` holds the user key; the user's link slot
+    np: usize,
 }
 
-fn flush_clicks(pend: &mut Vec<(Ck, usize)>, lk: &Lookups, b: &mut [Vec<Ck>]) {
-    for (mut c, slot) in pend.drain(..) {
-        c.person = lk.links.get_at(c.person, slot);
-        b[bucket(lk.hpart(c.person), b.len())].push(c);
+impl CkOut {
+    fn new(nb: usize, bytes: usize) -> Self {
+        let c = Ck { person: 0, ts: 0, cid: 0, camp: 0 };
+        CkOut { b: buckets_with(nb, bytes / 60 / nb * 5 / 4 + 16), pend: [(c, 0); BATCH], np: 0 }
     }
+
+    #[inline(always)]
+    fn queue(&mut self, c: Ck, lk: &Lookups) {
+        let slot = lk.links.slot(c.person);
+        prefetch(&lk.links.slots[slot]);
+        self.pend[self.np & (BATCH - 1)] = (c, slot);
+        self.np += 1;
+        if self.np == BATCH {
+            self.flush(lk);
+        }
+    }
+
+    #[inline]
+    fn flush(&mut self, lk: &Lookups) {
+        let nb = self.b.len();
+        let np = std::mem::take(&mut self.np);
+        for &(mut c, slot) in &self.pend[..np] {
+            c.person = lk.links.get_at(c.person, slot).wrapping_mul(PART_MULTIPLIER);
+            let d = bucket(c.person & lk.hmask, nb);
+            // SAFETY: bucket(_, nb) < nb == self.b.len()
+            unsafe { self.b.get_unchecked_mut(d) }.push(c);
+        }
+    }
+}
+
+/// A valid click; `person` holds the user key until the batched lookup resolves it.
+#[inline]
+fn parse_click<'a>(f: &[&'a [u8]; 4], lk: &Lookups<'a>, w: &Win, o: &mut CkOut) {
+    if f[0].is_empty() || f[1].is_empty() {
+        return;
+    }
+    let Some(camp) = lk.campaign(f[2]) else { return };
+    let ts = w.parse_ts(f[3]);
+    if ts < w.start - WEEK_MS || ts >= w.end {
+        return;
+    }
+    o.queue(Ck { person: lk.ids.key(f[1]), ts, cid: lk.ids.key(f[0]), camp }, lk);
 }
 
 /// Group consecutive chunks into rayon tasks: one chunk per task by default; a tiny debug
@@ -1737,8 +1988,191 @@ struct Scratch<E> {
     evs: Vec<E>,      // the partition's events, grouped by person, ts-sorted per run
     spare: Vec<E>,
     cks: Vec<PCk>,
+    ck_spare: Vec<PCk>,
+    ck_at: Vec<u32>, // counting sort: per-person click-run end
     active: ActiveSet,
-    cat_sum: Vec<i64>,
+    category_sales: CategorySales,
+}
+
+fn hwi() -> u64 {
+    #[cfg(target_os = "macos")]
+    {
+        let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+        let rc = unsafe {
+            libc::proc_pid_rusage(
+                std::process::id() as libc::c_int,
+                libc::RUSAGE_INFO_V4,
+                &mut info as *mut libc::rusage_info_v4 as *mut libc::rusage_info_t,
+            )
+        };
+        if rc == 0 {
+            return info.ri_instructions;
+        }
+    }
+    0
+}
+
+// Read once: env lookups take the environment lock, and these run per partition.
+static ENV_FLAGS: std::sync::OnceLock<(bool, bool, bool)> = std::sync::OnceLock::new();
+
+fn env_flags() -> (bool, bool, bool) {
+    *ENV_FLAGS.get_or_init(|| {
+        (
+            env::var_os("SESSIONS_DEBUG_INSN").is_some(),
+            env::var_os("SESSIONS_DEBUG_SORTED").is_some(),
+            env::var_os("SESSIONS_CLICK_SORT").is_some_and(|v| v == "old"),
+        )
+    })
+}
+
+fn insn_probe() -> bool {
+    env_flags().0
+}
+
+fn sorted_probe() -> bool {
+    env_flags().1
+}
+
+static CLICK_INSN: AtomicU64 = AtomicU64::new(0);
+static CLICK_N: AtomicU64 = AtomicU64::new(0);
+static CK_PERSONS: AtomicU64 = AtomicU64::new(0);
+static CK_SORTED_PERSONS: AtomicU64 = AtomicU64::new(0);
+static CK_ROWS: AtomicU64 = AtomicU64::new(0);
+static CK_SORTED_ROWS: AtomicU64 = AtomicU64::new(0);
+static CK_RUNS: AtomicU64 = AtomicU64::new(0);
+static CK_BUCKET: [AtomicU64; 5] = [
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+];
+
+/// `a` belongs before `b`: earlier ts, or the same ts and a larger click_id.
+/// Packed ids compare as the byte order. The last click at a ts is then the
+/// smallest click_id, which is the one the window walk credits.
+#[inline]
+fn click_ord(a: &PCk, b: &PCk, ids: &Ids) -> Ordering {
+    a.ts.cmp(&b.ts).then_with(|| {
+        if is_packed(a.cid) && is_packed(b.cid) {
+            b.cid.cmp(&a.cid)
+        } else {
+            ids.cmp(b.cid, a.cid)
+        }
+    })
+}
+
+fn insertion_clicks(run: &mut [PCk], ids: &Ids) {
+    for i in 1..run.len() {
+        let key = run[i];
+        let mut j = i;
+        while j > 0 && click_ord(&key, &run[j - 1], ids) == Ordering::Less {
+            run[j] = run[j - 1];
+            j -= 1;
+        }
+        run[j] = key;
+    }
+}
+
+fn sort_click_run(run: &mut [PCk], ids: &Ids) {
+    if run.len() < 2 {
+        return;
+    }
+    if run.len() <= 64 {
+        insertion_clicks(run, ids);
+    } else {
+        run.sort_unstable_by(|a, b| click_ord(a, b, ids));
+    }
+}
+
+fn tally_clicks(run: &[PCk], ids: &Ids) {
+    let n = run.len();
+    if n == 0 {
+        return;
+    }
+    let mut runs = 1u64;
+    for w in run.windows(2) {
+        if click_ord(&w[1], &w[0], ids) == Ordering::Less {
+            runs += 1;
+        }
+    }
+    CK_PERSONS.fetch_add(1, Relaxed);
+    CK_ROWS.fetch_add(n as u64, Relaxed);
+    CK_RUNS.fetch_add(runs, Relaxed);
+    if runs == 1 {
+        CK_SORTED_PERSONS.fetch_add(1, Relaxed);
+        CK_SORTED_ROWS.fetch_add(n as u64, Relaxed);
+    }
+    let bucket = match runs {
+        1 => 0,
+        2 => 1,
+        3..=4 => 2,
+        5..=8 => 3,
+        _ => 4,
+    };
+    CK_BUCKET[bucket].fetch_add(n as u64, Relaxed);
+}
+
+/// v5's sort: one `sort_unstable_by` over every click in the partition.
+fn sort_clicks_old<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[Vec<Vec<Ck>>], p: usize, wide: bool) {
+    sc.cks.clear();
+    for part in ck {
+        for c in &part[p] {
+            if let Some(loc) = sc.persons.get(c.person) {
+                let k = if wide { loc as u64 } else { (loc as u64) << 40 | (c.ts - ctx.base) as u64 };
+                sc.cks.push(PCk { k, ts: c.ts, cid: c.cid, camp: c.camp });
+            }
+        }
+    }
+    sc.cks.sort_unstable_by(|a, b| a.k.cmp(&b.k).then(a.ts.cmp(&b.ts)).then_with(|| lk.ids.cmp(b.cid, a.cid)));
+}
+
+/// Counting sort by the dense person id, then a per-person sort by (ts, click_id desc).
+/// The person id is resolved once. The counting sort then runs on that flat list.
+fn sort_clicks_counted<L: Layout>(lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[Vec<Vec<Ck>>], p: usize, wide: bool) {
+    let shift = if wide { 0 } else { 40 };
+    sc.cks.clear();
+    for part in ck {
+        for c in &part[p] {
+            if let Some(loc) = sc.persons.get(c.person) {
+                let k = if wide { loc as u64 } else { (loc as u64) << 40 };
+                sc.cks.push(PCk { k, ts: c.ts, cid: c.cid, camp: c.camp });
+            }
+        }
+    }
+    let npeople = sc.persons.keys.len();
+    sc.ck_at.clear();
+    sc.ck_at.resize(npeople, 0);
+    for c in &sc.cks {
+        sc.ck_at[(c.k >> shift) as usize] += 1;
+    }
+    let mut sum = 0u32;
+    for c in sc.ck_at.iter_mut() {
+        let n = *c;
+        *c = sum;
+        sum += n;
+    }
+    sc.ck_spare.clear();
+    sc.ck_spare.resize(sc.cks.len(), PCk { k: 0, ts: 0, cid: 0, camp: 0 });
+    for c in &sc.cks {
+        let loc = (c.k >> shift) as usize;
+        let i = sc.ck_at[loc] as usize;
+        sc.ck_at[loc] += 1;
+        sc.ck_spare[i] = *c;
+    }
+    std::mem::swap(&mut sc.cks, &mut sc.ck_spare);
+    let tally = sorted_probe();
+    let mut s0 = 0usize;
+    for &e in &sc.ck_at {
+        let e = e as usize;
+        if e > s0 {
+            if tally {
+                tally_clicks(&sc.cks[s0..e], &lk.ids);
+            }
+            sort_click_run(&mut sc.cks[s0..e], &lk.ids);
+        }
+        s0 = e;
+    }
 }
 
 fn process_part<L: Layout>(
@@ -1771,7 +2205,7 @@ fn process_part<L: Layout>(
         }
     }
     // pass 1: intern persons and count each one's rows
-    sc.persons.reset(n);
+    sc.persons.reset(n, ev[0].r.len(), hmask);
     sc.locs.clear();
     sc.starts.clear();
     let mut b = 0usize;
@@ -1782,7 +2216,7 @@ fn process_part<L: Layout>(
             if gone {
                 continue;
             }
-            let loc = sc.persons.intern(r.person(), hmask);
+            let loc = sc.persons.intern(r.person());
             if loc as usize == sc.starts.len() {
                 sc.starts.push(0);
             }
@@ -1825,86 +2259,130 @@ fn process_part<L: Layout>(
     }
     let wide = ctx.wide || sc.persons.keys.len() >= 1 << 24;
     let shift = if wide { 0 } else { 40 };
-    sc.cks.clear();
-    for part in ck {
-        for c in &part[p] {
-            if let Some(loc) = sc.persons.get(c.person, hmask) {
-                let k = if wide { loc as u64 } else { (loc as u64) << 40 | (c.ts - ctx.base) as u64 };
-                sc.cks.push(PCk { k, ts: c.ts, cid: c.cid, camp: c.camp });
-            }
-        }
+    let click_t0 = insn_probe().then(hwi);
+    if env_flags().2 {
+        sort_clicks_old::<L>(ctx, lk, sc, ck, p, wide);
+    } else {
+        sort_clicks_counted::<L>(lk, sc, ck, p, wide);
     }
-    // clicks: ts ascending, then click_id DESCENDING, so the last click at or before
-    // a session start is the latest one with the smallest click_id.
-    sc.cks.sort_unstable_by(|a, b| a.k.cmp(&b.k).then(a.ts.cmp(&b.ts)).then_with(|| lk.ids.cmp(b.cid, a.cid)));
+    if let Some(t0) = click_t0 {
+        CLICK_INSN.fetch_add(hwi().wrapping_sub(t0), Relaxed);
+        CLICK_N.fetch_add(sc.cks.len() as u64, Relaxed);
+    }
 
-    let base = ctx.base;
-    let Scratch { persons, evs, starts, cks, active, cat_sum, .. } = sc;
-    let ncat = cat_sum.len();
+    let Scratch { persons, evs, starts, cks, active, category_sales, .. } = sc;
     let mut ci = 0usize;
     let mut i = 0usize;
     for (loc, &j) in starts.iter().enumerate() {
         let j = j as usize;
-        let loc = loc as u64;
-        let person = persons.keys[loc as usize];
-        while ci < cks.len() && cks[ci].k >> shift < loc {
-            ci += 1;
-        }
+        let person = persons.keys[loc].wrapping_mul(PART_INVERSE);
+        // Every stored click has a person in starts, and the sort groups those
+        // people in the same order. The cursor advances once per click.
         let mut cj = ci;
-        while cj < cks.len() && cks[cj].k >> shift == loc {
+        while cj < cks.len() && cks[cj].k >> shift == loc as u64 {
             cj += 1;
         }
         let clicks = &cks[ci..cj];
-        let (mut lo, mut hi) = (0usize, 0usize);
+        if clicks.is_empty() {
+            walk_person::<L, false>(ctx, acc, person, &evs[i..j], clicks, active, category_sales);
+        } else {
+            walk_person::<L, true>(ctx, acc, person, &evs[i..j], clicks, active, category_sales);
+        }
+        i = j;
+        ci = cj;
+    }
+}
 
-        // per-day accumulator for this person
-        let mut cur_day = i64::MIN;
-        let (mut d_sessions, mut d_events, mut d_rev) = (0i64, 0i64, 0i64);
-        let mut d_any_purchase = false;
+#[derive(Default)]
+struct DayTotals {
+    sessions: i64,
+    purchasing: i64,
+    events: i64,
+    revenue: i64,
+}
 
-        let mut k = i;
-        while k < j {
-            // session = evs[k0..k]; equal timestamps have gap 0 and always join
-            let k0 = k;
-            let start = L::ts(evs[k], base);
-            let mut last = start;
-            let mut rev = 0i64;
-            let mut purchased = false;
-            while k < j && L::ts(evs[k], base) - last <= GAP_MS {
-                let e = evs[k];
-                last = L::ts(e, base);
-                let price = L::price(e);
-                if price > 0 {
-                    purchased = true;
-                    rev += price as i64;
-                }
-                k += 1;
-            }
-            let day = start.div_euclid(DAY_MS);
-            if day != cur_day {
-                if cur_day != i64::MIN {
-                    flush_user(acc, lk, person, cur_day, d_sessions, d_events, d_rev, d_any_purchase, cat_sum, ncat);
-                }
-                cur_day = day;
-                d_sessions = 0;
-                d_events = 0;
-                d_rev = 0;
-                d_any_purchase = false;
-            }
-            if purchased {
-                for &e in &evs[k0..k] {
-                    let price = L::price(e);
-                    if price > 0 {
-                        cat_sum[L::cat(e) as usize] += price as i64;
-                    }
-                }
-            }
-            d_sessions += 1;
-            d_events += (k - k0) as i64;
-            d_rev += rev;
-            d_any_purchase |= purchased;
+struct CategorySales {
+    totals: Vec<i64>,
+    touched: Vec<u32>,
+}
 
-            // attribution window [start - 7d, start]
+impl CategorySales {
+    #[inline]
+    fn add(&mut self, cat: u32, price: i64) {
+        let total = &mut self.totals[cat as usize];
+        if *total == 0 {
+            self.touched.push(cat);
+        }
+        *total += price;
+    }
+
+    fn take_top(&mut self, rank: &[u32]) -> Option<u32> {
+        let mut best = None;
+        let mut best_total = 0;
+        let mut best_rank = u32::MAX;
+        for cat in self.touched.drain(..) {
+            let total = std::mem::take(&mut self.totals[cat as usize]);
+            let rank = rank[cat as usize];
+            if total > best_total || (total == best_total && rank < best_rank) {
+                best = Some(cat);
+                best_total = total;
+                best_rank = rank;
+            }
+        }
+        best
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn walk_person<L: Layout, const HAS_CLICKS: bool>(
+    ctx: &Ctx,
+    acc: &mut Acc,
+    person: u64,
+    events: &[L::Elem],
+    clicks: &[PCk],
+    active: &mut ActiveSet,
+    sales: &mut CategorySales,
+) {
+    let base = ctx.base;
+    let mut k = 0;
+    let mut day = L::ts(events[0], base).div_euclid(DAY_MS);
+    let mut next_day = (day + 1).saturating_mul(DAY_MS);
+    let mut day_index = (day - ctx.first_day) as usize;
+    let mut daily = DayTotals::default();
+    let (mut lo, mut hi) = (0, 0);
+    while k < events.len() {
+        let first = k;
+        let start = L::ts(events[k], base);
+        if start >= next_day {
+            flush_day::<HAS_CLICKS>(ctx, acc, person, day, day_index, daily, sales);
+            day = start.div_euclid(DAY_MS);
+            next_day = (day + 1).saturating_mul(DAY_MS);
+            day_index = (day - ctx.first_day) as usize;
+            daily = DayTotals::default();
+        }
+
+        // Attribute all events in a session to its start day, even past midnight.
+        let mut last = start;
+        let mut revenue = 0;
+        while let Some(&event) = events.get(k) {
+            let ts = L::ts(event, base);
+            if ts - last > GAP_MS {
+                break;
+            }
+            last = ts;
+            let price = L::price(event) as i64;
+            if price > 0 {
+                sales.add(L::cat(event), price);
+                revenue += price;
+            }
+            k += 1;
+        }
+        let purchased = i64::from(revenue > 0);
+        daily.sessions += 1;
+        daily.events += (k - first) as i64;
+        daily.revenue += revenue;
+        if HAS_CLICKS {
+            // The two cursors delimit the inclusive 7-day click window.
             while hi < clicks.len() && clicks[hi].ts <= start {
                 active.add(clicks[hi].camp);
                 hi += 1;
@@ -1913,60 +2391,50 @@ fn process_part<L: Layout>(
                 active.remove(clicks[lo].camp);
                 lo += 1;
             }
-            let di = (day - ctx.first_day) as usize;
             let credited = if lo < hi { clicks[hi - 1].camp as usize } else { ctx.ncamp };
-            let r = &mut acc.camp[credited * ctx.ndays + di];
-            r[0] += 1;
-            r[1] += purchased as i64;
-            r[2] += rev;
-            for &c in &active.list {
-                acc.camp[c as usize * ctx.ndays + di][3] += 1;
+            let credit = &mut acc.camp[credited * ctx.ndays + day_index];
+            credit[0] += 1;
+            credit[1] += purchased;
+            credit[2] += revenue;
+            for &campaign in &active.list {
+                acc.camp[campaign as usize * ctx.ndays + day_index][3] += 1;
             }
+        } else {
+            daily.purchasing += purchased;
         }
-        flush_user(acc, lk, person, cur_day, d_sessions, d_events, d_rev, d_any_purchase, cat_sum, ncat);
-        while lo < hi {
-            active.remove(clicks[lo].camp);
-            lo += 1;
+    }
+    flush_day::<HAS_CLICKS>(ctx, acc, person, day, day_index, daily, sales);
+    if HAS_CLICKS {
+        // Past this person's last session the multiplicities have no consumer.
+        for campaign in active.list.drain(..) {
+            active.cnt[campaign as usize] = 0;
         }
-        i = j;
-        ci = cj;
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn flush_user(
+fn flush_day<const HAS_CLICKS: bool>(
+    ctx: &Ctx,
     acc: &mut Acc,
-    lk: &Lookups,
     person: u64,
     day: i64,
-    sessions: i64,
-    events: i64,
-    revenue: i64,
-    any_purchase: bool,
-    cat_sum: &mut [i64],
-    ncat: usize,
+    day_index: usize,
+    totals: DayTotals,
+    sales: &mut CategorySales,
 ) {
-    let top = if any_purchase {
-        let mut best: Option<u32> = None;
-        for c in 0..ncat {
-            let s = cat_sum[c];
-            if s == 0 {
-                continue;
-            }
-            best = match best {
-                None => Some(c as u32),
-                Some(b) => {
-                    let bs = cat_sum[b as usize];
-                    if s > bs || (s == bs && lk.cat_rank[c] < lk.cat_rank[b as usize]) { Some(c as u32) } else { Some(b) }
-                }
-            };
-        }
-        best
-    } else {
-        None
-    };
-    cat_sum.iter_mut().for_each(|x| *x = 0);
-    acc.users.push(UserRow { person, day: day as i32, sessions, events, revenue, top });
+    if !HAS_CLICKS {
+        let organic = &mut acc.camp[ctx.ncamp * ctx.ndays + day_index];
+        organic[0] += totals.sessions;
+        organic[1] += totals.purchasing;
+        organic[2] += totals.revenue;
+    }
+    acc.users.push(UserRow {
+        person,
+        day: day as i32,
+        sessions: totals.sessions,
+        events: totals.events,
+        revenue: totals.revenue,
+        top: sales.take_top(&ctx.lk.cat_rank),
+    });
 }
 
 fn load_products<'a>(buf: &'a [u8], direct_on: bool) -> (IdIndex<'a>, Vec<Vec<u8>>) {
@@ -2114,7 +2582,7 @@ fn user_batch(rows: &[UserRow], lk: &Lookups) -> RecordBatch {
     ]));
     let cat_str: Vec<Cow<str>> = lk.cat_names.iter().map(|c| utf8(c)).collect();
     let mut users = StringBuilder::with_capacity(rows.len(), rows.len() * 10);
-    let mut buf = [0u8; 10];
+    let mut buf: IdBuf = [0; 33];
     for r in rows {
         users.append_value(utf8(lk.ids.bytes(r.person, &mut buf)));
     }
@@ -2168,21 +2636,13 @@ fn pipeline<'a, L: Layout>(
         .par_chunks(task_group(ck_chunks.len(), nb, knobs.chunk))
         .map(|task| {
             let bytes: usize = task.iter().map(|&(_, s, e)| e - s).sum();
-            let mut b: Vec<Vec<Ck>> = buckets_with(nb, bytes / 60 / nb * 5 / 4 + 16);
-            let mut pend = Vec::with_capacity(BATCH);
+            let mut o = CkOut::new(nb, bytes);
             for &(fi, s, e) in task {
                 let buf: &[u8] = &clicks_in.maps[fi];
-                for_each_record(buf, s, e, scan, |f| {
-                    if let Some(c) = parse_click(f, lk, win) {
-                        pend.push(c);
-                        if pend.len() == BATCH {
-                            flush_clicks(&mut pend, lk, &mut b);
-                        }
-                    }
-                });
+                for_each_record(buf, s, e, scan, |f| parse_click(f, lk, win, &mut o));
             }
-            flush_clicks(&mut pend, lk, &mut b);
-            b
+            o.flush(lk);
+            o.b
         })
         .collect();
     lap("clicks parsed");
@@ -2216,8 +2676,10 @@ fn pipeline<'a, L: Layout>(
                     evs: Vec::new(),
                     spare: Vec::new(),
                     cks: Vec::new(),
+                    ck_spare: Vec::new(),
+                    ck_at: Vec::new(),
                     active: ActiveSet::new(ncamp),
-                    cat_sum: vec![0i64; ncat],
+                    category_sales: CategorySales { totals: vec![0i64; ncat], touched: Vec::new() },
                 };
                 (acc, sc)
             },
@@ -2232,6 +2694,7 @@ fn pipeline<'a, L: Layout>(
 
 fn main() {
     let t0 = Instant::now();
+    no_purge();
     let get = |k: &str, d: &str| env::var(k).unwrap_or_else(|_| d.to_string());
     let data = PathBuf::from(get("DATA_DIR", "/data"));
     let out = PathBuf::from(get("OUTPUT_DIR", "/output"));
@@ -2253,6 +2716,7 @@ fn main() {
     };
     let knobs = Knobs::from_env();
     STATS_ON.store(env::var_os("SESSIONS_DEBUG_STATS").is_some(), Relaxed);
+    env_flags();
     let hmask = knobs.hmask;
 
     let manifest: serde_json::Value =
@@ -2278,7 +2742,11 @@ fn main() {
         cat_rank[c as usize] = r as u32;
     }
     let (campaigns, camp_ids, channels) = load_campaigns(&campaigns_buf, knobs.no_fast != 1);
-    let ids = Ids::new(knobs.no_fast);
+    // Long IDs (33 B) are 1 in 8 distinct values: one table slot per 256 input bytes
+    // keeps the load near 0.4 (an ID field costs >= 34 B, so a full window falls back
+    // to the interner long before it could matter).
+    let in_bytes: usize = [&links_in, &events_in, &clicks_in].iter().flat_map(|i| i.maps.iter()).map(|m| m.len()).sum();
+    let ids = Ids::with_long(knobs.no_fast, in_bytes / 256, hmask);
     let scan = match knobs.no_fast {
         1 => Scan::Scalar,
         3 => Scan::Swar,
@@ -2335,12 +2803,65 @@ fn main() {
     }
     // Every Parquet writer is closed (ArrowWriter::close flushed it, and its File was
     // dropped inside write_parquet), so nothing is left to flush. Skip the teardown.
-    std::process::exit(0);
+    if insn_probe() {
+        let (n, insn) = (CLICK_N.load(Relaxed), CLICK_INSN.load(Relaxed));
+        eprintln!(
+            "insn click_sort clicks={n} insn={insn} insn/click={:.1}",
+            if n == 0 { 0.0 } else { insn as f64 / n as f64 }
+        );
+    }
+    if sorted_probe() {
+        let (persons, rows, runs) = (CK_PERSONS.load(Relaxed), CK_ROWS.load(Relaxed), CK_RUNS.load(Relaxed));
+        let sp = CK_SORTED_PERSONS.load(Relaxed);
+        let sr = CK_SORTED_ROWS.load(Relaxed);
+        eprintln!(
+            "click-sorted persons={persons} sorted_persons={sp} ({:.2}%) rows={rows} sorted_rows={sr} ({:.2}%) runs={runs} runs/person={:.2}",
+            100.0 * sp as f64 / persons.max(1) as f64,
+            100.0 * sr as f64 / rows.max(1) as f64,
+            runs as f64 / persons.max(1) as f64
+        );
+        eprintln!(
+            "click-sorted row-buckets runs1={} runs2={} runs3-4={} runs5-8={} runs9+={}",
+            CK_BUCKET[0].load(Relaxed),
+            CK_BUCKET[1].load(Relaxed),
+            CK_BUCKET[2].load(Relaxed),
+            CK_BUCKET[3].load(Relaxed),
+            CK_BUCKET[4].load(Relaxed)
+        );
+    }
+    // Every Parquet file is closed: write_parquet returns only after ArrowWriter::close
+    // succeeded and its File was dropped, and stderr is unbuffered. So skip atexit
+    // handlers and the allocator's teardown (Explorer 5: about -464 ms under gVisor).
+    // SESSIONS_EXIT=normal exits through std::process::exit for A/B.
+    if env::var_os("SESSIONS_EXIT").is_some_and(|v| v == "normal") {
+        std::process::exit(0);
+    }
+    unsafe { libc::_exit(0) }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn person_interner_keeps_ordinals_through_growth() {
+        let mut people = Interner::default();
+        people.reset(1, DEFAULT_NB, 0);
+        for original in 1..=100u64 {
+            let key = original.wrapping_mul(PART_MULTIPLIER);
+            assert_eq!(key.wrapping_mul(PART_INVERSE), original);
+            assert_eq!(people.intern(key), original as u32 - 1);
+        }
+        assert!(people.tab.len() > 16);
+        for original in (1..=100u64).rev() {
+            let key = original.wrapping_mul(PART_MULTIPLIER);
+            assert_eq!(people.get(key), Some(original as u32 - 1));
+            assert_eq!(people.intern(key), original as u32 - 1);
+        }
+        people.reset(1, DEFAULT_NB, 0);
+        assert_eq!(people.get(PART_MULTIPLIER), None);
+        assert_eq!(people.intern(PART_MULTIPLIER), 0);
+    }
 
     /// Deterministic xorshift strings over packable chars plus a few that force fallback.
     fn strings() -> Vec<Vec<u8>> {
@@ -2362,17 +2883,57 @@ mod tests {
         for s in [&b"a"[..], b"a0", b"0", b"z", b"zzzzzzzzzz", b"zzzzzzzzzzz", b"0000000000", b"00000000000", b"_", b"Z_", b"u1", b"u10"] {
             v.push(s.to_vec());
         }
+        // Long IDs (prefix + 32 hex) and near misses: other prefixes, uppercase or
+        // non-hex digits, 31/32/33 digits, shared digits under different prefixes,
+        // last-digit neighbours, and short IDs that are their prefixes.
+        let hexd: &[u8] = b"0123456789abcdef";
+        let mut longs: Vec<Vec<u8>> = Vec::new();
+        for i in 0..6_000 {
+            let mut d: Vec<u8> = (0..32).map(|_| hexd[(next() % 16) as usize]).collect();
+            if i % 3 == 0 {
+                d[..28].fill(b'7'); // long shared runs: order decided late
+            }
+            let pre = [b'u', b'e', b'c', b'U', b'_', b'0', b'-'][(next() % 7) as usize];
+            let mut s = vec![pre];
+            s.extend_from_slice(&d);
+            match next() % 10 {
+                0 => s[1 + (next() % 32) as usize] = b"AFg:/`G"[(next() % 7) as usize],
+                1 => s.truncate(32),
+                2 => s.push(hexd[(next() % 16) as usize]),
+                _ => {}
+            }
+            longs.push(s);
+        }
+        let n = longs.len();
+        for i in 0..n / 4 {
+            let mut s = longs[i].clone();
+            s[0] = b"uec"[i % 3];
+            longs.push(s.clone()); // same digits, other prefix
+            let last = s.len() - 1;
+            s[last] = hexd[(HEX[s[last] as usize] as usize + 1) % 16];
+            longs.push(s.clone()); // neighbour
+            longs.push(s[..(i % 11).max(1)].to_vec()); // short prefix of it
+            longs.push(longs[i].clone()); // exact duplicate
+        }
+        v.extend(longs);
         v
     }
 
     #[test]
     fn keys_preserve_equality_and_order() {
         let strs = strings();
-        for mode in 0..=2u8 {
-            let ids = Ids::new(mode);
+        // every knob; and a tiny all-colliding long table, so most long IDs overflow
+        // their probe window into the interner and keys of both kinds mix
+        for (mode, cap, hmask) in [(0u8, 1 << 16, u64::MAX), (1, 1 << 16, u64::MAX), (2, 1 << 16, u64::MAX), (3, 1 << 16, u64::MAX), (0, 64, 0)] {
+            let ids = Ids::with_long(mode, cap, hmask);
             let keys: Vec<u64> = strs.iter().map(|s| ids.key(s)).collect();
+            let (long, interned) = (keys.iter().filter(|&&k| k & 15 == 2).count(), keys.iter().filter(|&&k| k & 15 == 1).count());
+            if mode != 1 {
+                // a 64-slot table holds at most 64 distinct long IDs; the rest overflow
+                assert!(long > if cap == 64 { 64 } else { 1000 } && interned > 1000, "mode {mode} cap {cap}: {long} long, {interned} interned");
+            }
             for (i, s) in strs.iter().enumerate() {
-                let mut buf = [0u8; 10];
+                let mut buf: IdBuf = [0; 33];
                 assert_eq!(ids.bytes(keys[i], &mut buf), &s[..], "round trip {s:?}");
             }
             for i in 0..strs.len() {
@@ -2688,7 +3249,7 @@ mod tests {
         assert!(by_key.iter().map(|(_, s)| s).eq(by_bytes.iter()), "key order == byte order");
         // Keys decode back to their bytes.
         let ids = Ids::new(0);
-        let mut dec = [0u8; 10];
+        let mut dec: IdBuf = [0; 33];
         for (k, s) in &by_key {
             assert_eq!(ids.bytes(*k, &mut dec), &s[..]);
         }
@@ -2758,6 +3319,36 @@ mod idbench {
             run!("key(again)", |b| ids0.key(b));
             let ids3 = Ids::new(3);
             run!("key(scalar)", |b| ids3.key(b));
+        }
+        // campaign field of every click, product field of every event, through IdIndex
+        let camps_csv = std::fs::read("data/dev/campaigns.csv").unwrap();
+        let mut cix = IdIndex::new(b"c_", true);
+        for (i, line) in camps_csv.split(|&c| c == b'\n').skip(1).enumerate() {
+            if let Some(f) = line.split(|&c| c == b',').next() {
+                if !f.is_empty() {
+                    cix.set(strip(f), i as u32);
+                }
+            }
+        }
+        let mut cf: Vec<&[u8]> = Vec::new();
+        for b in &bufs[bufs.len() - 6..] {
+            for line in b.split(|&c| c == b'\n').skip(1) {
+                if let Some(f) = line.split(|&c| c == b',').nth(2) {
+                    cf.push(strip(f));
+                }
+            }
+        }
+        let n2 = cf.len() as f64;
+        for _ in 0..2 {
+            let i0 = instructions().unwrap();
+            let mut acc = 0u64;
+            for _ in 0..50 {
+                for &b in &cf {
+                    acc = acc.wrapping_add(cix.get(black_box(b)).unwrap_or(7) as u64);
+                }
+            }
+            black_box(acc);
+            eprintln!("campaign get: {:6.1} instr/field over {} fields", (instructions().unwrap() - i0) as f64 / n2 / 50.0, cf.len());
         }
     }
 }
