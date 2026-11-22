@@ -3088,8 +3088,23 @@ fn write_user_daily(path: &Path, rows: &[UserRow], lk: &Lookups) {
     let cat_bytes: Vec<&[u8]> = cats.iter().map(|c| c.as_bytes()).collect();
     let mut buf: IdBuf = [0; 33];
     let bytes = pq::user_daily(rows, &cat_bytes, |k, out| {
+        if is_packed(k) {
+            // Branch-free decode of a packed key: symbols are non-zero up to the
+            // first zero terminator, so the length follows from the trailing zeros.
+            let n = 10 - ((k >> 4).trailing_zeros() / 6) as usize;
+            for (i, b) in buf[..10].iter_mut().enumerate() {
+                *b = DESYM[((k >> (58 - 6 * i)) & 63) as usize];
+            }
+            debug_assert_eq!(&buf[..n], lk.ids.bytes(k, &mut [0; 33]));
+            out.reserve(16);
+            unsafe {
+                std::ptr::copy_nonoverlapping(buf.as_ptr(), out.as_mut_ptr().add(out.len()), 16);
+                out.set_len(out.len() + n);
+            }
+            return;
+        }
         let id = lk.ids.bytes(k, &mut buf);
-        if is_packed(k) || k & 15 == 2 {
+        if k & 15 == 2 {
             // decoded into `buf`: copy all 33 bytes (fixed size, no memcpy call), keep n
             let (n, at) = (id.len(), id.as_ptr());
             debug_assert!(std::ptr::eq(at, buf.as_ptr()));

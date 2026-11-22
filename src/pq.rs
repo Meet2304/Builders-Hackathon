@@ -148,8 +148,49 @@ impl<'o> Bits<'o> {
     }
 }
 
+fn varint_len(v: u64) -> usize {
+    (bit_width(v).max(1) as usize).div_ceil(7)
+}
+
 fn bit_width(max: u64) -> u32 {
     64 - max.leading_zeros()
+}
+
+/// Packs `count` values (each < 2^bw, bw <= 32) LSB-first into exactly
+/// `count * bw / 8` bytes (`count * bw` a multiple of 8). If `vals` yields fewer
+/// than `count` values, the rest pack as zeros.
+#[inline(always)]
+fn pack32(out: &mut Vec<u8>, vals: impl Iterator<Item = u32>, count: usize, bw: u32) {
+    debug_assert!(bw <= 32 && (count * bw as usize) % 8 == 0);
+    let bytes = count * bw as usize / 8;
+    if bytes == 0 {
+        return;
+    }
+    out.reserve(bytes + 8);
+    let start = out.len();
+    unsafe {
+        let base = out.as_mut_ptr().add(start);
+        let mut p = base;
+        let (mut acc, mut n) = (0u64, 0u32);
+        let mut seen = 0usize;
+        for v in vals {
+            debug_assert!({ seen += 1; seen <= count });
+            debug_assert!(bw == 32 || v >> bw == 0);
+            acc |= (v as u64) << n;
+            n += bw;
+            if n >= 32 {
+                p.cast::<u32>().write_unaligned((acc as u32).to_le());
+                p = p.add(4);
+                acc >>= 32;
+                n -= 32;
+            }
+        }
+        // the last partial word, then zero padding up to the exact length
+        let rem = bytes - p.offset_from(base) as usize;
+        std::ptr::write_bytes(p, 0, rem);
+        std::ptr::copy_nonoverlapping(acc.to_le_bytes().as_ptr(), p, rem.min(8));
+        out.set_len(start + bytes);
+    }
 }
 
 /// RLE/bit-packing hybrid body (no length prefix, no width byte): one bit-packed run.
@@ -157,14 +198,7 @@ fn hybrid(out: &mut Vec<u8>, vals: impl ExactSizeIterator<Item = u32>, bw: u32) 
     let n = vals.len();
     let groups = n.div_ceil(8);
     varint(out, (groups as u64) << 1 | 1);
-    let mut b = Bits::new(out);
-    for v in vals {
-        b.put(v as u64, bw);
-    }
-    for _ in n..groups * 8 {
-        b.put(0, bw);
-    }
-    b.finish();
+    pack32(out, vals, groups * 8, bw);
 }
 
 /// DELTA_BINARY_PACKED: blocks of 128 values, 4 miniblocks of 32.
@@ -181,29 +215,43 @@ fn delta(out: &mut Vec<u8>, vals: &[i64]) {
     let mut deltas = [0i64; BLOCK];
     let mut prev = vals[0];
     for block in vals[1..].chunks(BLOCK) {
-        let mut min = i64::MAX;
-        for (d, &v) in deltas.iter_mut().zip(block) {
-            *d = v.wrapping_sub(prev);
-            prev = v;
-            min = min.min(*d);
-        }
-        varint(out, zigzag(min));
+        // one pass: deltas, the block's min and each miniblock's max. The width of
+        // a miniblock is that of its largest (d - min), which is (max - min): the
+        // true differences are in [0, 2^64), so u64 order matches.
         let k = block.len();
         let minis = k.div_ceil(MINI);
+        let (mut min, mut maxs) = (i64::MAX, [i64::MIN; 4]);
+        for (m, part) in block.chunks(MINI).enumerate() {
+            let mut mx = i64::MIN;
+            for (d, &v) in deltas[m * MINI..].iter_mut().zip(part) {
+                *d = v.wrapping_sub(prev);
+                prev = v;
+                min = min.min(*d);
+                mx = mx.max(*d);
+            }
+            maxs[m] = mx;
+        }
+        varint(out, zigzag(min));
         let mut widths = [0u8; 4];
-        for (m, w) in widths.iter_mut().enumerate().take(minis) {
-            let hi = ((m + 1) * MINI).min(k);
-            let or = deltas[m * MINI..hi].iter().fold(0u64, |a, &d| a | d.wrapping_sub(min) as u64);
-            *w = bit_width(or) as u8;
+        for m in 0..minis {
+            widths[m] = bit_width(maxs[m].wrapping_sub(min) as u64) as u8;
         }
         out.extend_from_slice(&widths);
+        // pad the last miniblock: min - min packs as 0
+        for d in &mut deltas[k..minis * MINI] {
+            *d = min;
+        }
         for (m, &w) in widths.iter().enumerate().take(minis) {
-            let mut b = Bits::new(out);
-            for i in m * MINI..(m + 1) * MINI {
-                let v = if i < k { deltas[i].wrapping_sub(min) as u64 } else { 0 };
-                b.put(v, w as u32);
+            let mini = &deltas[m * MINI..(m + 1) * MINI];
+            if w <= 32 {
+                pack32(out, mini.iter().map(|d| d.wrapping_sub(min) as u32), MINI, w as u32);
+            } else {
+                let mut b = Bits::new(out);
+                for d in mini {
+                    b.put(d.wrapping_sub(min) as u64, w as u32);
+                }
+                b.finish();
             }
-            b.finish();
         }
     }
 }
@@ -278,26 +326,32 @@ impl File {
         let start = out.len();
         page(out, PAGE_DICT, n_dict, E_PLAIN, dict);
         let data_off = out.len();
-        let body = &mut self.body;
-        body.clear();
-        if let Some(defs) = defs {
-            let mut lv = Vec::with_capacity(defs.len() / 8 + 16);
-            hybrid(&mut lv, defs.iter().map(|&d| d as u32), 1);
-            body.extend_from_slice(&(lv.len() as u32).to_le_bytes());
-            body.extend_from_slice(&lv);
-        }
+        // The data page's size is known up front, so its header goes first and the
+        // levels and indices pack straight into the file (no body copy).
         let bw = bit_width(n_dict.saturating_sub(1) as u64).max(1);
-        body.push(bw as u8);
-        hybrid(body, idx, bw);
-        page(out, PAGE_DATA, self.n, E_RLE_DICT, body);
+        let run = |count: usize, bw: u32| {
+            let groups = count.div_ceil(8);
+            varint_len((groups as u64) << 1 | 1) + groups * bw as usize
+        };
+        let levels = defs.map(|d| run(d.len(), 1));
+        let size = levels.map_or(0, |l| 4 + l) + 1 + run(idx.len(), bw);
+        assert!(size < i32::MAX as usize, "Parquet page over 2 GiB");
+        page_header(out, PAGE_DATA, size, self.n, E_RLE_DICT);
+        let body_at = out.len();
+        if let (Some(defs), Some(l)) = (defs, levels) {
+            out.extend_from_slice(&(l as u32).to_le_bytes());
+            hybrid(out, defs.iter().map(|&d| d as u32), 1);
+        }
+        out.push(bw as u8);
+        hybrid(out, idx, bw);
+        debug_assert_eq!(out.len() - body_at, size);
         let encodings = if defs.is_some() { vec![E_PLAIN, E_RLE, E_RLE_DICT] } else { vec![E_PLAIN, E_RLE_DICT] };
         self.chunks.push((c, Chunk { start, dict_off: Some(start), data_off, encodings }));
     }
 
     /// DATE column: dictionary of every day from the smallest to the largest.
     fn days(&mut self, c: Col, days: impl Iterator<Item = i32> + Clone) {
-        let lo = days.clone().min().unwrap();
-        let hi = days.clone().max().unwrap();
+        let (lo, hi) = days.clone().fold((i32::MAX, i32::MIN), |(lo, hi), d| (lo.min(d), hi.max(d)));
         let mut dict = Vec::with_capacity(4 * (hi - lo + 1) as usize);
         for d in lo..=hi {
             dict.extend_from_slice(&d.to_le_bytes());
