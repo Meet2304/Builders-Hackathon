@@ -192,3 +192,12 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Re-rank:** 1a quote mask (Explorer 2, about −0.30 s, due 02:30). 1b per-column decoder (about −0.40 to −0.55 s; go/no-go at 06:00 is events ≤ 600 at 20M).
   - **Revised final:** 1a only ≈ 2.4 s; 1a and 1b ≈ 2.0 s; plus timestamps and the click port ≈ 1.55 s.
 - **Orchestrator:** to run 1a and 1b in parallel, **Sol was moved from sessions to the 1b per-column decoder** (`explore/sol-coldec`). Explorer 2 finishes 1a.
+- **Method:** **v6 is ready about 2.5 hours early, `method/v5` @ `1f02cb2`.**
+  - Move 3, click parsing (`3f72db2`): clicks 632 → 559 per line. The campaign lookup was 120 per line, because `IdIndex::get` inlined the map probe and paid register spills on every call. The direct path is now inlined and the map probe moved to a cold function (123 → 76 per field).
+  - Move 4, writer (`1f02cb2`, Explorer 3's settings): 121.5 → 58.7 per line at 20M. Output grows from 21 to 93 MB at 20M. `SESSIONS_PARQUET=v4` restores the old writer.
+  - The dedup merge was skipped: it would save about 5 per line.
+  - Phases on dev now: events 711, clicks 134, dedup 37, sessions 298, writing 88.
+- **Analyst:** release plan (`28339b3`, merged): trains v5 → v8, about 35 min from commit to verdict, each submission doubling as a calibration point, and a final pick rule (20M board × the local 60M/20M Linux ratio).
+- **Orchestrator:**
+  - Eval queue: v5 verdict, then the full eval of `1f02cb2` as v6, then the writer A/B on Linux (the same binary with and without `SESSIONS_PARQUET=v4`).
+  - Method → move 5: time and cherry-pick Sol's untimed sessions prototypes (`ca60a5b`, `6f3522a`, `3c03aed`).
