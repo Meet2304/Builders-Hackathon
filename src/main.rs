@@ -92,6 +92,7 @@ unsafe extern "C" {
     fn mi_option_set(option: libc::c_int, value: libc::c_long);
 }
 const MI_OPTION_PURGE_DECOMMITS: libc::c_int = 5;
+const MI_OPTION_ALLOW_LARGE_OS_PAGES: libc::c_int = 6;
 const MI_OPTION_PURGE_DELAY: libc::c_int = 15;
 
 /// Never hand freed memory back to the OS: the process is short-lived, and every
@@ -1158,6 +1159,65 @@ struct Input {
     maps: Vec<Mmap>,
 }
 
+/// Scorer A/B levers (real x86 Linux runner). Every default is today's behaviour.
+///   SESSIONS_POPULATE=0  input faulted on first touch (default)
+///                    =1  each parse task madvise(MADV_POPULATE_READ)s its chunk range just
+///                        before parsing it (events, clicks)
+///                    =2  MAP_POPULATE on every input mmap (per file, in parallel at open)
+///                    =3  madvise(MADV_SEQUENTIAL) + madvise(MADV_WILLNEED) per file at open
+///                    =4  one background thread MADV_POPULATE_READs the event then click files
+///                        in 2 MiB steps from open on, overlapping links/lookups
+///   SESSIONS_THREADS=N   rayon pool size (default NCPU)
+///   SESSIONS_HUGE=1      mimalloc allow_large_os_pages: madvise(MADV_HUGEPAGE) on its arenas
+///                        (THP=madvise). MIMALLOC_ALLOW_LARGE_OS_PAGES=1 also covers the first
+///                        arena, reserved before main.
+///   SESSIONS_PF_DEDUP=D  dedup probe prefetches the slot of the entry D ahead (default 0 = off)
+/// Linux-only paths are no-ops elsewhere.
+fn populate_mode() -> u8 {
+    static M: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *M.get_or_init(|| match env::var("SESSIONS_POPULATE").as_deref() {
+        Ok("1") => 1,
+        Ok("2") => 2,
+        Ok("3") => 3,
+        Ok("4") => 4,
+        _ => 0,
+    })
+}
+
+#[cfg(target_os = "linux")]
+const MADV_POPULATE_READ: libc::c_int = 22;
+
+/// madvise(MADV_POPULATE_READ) on the pages covering buf[s..e].
+#[inline]
+fn populate_range(buf: &[u8], s: usize, e: usize) {
+    #[cfg(target_os = "linux")]
+    {
+        let p0 = (buf.as_ptr() as usize + s) & !4095;
+        let p1 = buf.as_ptr() as usize + e;
+        if p1 > p0 {
+            unsafe { libc::madvise(p0 as *mut libc::c_void, p1 - p0, MADV_POPULATE_READ) };
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (buf, s, e);
+}
+
+/// SESSIONS_POPULATE=4: a detached thread populates these inputs' pages, file by file.
+fn populate_background(inputs: Vec<&'static Input>) {
+    std::thread::spawn(move || {
+        for i in inputs {
+            for m in &i.maps {
+                let mut o = 0;
+                while o < m.len() {
+                    let e = (o + (2 << 20)).min(m.len());
+                    populate_range(m, o, e);
+                    o = e;
+                }
+            }
+        }
+    });
+}
+
 impl Input {
     fn open(dir: &Path) -> Input {
         let mut paths: Vec<PathBuf> = match fs::read_dir(dir) {
@@ -1178,12 +1238,17 @@ impl Input {
                 if len == 0 {
                     return None;
                 }
-                Some(unsafe {
-                    memmap2::MmapOptions::new()
-                        .len(len as usize)
-                        .map(&f)
-                        .expect("mmap csv")
-                })
+                let mut o = memmap2::MmapOptions::new();
+                o.len(len as usize);
+                if populate_mode() == 2 {
+                    o.populate();
+                }
+                let m = unsafe { o.map(&f).expect("mmap csv") };
+                if populate_mode() == 3 {
+                    let _ = m.advise(memmap2::Advice::Sequential);
+                    let _ = m.advise(memmap2::Advice::WillNeed);
+                }
+                Some(m)
             })
             .collect();
         Input {
@@ -2187,6 +2252,25 @@ struct DedupScratch {
 /// Dedup one eid partition: returns the drops (dest:16 | t:24 | seq:24) of every losing
 /// copy that produced a row.
 fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, scratch: &mut DedupScratch) -> Vec<u64> {
+    match pf_dedup() {
+        0 => dedup_part_with::<L, false>(ev, q, hmask, scratch, 0),
+        d => dedup_part_with::<L, true>(ev, q, hmask, scratch, d),
+    }
+}
+
+/// SESSIONS_PF_DEDUP=D: prefetch distance (entries) for the dedup probe; 0 = off.
+fn pf_dedup() -> usize {
+    static D: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *D.get_or_init(|| env::var("SESSIONS_PF_DEDUP").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+
+fn dedup_part_with<L, const PF: bool>(
+    ev: &[EvOut<L>],
+    q: usize,
+    hmask: u64,
+    scratch: &mut DedupScratch,
+    pfd: usize,
+) -> Vec<u64> {
     let n: usize = ev.iter().map(|o| o.e[q].len()).sum();
     if n == 0 {
         return Vec::new();
@@ -2220,7 +2304,12 @@ fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, scratch: &mut DedupScrat
         assert!(es.len() < 1 << 24, "dedup entry index exceeds 24 bits");
         // locator of es[i] is tag | t << 24 | i: advance it with the entry
         let mut loc = tag | (t as u64) << 24;
-        for en in es {
+        for (i, en) in es.iter().enumerate() {
+            if PF && let Some(nx) = es.get(i + pfd) {
+                let o2 = (nx.eid.wrapping_mul(PART_MULTIPLIER).rotate_left(36) & hash_mask) as usize;
+                // SAFETY: o2 is a slot offset inside the table (see below); prefetch only.
+                prefetch(unsafe { base.add(o2) });
+            }
             // Partition routing consumes the top hash bits; use middle bits
             // of a multiplicative hash for this partition-local table. Full
             // eid equality still resolves every collision exactly.
@@ -3252,6 +3341,9 @@ fn pipeline<'a, L: Layout>(
             let mut o = EvOut::<L>::new(nb, bytes, base);
             for &(fi, s, e) in task {
                 let buf: &[u8] = &events_in.maps[fi];
+                if populate_mode() == 1 {
+                    populate_range(buf, s, e);
+                }
                 #[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
                 if scan == Scan::Simd && lk.ids.simd_pack && let Some(decoder) = &win.decoder {
                     event_columns::parse_chunk(buf, s, e, lk, win, decoder, &mut o);
@@ -3292,6 +3384,9 @@ fn pipeline<'a, L: Layout>(
             let mut o = CkOut::new(nb, buf);
             for &(fi, s, e) in task {
                 let buf: &[u8] = &clicks_in.maps[fi];
+                if populate_mode() == 1 {
+                    populate_range(buf, s, e);
+                }
                 #[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
                 if scan == Scan::Simd && lk.ids.simd_pack && let Some(dec) = &win.decoder {
                     columns::clicks(buf, s, e, lk, win, dec, &mut o);
@@ -3371,8 +3466,12 @@ fn main() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()));
+    if env::var_os("SESSIONS_HUGE").is_some_and(|v| v == "1") {
+        unsafe { mi_option_set(MI_OPTION_ALLOW_LARGE_OS_PAGES, 1) };
+    }
+    let threads = env::var("SESSIONS_THREADS").ok().and_then(|v| v.parse().ok()).filter(|&n: &usize| n > 0).unwrap_or(ncpu);
     rayon::ThreadPoolBuilder::new()
-        .num_threads(ncpu)
+        .num_threads(threads)
         .stack_size(8 << 20) // 8 MiB: nested rayon joins overflowed 256 KiB (Red Team seed 535, PARTS=4096); pages are touched only when used
         .build_global()
         .ok();
@@ -3410,6 +3509,14 @@ fn main() {
     let links_in = Input::open(&data.join("links"));
     let events_in = Input::open(&data.join("events"));
     let clicks_in = Input::open(&data.join("clicks"));
+    if populate_mode() == 4 {
+        // SAFETY of 'static: the process ends with _exit (or exit) while these live in
+        // main's frame; the thread only reads the mappings, which are never unmapped
+        // (the exit zap is MADV_DONTNEED, which leaves them mapped and readable).
+        let (ev, ck): (&'static Input, &'static Input) =
+            unsafe { (&*(&events_in as *const Input), &*(&clicks_in as *const Input)) };
+        populate_background(vec![ev, ck]);
+    }
 
     let (products, mut cat_names) = load_products(&products_buf, knobs.no_fast != 1);
     let unknown_cat = cat_names.len() as u32;
