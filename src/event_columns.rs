@@ -306,6 +306,58 @@ unsafe fn skip_ignored<const TERM: u8>(p: *const u8) -> Option<(bool, *const u8)
     }
 }
 
+/// The two common IDs have eight base-36 bytes each. Validate and pack both
+/// together, keeping their exact order-preserving keys.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn short_id_pair(p: *const u8) -> Option<(u64, u64, *const u8)> {
+    unsafe {
+        let eq = (*p == b'"') as usize;
+        let eid = p.add(eq);
+        if *eid != b'e' {
+            return None;
+        }
+        let p = terminate::<b','>(eid.add(9), eq)?;
+        let uq = (*p == b'"') as usize;
+        let user = p.add(uq);
+        if *user != b'u' {
+            return None;
+        }
+        let next = terminate::<b','>(user.add(9), uq)?;
+        let a = _mm_loadl_epi64(eid.add(1).cast());
+        let b = _mm_loadl_epi64(user.add(1).cast());
+        let chars = _mm_unpacklo_epi64(a, b);
+        let alpha = _mm_cmpgt_epi8(chars, _mm_set1_epi8(b'9' as i8));
+        let origins = _mm_xor_si128(_mm_set1_epi8(b'0' as i8), _mm_and_si128(alpha, _mm_set1_epi8((b'0' ^ b'a') as i8)));
+        let limits = _mm_xor_si128(_mm_set1_epi8(9), _mm_and_si128(alpha, _mm_set1_epi8(9 ^ 25)));
+        let delta = _mm_sub_epi8(chars, origins);
+        let excess = _mm_subs_epu8(delta, limits);
+        if _mm_movemask_epi8(_mm_cmpeq_epi8(excess, _mm_setzero_si128())) != 0xffff {
+            return None;
+        }
+        let offsets = _mm_xor_si128(_mm_set1_epi8(1), _mm_and_si128(alpha, _mm_set1_epi8(1 ^ 38)));
+        let codes = _mm_add_epi8(delta, offsets);
+        let pairs = _mm_maddubs_epi16(codes, _mm_set1_epi16(0x0140));
+        let quads = _mm_madd_epi16(pairs, _mm_set1_epi32(0x0001_1000));
+        let order = _mm_setr_epi8(4, 5, 6, 0, 1, 2, -1, -1, 12, 13, 14, 8, 9, 10, -1, -1);
+        let bits = _mm_slli_epi64(_mm_shuffle_epi8(quads, order), 10);
+        let eid = _mm_cvtsi128_si64(bits) as u64 | (super::SYM[b'e' as usize] as u64) << 58;
+        let user = _mm_cvtsi128_si64(_mm_srli_si128(bits, 8)) as u64 | (super::SYM[b'u' as usize] as u64) << 58;
+        Some((eid, user, next))
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[cold]
+#[inline(never)]
+unsafe fn other_id_pair<'a>(p: *const u8) -> Option<(FieldId<'a>, FieldId<'a>, *const u8)> {
+    unsafe {
+        let (eid, p) = Column::open(p).id::<b'e'>()?;
+        let (user, p) = Column::open(p).id::<b'u'>()?;
+        Some((eid, user, p))
+    }
+}
+
 impl Column {
     #[inline(always)]
     unsafe fn open(p: *const u8) -> Self {
@@ -595,8 +647,18 @@ unsafe fn try_line<'a>(
     dec: &TimestampDecoder,
 ) -> Option<(*const u8, Option<EvRec>)> {
     unsafe {
-        let (eid, p) = Column::open(p).id::<b'e'>()?;
-        let (user, p) = Column::open(p).id::<b'u'>()?;
+        #[cfg(target_arch = "x86_64")]
+        let (eid, user, p) = if let Some((eid, user, p)) = short_id_pair(p) {
+            (FieldId::Packed(eid), FieldId::Packed(user), p)
+        } else {
+            other_id_pair(p)?
+        };
+        #[cfg(target_arch = "aarch64")]
+        let (eid, user, p) = {
+            let (eid, p) = Column::open(p).id::<b'e'>()?;
+            let (user, p) = Column::open(p).id::<b'u'>()?;
+            (eid, user, p)
+        };
         let event = Column::open(p);
         let (event_time, event_len, p) = event_time(&event, dec)?;
         let ing = Column::open(p);
