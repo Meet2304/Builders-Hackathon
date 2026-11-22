@@ -442,3 +442,6 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Fix: v10.1 = `integ/v10` @ `be41e2e`** (stack 8 MiB). Gates: fixtures 36/36, new dev MATCH under `NO_FAST` 0–3, seed-42 MATCH, seed-535 PARTS=4096 10/10 clean; long-ID 40 seeds running.
   - Eval runs the gate on `be41e2e` (untimed + cascadelake/amd64), carrying over Gate C and the 60M memory gate from `def3d26`. Red Team (now on Codex-Andrew 6.1 Sol) re-tests v8col × 16 configs on `be41e2e`.
 - **Eval v10 untimed gate on `def3d26`:** fixtures 36/36, differential 9/9, fuzz under every knob, **long-ID 900/900 in 48 s (8 shards; was 54 min)**.
+- **v11b (fewer output files) DROPPED** (`explore/v11-files` @ `2cb2ab8`, notes kept). 60M gVisor 5 pairs vs v10: median 3.32 → 3.28 s (−1.2%, below the 3% bar), and the output phase is slower (78 → 94 ms) despite 603 fewer syscalls. Gates pass.
+- **Red Team: v10.1 `be41e2e` PASS** (5,922 runs: v8col 300 seeds × 16 configs, seed535 × 500 at PARTS=4096 NCPU=8, priority click/writer suite).
+- **Eval: v10.1 untimed gate all MATCH** (long-ID 900/900 in 30 s). Timed gate (containers, native 20M/60M, 22 GiB cgroup memory check, now unguarded) running; Gate C carried from the `def3d26` A/B. v10's own cgroup check was `not_run` (Docker VM load tripped the guard; fixed in `lib/linux_proxy.py`).
