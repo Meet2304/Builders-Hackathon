@@ -488,3 +488,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Screen:** the 5-point fit, ≥ 5% Ir trigger.
   - **New Gate C (Orchestrator-approved):** x86 Ir ≥ 3% lower than v8, plus no contention regression (native NCPU=8 20M paired A/B + futex count), plus no gVisor 60M regression > 3% as a sanity check.
 - **Gemini Neon restarted:** Neon Detective on the main Codex account (6.2 Sol, medium) drives Gemini 4 Neon in the browser to propose x86 instruction cuts; top 3 sent to Sol (events) and Explorer 4 (sessions/write) by 07:15. (No thread had used Neon since the 06:26 Codex-Andrew stop.)
+- **06:45, user: use Gemini Neon (High reasoning, browser) to plan the version after v13, with full context, and implement it.**
+  - Wrote `docs/orchestration/neon-brief-v14.md` (public repo): board history, x86 Ir per phase, what worked and what failed, correctness traps, the ask.
+  - **Neon Architect → Codex 6.2 Sol high:** drives Gemini 4 Neon High in the browser, plan to `evals/neon/v14-plan.md` (summary by 07:20), then implements the top non-overlapping item on `explore/v14-neon` from `be41e2e`.
+  - **User: Codex is about to run out; switch Codex threads to Codex-Andrew (6.1 Sol) when it does.**
+  - Codex threads now: Sol (v13 events), Explorer 4 (v13 sessions/write), Neon Detective (Neon x86 ideas), Neon Architect (Neon v14 plan + build). Eval on claudeAgent.
