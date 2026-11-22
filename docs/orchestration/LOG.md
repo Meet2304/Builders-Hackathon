@@ -97,3 +97,18 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - v3 amendment: review suites 120/120, windows fuzz 227/227, amd64 SWAR path 36/36 + dev, Linux A/B +74%.
   - "wait 141 ms" isn't defined anywhere in the docs.
 - **User request:** run Eval on Gemini Neon in the browser instead of Claude. **Orchestrator** switched Eval to Cursor `grok-4.7` as the driver, with Gemini 4 Neon in its own browser tab as analysis and design partner. Eval keeps ownership of the verdicts. Its tasks are to prepare v4 evals (lead with predicted board time and instructions per row) and to cover the Analyst's open requests: per-phase instructions, fast-path share counter, partition skew, 60M/20M growth.
+- **Orchestrator tick (19:47 ET):** several threads finished 10–20 min ago and sat idle until this tick. Fix: shorter loop delay, and re-task as soon as reports land.
+- **Method:** v4 moves 1–2 on `method/v4` @ `c9e1a0c`. Every gate passes: fixtures, dev, 7 seeds, the full knob matrix, the v3_review cases, and 8 unit tests.
+  - **Instructions per line, 20M:** 1,772–1,795 vs v3's 2,610 (**−31%**). That projects to about 1.3 s on the board. Quick 20M run: 0.53 s, 3.8 GB.
+  - **Move 1 (quote-aware fast path) saved only 3 instructions per line.** It now takes 100% of lines, but `split_fields` on quoted lines was never the cost. The Analyst's premise for that move was wrong.
+  - **Move 2 (16 B rows plus a per-person counting sort with Explorer 2's radix) did the work:** 2,628 → 1,855 instructions per line on dev.
+  - The remaining parse cost is ID packing, timestamps, category lookups and pushes.
+- **Explorer (Sol):** `5dafdb0`, merged.
+  - **Parallel links** (`explore/parallel-links` @ `89ad72c`): −36 instructions per line at 20M and −40 at 60M, exact.
+  - **Unneeded-work audit:** looking up the category only for purchases skips 97.1% of lookups, about −57 to −67 instructions per line (modeled).
+  - **Partition skew:** the largest partition is 5.5× the average.
+- **Explorer 2:** counting sort alone on v3 cuts 2,598 → 2,391 instructions per line (−207), worth about −0.15 s on the board. Already in v4 move 2. Note merged.
+- **Analyst** addendum `353709c`, **Eval** v1.4 `3f2ceee` and **Dashboard** `0ad54a7` merged.
+  - Eval: per-phase instructions per row for v3 are events parse 1,600, sessions 522, clicks 241, output 130, lookups 69, dedup 35. Lookups and dedup are cache-bound at 60M.
+  - Eval: the Linux A/B for v3 vs v1 is +74%.
+- **Next:** Eval runs the full eval of v4 `c9e1a0c`. Method does move 3 (ID packer), category lookups for purchases only, the parallel-links port, then moves 4–6. Sol prototypes move 5–6 (L2-sized partitions, dedup and lookup cache behaviour at 60M, skew-aware scheduling). Explorer 2 does the ID packer kernel. Re-applied Eval's switch to Cursor grok-4.7 + Gemini (it had kept running on Claude).
