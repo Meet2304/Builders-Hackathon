@@ -491,12 +491,7 @@ unsafe fn click_line<'a>(
             .filter(|_| {
                 !cid.is_empty() && !person.is_empty() && ts >= w.start - WEEK_MS && ts < w.end
             })
-            .map(|camp| Ck {
-                cid: cid.key(&lk.ids),
-                person: person.key(&lk.ids),
-                camp,
-                ts,
-            });
+            .map(|camp| Ck::new(person.key(&lk.ids), cid.key(&lk.ids), ts, camp, w));
         Some((next, row))
     }
 }
@@ -643,6 +638,8 @@ mod tests {
         Win {
             start,
             end,
+            ck_base: start.saturating_sub(crate::WEEK_MS),
+            ckb: 16,
             decoder: Some(TimestampDecoder::new(start, end)),
         }
     }

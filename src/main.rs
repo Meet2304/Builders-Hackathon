@@ -188,6 +188,16 @@ fn instructions() -> Option<u64> {
     None
 }
 
+/// Minor page faults so far and peak RSS in bytes.
+fn faults_rss() -> (i64, i64) {
+    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) } != 0 {
+        return (0, 0);
+    }
+    let rss = if cfg!(target_os = "macos") { ru.ru_maxrss as i64 } else { ru.ru_maxrss as i64 * 1024 };
+    (ru.ru_minflt as i64, rss)
+}
+
 /// Process CPU time so far (user + sys, all threads), in seconds.
 fn cpu_secs() -> f64 {
     let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
@@ -1727,14 +1737,32 @@ fn radix_u64<T: Copy, F: Fn(&T) -> u64>(data: &mut [T], scratch: &mut [T], key: 
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 struct Ck {
     person: u64,
-    ts: i64,
     cid: u64,
-    camp: u32,
+    tc: u64, // (ts - base) << ckb | camp: 24 B rows, 25% fewer fresh pages than 32 B
+}
+
+impl Ck {
+    #[inline(always)]
+    fn new(person: u64, cid: u64, ts: i64, camp: u32, w: &Win) -> Ck {
+        Ck { person, cid, tc: ((ts - w.ck_base) as u64) << w.ckb | camp as u64 }
+    }
+
+    #[inline(always)]
+    fn ts(&self, ctx: &Ctx) -> i64 {
+        (self.tc >> ctx.ckb) as i64 + ctx.base
+    }
+
+    #[inline(always)]
+    fn camp(&self, ctx: &Ctx) -> u32 {
+        (self.tc & ((1u64 << ctx.ckb) - 1)) as u32
+    }
 }
 
 struct Win {
     start: i64,
     end: i64,
+    ck_base: i64, // == Ctx::base
+    ckb: u32,     // == Ctx::ckb
     decoder: Option<TimestampDecoder>, // None under SESSIONS_DEBUG_NO_FAST=1
 }
 
@@ -1904,16 +1932,66 @@ fn parse_event<'a, L: Layout>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &
 
 /// One parse task's output for clicks: valid clicks by person partition, with the same
 /// batched link lookup as events.
+/// Rows go to `flat` (a per-worker buffer reused across tasks) in parse order; `finish`
+/// then scatters them, stably, into one exact-size allocation per task. Fresh pages are
+/// just the rows, with no per-partition headroom or tails, and no 256 Vecs per task.
 struct CkOut {
-    b: Vec<Vec<Ck>>,
+    flat: Vec<Ck>,
+    nb: usize,
     pend: [(Ck, usize); BATCH], // `person` holds the user key; the user's link slot
     np: usize,
 }
 
+/// One task's valid clicks, grouped by person partition: partition p is
+/// rows[off[p]..off[p + 1]], in parse order.
+struct CkPart {
+    rows: Vec<Ck>,
+    off: Vec<u32>,
+}
+
+impl std::ops::Index<usize> for CkPart {
+    type Output = [Ck];
+    #[inline]
+    fn index(&self, p: usize) -> &[Ck] {
+        &self.rows[self.off[p] as usize..self.off[p + 1] as usize]
+    }
+}
+
 impl CkOut {
-    fn new(nb: usize, bytes: usize) -> Self {
-        let c = Ck { person: 0, ts: 0, cid: 0, camp: 0 };
-        CkOut { b: buckets_with(nb, bytes / 60 / nb * 5 / 4 + 16), pend: [(c, 0); BATCH], np: 0 }
+    fn new(nb: usize, mut flat: Vec<Ck>) -> Self {
+        flat.clear();
+        let c = Ck { person: 0, cid: 0, tc: 0 };
+        CkOut { flat, nb, pend: [(c, 0); BATCH], np: 0 }
+    }
+
+    /// Flushes, then the counting scatter by partition. Returns the buffer for reuse.
+    fn finish(mut self, lk: &Lookups) -> (CkPart, Vec<Ck>) {
+        self.flush(lk);
+        let nb = self.nb;
+        let n = self.flat.len();
+        assert!(n < u32::MAX as usize);
+        let mut off = vec![0u32; nb + 1];
+        for c in &self.flat {
+            off[bucket(c.person & lk.hmask, nb) + 1] += 1;
+        }
+        for i in 0..nb {
+            off[i + 1] += off[i];
+        }
+        let mut at = off.clone();
+        let mut rows: Vec<Ck> = Vec::with_capacity(n);
+        let dst = rows.as_mut_ptr();
+        for c in &self.flat {
+            let d = bucket(c.person & lk.hmask, nb);
+            // SAFETY: d < nb; at[d] < off[d + 1] <= n == rows.capacity(), each slot written once
+            unsafe {
+                let i = at.get_unchecked_mut(d);
+                dst.add(*i as usize).write(*c);
+                *i += 1;
+            }
+        }
+        // SAFETY: all n slots were written: the counts sum to n
+        unsafe { rows.set_len(n) };
+        (CkPart { rows, off }, self.flat)
     }
 
     #[inline(always)]
@@ -1929,13 +2007,10 @@ impl CkOut {
 
     #[inline]
     fn flush(&mut self, lk: &Lookups) {
-        let nb = self.b.len();
         let np = std::mem::take(&mut self.np);
         for &(mut c, slot) in &self.pend[..np] {
             c.person = lk.links.get_at(c.person, slot).wrapping_mul(PART_MULTIPLIER);
-            let d = bucket(c.person & lk.hmask, nb);
-            // SAFETY: bucket(_, nb) < nb == self.b.len()
-            unsafe { self.b.get_unchecked_mut(d) }.push(c);
+            self.flat.push(c);
         }
     }
 }
@@ -1951,7 +2026,7 @@ fn decode_click<'a>(f: &[&'a [u8]; 4], lk: &Lookups<'a>, w: &Win) -> Option<Ck> 
     if ts < w.start - WEEK_MS || ts >= w.end {
         return None;
     }
-    Some(Ck { person: lk.ids.key(f[1]), ts, cid: lk.ids.key(f[0]), camp })
+    Some(Ck::new(lk.ids.key(f[1]), lk.ids.key(f[0]), ts, camp, w))
 }
 
 /// Group consecutive chunks into rayon tasks: one chunk per task by default; a tiny debug
@@ -2029,6 +2104,7 @@ struct Ctx<'a, 'l> {
     ncamp: usize, // organic == ncamp
     base: i64,    // window_start - 7 days: the smallest ts of any kept row
     wide: bool,   // ts - base may not fit 40 bits: sort on (person, ts) pairs
+    ckb: u32,     // low bits of Ck::tc holding the campaign index
 }
 
 #[derive(Clone, Copy)]
@@ -2175,13 +2251,14 @@ fn tally_clicks(run: &[PCk], ids: &Ids) {
 }
 
 /// v5's sort: one `sort_unstable_by` over every click in the partition.
-fn sort_clicks_old<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[Vec<Vec<Ck>>], p: usize, wide: bool) {
+fn sort_clicks_old<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[CkPart], p: usize, wide: bool) {
     sc.cks.clear();
     for part in ck {
         for c in &part[p] {
             if let Some(loc) = sc.persons.get(c.person) {
-                let k = if wide { loc as u64 } else { (loc as u64) << 40 | (c.ts - ctx.base) as u64 };
-                sc.cks.push(PCk { k, ts: c.ts, cid: c.cid, camp: c.camp });
+                let ts = c.ts(ctx);
+                let k = if wide { loc as u64 } else { (loc as u64) << 40 | (ts - ctx.base) as u64 };
+                sc.cks.push(PCk { k, ts, cid: c.cid, camp: c.camp(ctx) });
             }
         }
     }
@@ -2190,14 +2267,14 @@ fn sort_clicks_old<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::Elem>
 
 /// Counting sort by the dense person id, then a per-person sort by (ts, click_id desc).
 /// The person id is resolved once. The counting sort then runs on that flat list.
-fn sort_clicks_counted<L: Layout>(lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[Vec<Vec<Ck>>], p: usize, wide: bool) {
+fn sort_clicks_counted<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[CkPart], p: usize, wide: bool) {
     let shift = if wide { 0 } else { 40 };
     sc.cks.clear();
     for part in ck {
         for c in &part[p] {
             if let Some(loc) = sc.persons.get(c.person) {
                 let k = if wide { loc as u64 } else { (loc as u64) << 40 };
-                sc.cks.push(PCk { k, ts: c.ts, cid: c.cid, camp: c.camp });
+                sc.cks.push(PCk { k, ts: c.ts(ctx), cid: c.cid, camp: c.camp(ctx) });
             }
         }
     }
@@ -2241,7 +2318,7 @@ fn process_part<L: Layout>(
     acc: &mut Acc,
     sc: &mut Scratch<L::Elem>,
     ev: &[EvOut<L>],
-    ck: &[Vec<Vec<Ck>>],
+    ck: &[CkPart],
     drops: &[u64],
     p: usize,
 ) {
@@ -2324,7 +2401,7 @@ fn process_part<L: Layout>(
     if env_flags().2 {
         sort_clicks_old::<L>(ctx, lk, sc, ck, p, wide);
     } else {
-        sort_clicks_counted::<L>(lk, sc, ck, p, wide);
+        sort_clicks_counted::<L>(ctx, lk, sc, ck, p, wide);
     }
     if let Some(t0) = click_t0 {
         CLICK_INSN.fetch_add(hwi().wrapping_sub(t0), Relaxed);
@@ -2702,11 +2779,13 @@ fn pipeline<'a, L: Layout>(
 
     // clicks: parse + validate + scatter by person
     let ck_chunks = clicks_in.chunks(knobs.chunk);
-    let ck_out: Vec<Vec<Vec<Ck>>> = ck_chunks
+    let ck_out: Vec<CkPart> = ck_chunks
         .par_chunks(task_group(ck_chunks.len(), nb, knobs.chunk))
-        .map(|task| {
+        .map_init(Vec::new, |flat, task| {
             let bytes: usize = task.iter().map(|&(_, s, e)| e - s).sum();
-            let mut o = CkOut::new(nb, bytes);
+            let mut buf = std::mem::take(flat);
+            buf.reserve(bytes / 40); // > lines per task (~53 B each); virtual until touched
+            let mut o = CkOut::new(nb, buf);
             for &(fi, s, e) in task {
                 let buf: &[u8] = &clicks_in.maps[fi];
                 #[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
@@ -2720,8 +2799,9 @@ fn pipeline<'a, L: Layout>(
                     }
                 });
             }
-            o.flush(lk);
-            o.b
+            let (part, buf) = o.finish(lk);
+            *flat = buf;
+            part
         })
         .collect();
     lap("clicks parsed");
@@ -2789,9 +2869,15 @@ fn main() {
     // `[  1.234s] phase (detail, cpu=X.XXXs)`: wall since start, then the process's
     // cumulative user+sys CPU, inside the parentheses so the Eval phase key is unchanged.
     // On macOS also the cumulative instructions retired: `, instr=1.234G`.
+    // SESSIONS_DEBUG_FAULTS=1: also the cumulative minor faults and peak RSS per lap.
+    let show_faults = env::var_os("SESSIONS_DEBUG_FAULTS").is_some();
     let lap = |what: &str| {
         let (wall, cpu) = (t0.elapsed().as_secs_f64(), cpu_secs());
-        let ins = instructions().map_or(String::new(), |i| format!(", instr={:.4}G", i as f64 / 1e9));
+        let mut ins = instructions().map_or(String::new(), |i| format!(", instr={:.4}G", i as f64 / 1e9));
+        if show_faults {
+            let (flt, rss) = faults_rss();
+            ins += &format!(", minflt={flt}, maxrss={:.1}M", rss as f64 / 1048576.0);
+        }
         match what.strip_suffix(')') {
             Some(head) if head.contains(" (") => eprintln!("[{wall:>7.3}s] {head}, cpu={cpu:.3}s{ins})"),
             _ => eprintln!("[{wall:>7.3}s] {what} (cpu={cpu:.3}s{ins})"),
@@ -2807,7 +2893,7 @@ fn main() {
     let mts = |k: &str| parse_ts(manifest[k].as_str().expect("manifest key").as_bytes()).expect("manifest ts");
     let (start, end) = (mts("window_start"), mts("window_end"));
     let decoder = (knobs.no_fast != 1).then(|| TimestampDecoder::new(start, end));
-    let win = Win { start, end, decoder };
+    let mut win = Win { start, end, ck_base: 0, ckb: 0, decoder };
 
     let products_buf = read_small(&data.join("products.csv"));
     let campaigns_buf = read_small(&data.join("campaigns.csv"));
@@ -2845,7 +2931,12 @@ fn main() {
     let ncamp = lk.camp_ids.len();
     let base = win.start.saturating_sub(WEEK_MS);
     let wide = !(0..1i64 << 40).contains(&win.end.saturating_sub(base));
-    let ctx = Ctx { lk: &lk, first_day, ndays, ncamp, base, wide };
+    // click rows pack (ts - base) above the campaign index's bits
+    let ckb = (u64::BITS - (ncamp as u64).leading_zeros()).max(1);
+    assert!((win.end.saturating_sub(base) as u64) >> (64 - ckb) == 0, "click window too wide to pack");
+    win.ck_base = base;
+    win.ckb = ckb;
+    let ctx = Ctx { lk: &lk, first_day, ndays, ncamp, base, wide, ckb };
     let ncat = lk.cat_names.len();
     // 16 B rows unless a ts offset (ms) or a category index wouldn't fit them
     let compact = knobs.no_fast != 1 && win.end.saturating_sub(base) < 1i64 << 32 && ncat <= 256;
