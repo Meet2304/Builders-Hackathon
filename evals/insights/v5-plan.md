@@ -11,7 +11,7 @@ and new counts in §0, built from clean for this note.
 
 - **Where we are.** The head retires **1,468 instructions per event line** at 20M (NCPU=1), about 1,500 at NCPU=8. At 64.15M lines and 28.77 G instr/s, that's **3.34 s** on the final, plus a 60M cache penalty of about **0.15 s** (not 0.3–0.6 s, see §2). Planning number: **≈ 3.5 s**, against **≈ 0.84 s** for a leader who scales linearly.
 - **The spec's floor is ≈ 350 per line, ≈ 0.78 s on the final** (§1). That is the leaders' number. First place means reaching the floor in parse, sessions *and* output, with no 60M cliff.
-- **Realistic tonight: ≈ 670 per line, ≈ 1.5 s on the final.** That needs every move in §4 rows 1–7 to land. The order in §4 gets the most seconds per hour. The rest is floor work that doesn't fit in 10 hours.
+- **Realistic tonight: ≈ 850–1,020 per line, ≈ 2.0–2.4 s on the final** (revised at 01:00 after `2e22d43`, §3a/§4). ≈ 680 per line and ≈ 1.55 s only if the per-column decoder, Sol's timestamps and the click port all land. The order in §4 gets the most seconds per hour. The rest is floor work that doesn't fit in 10 hours.
 - **Partition conflict (§2):** Sol is right that more *global* partitions lose, because the cost is parse fan-out. Analyst 2 is right that the dedup *table* should fit L2, but the penalty was over-modelled. The fix is a second, local level: sub-bucket inside each **eid** partition. Never dedup inside person partitions: 1 in 64 duplicated events changes user between copies.
 - **Explorer 2's ceiling (§3)** is real for classify → slices → strip. A per-column decoder that finds each field's end while decoding it never builds the mask stream, the bit walk, or the slices. Its front end should cost **≈ 150–200**, against ≈ 585 now.
 - **No clean-room rewrite (§4).** It costs 10–14 agent-hours plus gates, and buys only ≈ 0.1–0.25 s over replacing modules. The fused decoder *is* the rewrite of the one part where the architecture blocks the floor.
@@ -174,15 +174,59 @@ Method's probe + emit (§4 row 2) consumes `EvRec` behind today's scanner first.
 
 So the decoder may use ymm compares and shuffles freely. Keep the `pmaddubsw`/`pmaddwd` digit and pack math at **128-bit**, and use no zmm. Eval's cascadelake disassembly should list any ymm/zmm `vpmul*`/`vpmadd*` and any zmm use in the hot functions, not only 512-bit opcodes.
 
+### 3a. Addendum (01:00 ET): `explore/gemini-fused` @ `2e22d43` did not test this design
+
+`2e22d43` measured 1,243 per line against 824. It is a **scalar splitter followed by the old decoders**, not a per-column decoder:
+
+- `memchr` for `\n` on every line, then `take_col` walks **every byte** in a scalar loop (`c == ','`, `q += c == '"'`, `j += 1`). That is ~4–5 instructions per byte over ~75 bytes, ≈ 350 per line, replacing the 31-instruction SIMD classify.
+- The slices it returns are then decoded by the **same** functions as before. `ids.key` → `pack_fast` reloads and re-classifies the bytes with a known length. `parse_ts` re-dispatches on slice length. `parse_price` and the type match are unchanged. End-finding and decoding stay two separate passes, so nothing is fused.
+- So 1,243 ≈ 824 − 295 (old scan) + ≈ 710 (scalar walk and `memchr`). The result is right for what was built.
+
+**The rule that makes it a per-column decoder:** no byte loop and no `memchr`. Each field is **one 16-byte SIMD load at the field start**. The decoder's own class mask gives the field length (`tzcnt` of the first byte outside the column's alphabet). The value is decoded from the same register, and the terminator is a single byte compare at `s + len (+q)`. Fixed-width formats (F1 20 B, F2 25 B, `view`, `cart`, `purchase`) check the terminator at a fixed offset and never search for it.
+
+#### Spec for Explorer 2 (events; x86 SSSE3 instruction budgets per line, NEON about +2 per field for movemask)
+
+Setup per line: `p` = line start. **Guard once per line:** if `p + 192 > map_end`, use the fallback for this line, so no per-field page checks (unlike `pack_fast`). `q(p)` = `(b[p] == '"') as usize` (3 instr). `term(e, q)`: `b[e] == '"'` iff `q`, and `b[e + q] == ','`, done branch-free into an `ok &=` accumulator (≈ 5 instr). Every field ends with `p = e + q + 1`.
+
+| Column | What it does | Budget |
+| --- | --- | ---: |
+| `event_id` | `q`; `v = loadu(p+q)`; class bits = `pshufb(PK_LO, v & 15) & pshufb(PK_HI, v >> 4)` (the packer's tables); `bad = movemask(cmpeq(cls, 0))`; `len = tzcnt(bad \| 1<<10)`; `len == 0` means empty eid (drop the line, `memchr` to `\n`, which is rare); `len == 10` with a symbol at byte 10 means over-long → fallback; `live = cmpgt(len, IDX)`; then `pack_simd`'s code, merge and place unchanged; `term` | 38 |
+| `user_id` | same as `event_id`; empty means invalid, and the rest of the line goes to skip mode | 38 |
+| `ts` | `q`; `v0 = loadu(s)`. F1/F2 iff `b[s+4] == '-'`: a template compare of `v0` (digit mask by range, `-` `-` `T` `:` `:` at fixed lanes) plus `b[s+19]`. `Z` means len 20; `+`/`-` means a 6-byte offset check and len 25. Then the existing window-day and clock decode (Sol's paired decoder when merged). Otherwise F3: digit mask, `len = tzcnt(non-digit)`, len ≤ 16 decoded in lanes; longer goes to the fallback. A template miss runs `w.parse_ts` on the bounds `[s, s+len)`, which `skip_field` finds. `term` | 56 (≈ 85 with today's decoder) |
+| `ingest_ts` | `q`; fixed 20 bytes: a cheap template check (digit range plus 5 separators plus `Z`); decode with no `Option` plumbing; a miss runs `parse_ts(...).unwrap_or(i64::MAX)` as today; `term` at `s+20` | 30 |
+| `event_type` | `q`; 8-byte load; `view`/`cart` mean a 4-byte compare and terminator at `+4`; `purchase` means an 8-byte compare and `+8`; anything else is an invalid type, so `skip_field` and skip mode | 8 |
+| `product_id` | view/cart: `skip_field`. Purchase: the same `id_field` length logic, then `lk.category` on `[s, s+len)` | 13 (+30 × 3%) |
+| `price_cents` | view/cart: `skip_field` with the terminator `\n`. Purchase: digit mask, `len`, ≤ 8 digits, 1..=10,000,000 | 13 (+15 × 3%) |
+| line end and commit | `ok` must be set and `b[p-1] == '\n'`; else `fallback(line)`. Commit: `push_valid`/`push_invalid` as today (Method's emit) | 6 |
+| **Front end** | | **≈ 200** (≈ 290 with today's ts/ingest decoder) |
+
+`skip_field(p)` is used for product and price on view/cart, and for every field after the line turns invalid. One 16 B load, `m = movemask(cmpeq ',' | cmpeq '"' | cmpeq '\n')`, `e = tzcnt(m)`. A `"` is allowed only at lane 0 (then rescan from 1 and require `"` plus the terminator). `m == 0` (a field of 16 B or more) goes to the fallback. About 12 instructions.
+
+**Fallback:** the line, from its start, goes through `split_fields` + `parse_event`, exactly as today. Its rate must stay under 1%. Count it with `SESSIONS_DEBUG_STATS`.
+
+**Test before timing:** the `fused_columns_match_split_fields` generator in `2e22d43`, but comparing the **decoded** `(eid, ingest, valid, user, ts, price, cat)` against `split_fields` + `parse_event`. Add the real-line mutations from §3 and the over-read guard at file tails.
+
+**Go/no-go:** events parse ≤ 600 per line at 20M (NCPU=1, minimum of 3, fresh build) with fixtures, dev and seed-42 MATCH **by 06:00 ET**. If it misses, drop it.
+
+#### Against the quote-mask route
+
+| Route | Events parse (front end) | Clicks and links | Final s vs head | Risk |
+| --- | ---: | --- | ---: | --- |
+| Quote mask (classify + bit walk + prefix-xor validation + branch-free strip, slices kept) | 585 → ≈ 465 | also helped: the same `for_each_record`, ≈ −15 per line | **≈ −0.30** | low; Explorer 2 is on it now |
+| Per-column (this spec) | 585 → ≈ 290 (≈ 200 with Sol's ts) | events only; clicks are a later port | **≈ −0.65 to −0.85** | medium; the fallback contains it |
+
+The per-column decoder replaces about 295 of structure work with about 85 (seven quote and terminator checks plus two `skip_field`s), and it gets field lengths for free from the decoders. The quote-mask route keeps the ≈ 145 of classify, bit walk and slices.
+
 ## 4. Ranked moves in final-board seconds, with owners
 
 Seconds are for the 60M final at 0.223 s per 100 instructions per line. "Tonight" is the realistic landing. Floor seconds are in §1. Every explorer **branches from `method/v5` and delivers a mergeable commit with its gates run**, not a recipe. With about 10 hours left, Method merges and does not re-implement.
 
 | Rank | Move | Owner | Instr/line now → tonight | Final s | Hours | Risk |
 | --- | --- | --- | --- | ---: | ---: | --- |
-| 1 | **Fused event decoder** (§3), with Sol's paired timestamp decoder as `ts_field`/`f1_trusted` | **Explorer 2** builds it on `method/v5`; Method merges; Sol hands Explorer 2 the decoder | front end ≈ 585 → 200 | **−0.86** | 4–6 | medium, contained by the fallback |
+| 1a | **Quote-mask scan** (Explorer 2's current work; §3a): a commit by **02:30** or drop it | **Explorer 2** → Method | front end 585 → ≈ 465, clicks and links −15 | **−0.30** | 1.5 | low |
+| 1b | **Per-column event decoder** (§3a spec), with Sol's decoder for `ts`/`ingest` when it lands. Go/no-go at **06:00** | **Explorer 2** after 1a; Method merges | ≈ 465 → ≈ 290 (≈ 200 with Sol's ts) | **−0.40 to −0.55** more | 3 | medium, contained by the fallback |
 | 2 | **Probe + emit against `EvRec`**: no 56 B `PendEv` copy, the ref folded into the dedup entry, hash eid and person once, pushes without capacity checks | **Method** (in progress) | ≈ 235 → 90 | **−0.32** | 2–3 | low–medium |
-| 3 | **Clicks and links through the same primitives** | **Explorer 2** → Method | clicks 154 → 50, links 26 → 16 | **−0.25** | 1–2 after #1 | medium |
+| 3 | **Clicks through the per-column primitives**: only after 1b lands, otherwise 1a's share (−15) is all clicks get tonight | Explorer 2 → Method | clicks ≈ 140 → ≈ 60 | **−0.18** | 1 after 1b | medium; likely past the freeze |
 | 4 | **Dedup sub-buckets inside eid partitions** (§2) | **Sol** (prototyping) | 33 → ≈ 38; cycles | **−0.10 to −0.20** (plan −0.15) | 2–3 | low–medium |
 | 5 | **Click sort**: group clicks by the partition's person index (counting sort, as for events), then sort a u64 `ts_off << 32 \| index` per person. Re-sort only the rare equal-ts groups (boundary pairs and duplicate copies) by the exact `ids.cmp`, descending. Keep today's comparator when `wide`. | **Explorer 3** (switch now; the event sort is only 44) | 89 → 20 | **−0.15** | 1–2 | low |
 | 6 | **Person grouping**: intern + count + scatter + run sort, 145 → 80. One `(loc, ts_off)` key, an intern table sized to the partition. Run-aware sort is unlikely to pay, because rows are shuffled across files, so per-person input order is random. Measure that in five minutes and drop it if so. | **Explorer 3** after #5 | 145 → 80 | **−0.145** | 2–3 | medium |
@@ -191,7 +235,15 @@ Seconds are for the 60M final at 0.223 s per 100 instructions per line. "Tonight
 | 9 | Hand-rolled Parquet writer (plain encoding, no Arrow) | Explorer 3, not tonight unless everything above is in | 56 → 6 | −0.11 | 3–4 | medium–high (format) |
 | 10 | 60M calibration and gates: v4's practice score as a second calibration point, v5-pre practice submissions, Linux 60M A/B for #4 and #7, disassembly for ymm/zmm multiplies | **Eval** | — | — | ongoing | — |
 
-**Rows 1–7 together:** ≈ 1,496 → ≈ 673 per line, which is **3.5 s → ≈ 1.5 s** on the final. Adding 8 and 9 gives ≈ 1.25 s. The floor is ≈ 0.78 s.
+**Rows 1–7 together (revised after `2e22d43`):**
+
+| Case | Per line | Final |
+| --- | ---: | ---: |
+| 1a only, no 1b or 3 | ≈ 1,020 | **≈ 2.4 s** |
+| 1a and 1b | ≈ 840 | **≈ 2.0 s** |
+| 1a, 1b with Sol's ts, and 3 | ≈ 680 | **≈ 1.55 s** |
+
+The 01:00 estimate was ≈ 673 per line and ≈ 1.5 s. The floor is still ≈ 0.78 s.
 
 **Don't do tonight:**
 - Global adaptive partitions (§2).
