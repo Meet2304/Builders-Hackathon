@@ -51,6 +51,7 @@ mod columns;
 #[allow(dead_code)]
 mod hex32;
 mod links;
+mod pq;
 #[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
 mod event_columns;
 
@@ -2275,7 +2276,7 @@ fn sort_click_run(run: &mut [PCk], ids: &Ids) {
     if run.len() < 2 {
         return;
     }
-    if run.len() <= 64 {
+    if run.len() <= 16 {
         insertion_clicks(run, ids);
     } else {
         run.sort_unstable_by(|a, b| click_ord(a, b, ids));
@@ -2962,6 +2963,62 @@ fn write_parquet(path: &Path, batch: RecordBatch) {
     fs::write(path, buf).expect("write parquet file");
 }
 
+/// user_daily through the direct encoder (`pq`); empty files keep the Arrow path.
+/// The bytes match `user_batch`'s strings: packed and long keys are ASCII, other IDs
+/// and category names go through the same lossy UTF-8 conversion.
+fn write_user_daily(path: &Path, rows: &[UserRow], lk: &Lookups) {
+    if rows.is_empty() || env_flag_arrow_writer() {
+        return write_parquet(path, user_batch(rows, lk));
+    }
+    let cats: Vec<Cow<str>> = lk.cat_names.iter().map(|c| utf8(c)).collect();
+    let cat_bytes: Vec<&[u8]> = cats.iter().map(|c| c.as_bytes()).collect();
+    let mut buf: IdBuf = [0; 33];
+    let bytes = pq::user_daily(rows, &cat_bytes, |k, out| {
+        let id = lk.ids.bytes(k, &mut buf);
+        if is_packed(k) || k & 15 == 2 {
+            // decoded into `buf`: copy all 33 bytes (fixed size, no memcpy call), keep n
+            let (n, at) = (id.len(), id.as_ptr());
+            debug_assert!(std::ptr::eq(at, buf.as_ptr()));
+            out.reserve(buf.len());
+            unsafe {
+                std::ptr::copy_nonoverlapping(buf.as_ptr(), out.as_mut_ptr().add(out.len()), buf.len());
+                out.set_len(out.len() + n);
+            }
+        } else {
+            out.extend_from_slice(utf8(id).as_bytes());
+        }
+    });
+    fs::write(path, bytes).expect("write parquet file");
+}
+
+/// campaign_daily through the direct encoder: the same rows and strings as `campaign_batch`.
+fn write_campaign_daily(path: &Path, camp: &[[i64; 4]], ctx: &Ctx) {
+    let mut rows = Vec::new();
+    for c in 0..=ctx.ncamp {
+        for d in 0..ctx.ndays {
+            let v = camp[d * (ctx.ncamp + 1) + c];
+            if v[0] != 0 || v[3] != 0 {
+                rows.push((c as u32, (ctx.first_day + d as i64) as i32, v));
+            }
+        }
+    }
+    if rows.is_empty() || env_flag_arrow_writer() {
+        return write_parquet(path, campaign_batch(camp, ctx));
+    }
+    let lk = ctx.lk;
+    let ids: Vec<Cow<str>> = lk.camp_ids[..ctx.ncamp].iter().map(|c| utf8(c)).chain([Cow::Borrowed("organic")]).collect();
+    let chans: Vec<Cow<str>> = lk.channels[..ctx.ncamp].iter().map(|c| utf8(c)).chain([Cow::Borrowed("organic")]).collect();
+    let ids: Vec<&[u8]> = ids.iter().map(|c| c.as_bytes()).collect();
+    let chans: Vec<&[u8]> = chans.iter().map(|c| c.as_bytes()).collect();
+    fs::write(path, pq::campaign_daily(&rows, &ids, &chans)).expect("write parquet file");
+}
+
+/// SESSIONS_DEBUG_ARROW_WRITER: write both tables with the Arrow writer (A/B, debugging).
+fn env_flag_arrow_writer() -> bool {
+    static F: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *F.get_or_init(|| env::var_os("SESSIONS_DEBUG_ARROW_WRITER").is_some())
+}
+
 fn utf8(b: &[u8]) -> Cow<'_, str> {
     String::from_utf8_lossy(b)
 }
@@ -3284,13 +3341,13 @@ fn main() {
     rayon::join(
         || {
             nonempty.par_iter().enumerate().for_each(|(i, a)| {
-                write_parquet(&ud_dir.join(format!("part-{i:05}.parquet")), user_batch(&a.users, &lk));
+                write_user_daily(&ud_dir.join(format!("part-{i:05}.parquet")), &a.users, &lk);
             });
             if nonempty.is_empty() {
                 write_parquet(&ud_dir.join("part-00000.parquet"), user_batch(&[], &lk));
             }
         },
-        || write_parquet(&cd_dir.join("part-00000.parquet"), campaign_batch(&camp_total, &ctx)),
+        || write_campaign_daily(&cd_dir.join("part-00000.parquet"), &camp_total, &ctx),
     );
     let rows: usize = accs.iter().map(|a| a.users.len()).sum();
     lap(&format!("written ({rows} user_daily rows)"));
