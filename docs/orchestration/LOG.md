@@ -129,3 +129,10 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Re-tasked **Eval** to run the full eval on the v4 head **`a019739`**, which adds purchase-only category lookup and parallel links. It runs detached and the turn waits for the result.
   - Resumed **Method** on its uncommitted SIMD ID packer. The first cut was small (events 914 → 891 instructions per line), so it is profiling `pack` against `Ids::key` before committing. Link lookup + row path and click parsing follow.
 - **Sol:** cache-bound ablations (`1856183`, merged) are **negative**. Adaptive L2-sized partitions cut 60M dedup cycles by 22% (−38 ms), but the whole process adds about 22 instructions and 26 cycles per line, the native footprint grows by 0.5 GB, and Linux wall regresses (+4.7% at 20M, +8.2% at 60M). **Keep 256 partitions.** The next thing to try is subdividing dedup independently of the person partitions. Item (5) is off Method's list.
+- **Eval:** v4 @ `a019739` is **SUBMIT-READY** (`6f270b2`, merged). The comparison step crashed after measuring; Eval fixed it and rebuilt the report from the same data.
+  - Instructions per row: **1,572** at 20M (v3 2,598, −39.5%) and 1,548 at 60M.
+  - Predicted board: **1.175 s** from instructions, 1.418 s from wall × 3.10 (v3 board 1.9424 s).
+  - 20M interleaved: native 0.453 s vs 0.618 s (−26.7%); Linux arm64 0.383 s vs 0.542 s (−29.3%, 11 pairs).
+  - 60M: peak footprint 5.06 GB, Linux cgroup peak 5.29 GiB, median 1.32 s.
+  - Correctness: fixtures 36/36 (native, arm64, amd64, and the portable amd64 path), 11/11 oracle diffs, fuzz 854/854 under every knob, review 120/120, window fuzz 227/227, deterministic. Clean cascadelake build passes.
+- **Orchestrator:** merged `method/v4` @ `a019739` into main (src identical), re-checked fixtures 36/36 and dev MATCH on main, tagged `v4`, pushed. Asked the user to submit v4.
