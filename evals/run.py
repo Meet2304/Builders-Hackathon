@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -37,6 +38,7 @@ from lib.correct import (DEBUG_CASES, DIALECT_ONLY, EXTRA_DEBUG_CASES, INVALID_D
                          WINDOWS_SEED0, fuzz_gen_sha, run_fixtures, run_fuzz, runner_cmd)
 from lib.linux_proxy import probe_linux  # noqa: E402
 from lib.review import run_suite  # noqa: E402
+from lib import phase_counters  # noqa: E402
 from lib.measure import ContaminatedSample, load_snapshot, run_once, sample_load, summarize, summarize_runs  # noqa: E402
 
 SCHEMA_VERSION = 1
@@ -47,15 +49,17 @@ PROFILES = {
     "quick": {"runs": {"perf-1M": 3, "perf-20M": 5, "perf-60M": 1}, "warmup": {"perf-1M": 1, "perf-20M": 1,
                                                                               "perf-60M": 0},
               "fuzz_seeds": 150, "windows_seeds": 60, "thread_scaling": False, "docker": False, "probe": "perf-1M",
-              "ab": False},
+              "ab": False, "counters": {"perf-20M": 2}},
     "full": {"runs": {"perf-1M": 5, "perf-20M": 5, "perf-60M": 3}, "warmup": {"perf-1M": 1, "perf-20M": 1,
                                                                             "perf-60M": 1},
              "fuzz_seeds": 1000, "windows_seeds": 300, "thread_scaling": True, "docker": True, "probe": "perf-60M",
-             "ab": True},
+             "ab": True, "counters": {"perf-1M": 3, "perf-20M": 3, "perf-60M": 2}},
     "linux": {"runs": {"perf-20M": 5}, "warmup": {"perf-20M": 1}, "fuzz_seeds": 150, "windows_seeds": 60,
-              "thread_scaling": False, "docker": False, "probe": None, "ab": True},
+              "thread_scaling": False, "docker": False, "probe": None, "ab": True,
+              "counters": {"perf-20M": 2}},
 }
-AMEND_STAGES = {"review": "review", "windows": "fuzz_windows", "amd64-knobs": "amd64_knobs", "linux-ab": "linux_ab"}
+AMEND_STAGES = {"review": "review", "windows": "fuzz_windows", "amd64-knobs": "amd64_knobs", "linux-ab": "linux_ab",
+                "counters": "counters", "growth": "growth"}
 SCALING_NCPU = [1, 2, 4, 5, 8]
 SCALING_RUNS = 3
 AB_RUNS = 5
@@ -462,6 +466,37 @@ class Eval:
         self.r["perf"]["thread_scaling"] = {"dataset": base["dataset"], "points": curve,
                                             "per_ncpu_detail": detail}
 
+    def counters(self):
+        """Untimed per-phase instruction/cycle probes, plus one SESSIONS_DEBUG_STATS run per dataset."""
+        want = self.prof.get("counters", {})
+        if not want:
+            return
+        if not phase_counters.available():
+            self.note("phase counters: proc_pid_rusage unavailable on this host")
+            return
+        stats_ok = b"SESSIONS_DEBUG_STATS" in self.binary.read_bytes()
+        out, scratch = self.runs_dir / "out", self.runs_dir / "scratch"
+        res = self.r["perf"]["phase_counters"] = {}
+        for role, n in want.items():
+            name = self.role(role)
+            if not name:
+                continue
+            ev = dataset_stats(DATA / name)["events_lines"]
+            log(f"phase counters: {name}, {n} untimed runs")
+            runs = [phase_counters.probe_once(self.binary, DATA / name, out, scratch) for _ in range(n)]
+            item = res[role] = {"dataset": name, **phase_counters.summarize(runs, ev)}
+            if stats_ok:
+                st = phase_counters.probe_once(self.binary, DATA / name, out, scratch,
+                                               extra_env={"SESSIONS_DEBUG_STATS": "1"})
+                item["debug_stats"] = parse_stats(st["stats_lines"])
+                ref = (self.r["correctness"]["determinism"].get(name) or {}).get("hashes") or []
+                if st["returncode"] == 0 and ref:
+                    item["debug_stats"]["output_matches_default"] = canonical_hash(out)["hash"] == ref[0]
+            if item.get("instr_per_row"):
+                log(f"  {item['instr_per_row']:,.0f} instr/row, IPC {item['ipc']}: " + ", ".join(
+                    f"{k} {v['instr_per_row']:,.0f}" for k, v in item["phases"].items()))
+        shutil.rmtree(out, ignore_errors=True)
+
     def size_scaling(self):
         p = self.r["perf"]["datasets"]
         pts = {}
@@ -475,7 +510,7 @@ class Eval:
             if a in pts and b in pts:
                 ratios[f"{b}/{a}"] = {"time_ratio": round(pts[b]["median_s"] / pts[a]["median_s"], 3),
                                       "events_ratio": round(pts[b]["events"] / pts[a]["events"], 3)}
-        self.r["perf"]["size_scaling"] = {"points": pts, "ratios": ratios}
+        self.r["perf"]["size_scaling"] = {"points": pts, "ratios": ratios, "phase_growth": phase_growth(self.r)}
 
     # -------------------------------------------------------------- containers
     def containers(self):
@@ -628,6 +663,10 @@ class Eval:
         arm = build_image(self.sha, "arm64")
         self.linux_timing(arm, info, self.r.get("baseline") or gates.best_baseline(self.a.version))
 
+    def growth(self):
+        """Recompute the per-phase 60M/20M growth table (used by --amend growth after --amend counters)."""
+        self.r["perf"].setdefault("size_scaling", {})["phase_growth"] = phase_growth(self.r)
+
     def linux_memory(self, image, info):
         name = self.role("perf-60M")
         if not name:
@@ -771,6 +810,9 @@ class Eval:
 
     @benchmark_lock()
     def amend(self, stages):
+        self._amend(stages)
+
+    def _amend(self, stages):
         """Add stages to an existing result for the same commit, then recompute gates, verdict, report, ledger."""
         path = EVALS / "results" / f"{self.a.version}.json"
         old = read_json(path)
@@ -812,6 +854,46 @@ class Eval:
             + "; ".join(r["verdict"]["reasons"][:6]))
         log(f"amended evals/results/{r['version']}.json and .md")
 
+    def reference(self) -> dict | None:
+        """The version every new eval is compared with (suite.json "reference_version", else the best submitted)."""
+        name = read_json(EVALS / "suite.json").get("reference_version")
+        if not name:
+            base = gates.best_baseline(self.a.version)
+            name = base["version"] if base and base.get("kind") == "submitted" else None
+        if not name or name == self.a.version:
+            return None
+        return read_json(EVALS / "results" / f"{name}.json")
+
+    def refresh_reference(self):
+        """Bring the reference result up to the current framework's untimed metrics, so comparisons are like for like.
+        Timed metrics are compared through this eval's interleaved A/B, which re-times the baseline."""
+        ref = self.reference()
+        if not ref:
+            return
+        stages = missing_stages(ref, self.suite)
+        if not self.prof["docker"] or self.a.no_docker:
+            stages = [x for x in stages if x != "amd64-knobs"]
+        if not stages:
+            return
+        log(f"reference {ref['version']}: adding current-framework stages {stages}")
+        args = argparse.Namespace(version=ref["version"], rev=ref["sha"], profile=ref["profile"], fuzz_seeds=None,
+                                  no_docker=self.a.no_docker, ab_runs=None, no_ledger=self.a.no_ledger, rebuild=False)
+        Eval(args)._amend(stages)
+
+    def comparison(self):
+        """results/<version>-vs-<reference>.md plus a summary embedded in this result."""
+        ref = self.reference()
+        if not ref:
+            return
+        import compare as cmp
+        sections = cmp.compare(ref, self.r)
+        name = f"{self.r['version']}-vs-{ref['version']}"
+        (EVALS / "results" / f"{name}.md").write_text(cmp.render(ref, self.r, sections, md=True))
+        keep = {"Headline", "Per-phase counters, 20M (untimed probes)"}
+        self.r["comparison"] = {"reference": ref["version"], "reference_sha": ref["sha"], "file": f"results/{name}.md",
+                                "sections": [(t, rows) for t, rows in sections
+                                             if t in keep or t.startswith("Same-session")]}
+
     @benchmark_lock()
     def main(self):
         log(f"eval {self.a.version}: rev {self.a.rev} = {self.sha[:12]}, profile {self.a.profile}")
@@ -830,6 +912,7 @@ class Eval:
         if self.a.profile == "linux":
             self.step("Linux timing", self.linux_profile)
         self.perf()
+        self.step("phase counters", self.counters)
         if self.prof["probe"]:
             self.step("probe", self.probe)
         if self.prof["thread_scaling"]:
@@ -842,6 +925,8 @@ class Eval:
             self.step("cold cache", self.cold_cache)
         self.step("constraints", self.constraints)
         self.step("calibration", self.calibration)
+        self.step("reference refresh", self.refresh_reference)
+        self.step("comparison", self.comparison)
         self.finish()
 
 
@@ -857,6 +942,165 @@ def fmt_ipr(x):
 
 def fmt_number(x):
     return "n/a" if x is None else f"{x:,.2f}"
+
+
+def missing_stages(ref: dict, suite: dict) -> list[str]:
+    """Untimed stages the current framework runs that `ref`'s result lacks (or ran with an older generator)."""
+    c, p = ref.get("correctness", {}), ref.get("perf", {})
+    prof = PROFILES.get(ref.get("profile"), {})
+    out = []
+    names = {x["name"] for x in suite.get("review_suites", [])}
+    if names and not names <= set(c.get("review_suites", {})):
+        out.append("review")
+    if prof.get("windows_seeds") and (c.get("fuzz_windows") or {}).get("gen_sha") != fuzz_gen_sha():
+        out.append("windows")
+    if prof.get("counters") and not set(prof["counters"]) <= set(p.get("phase_counters", {})):
+        out += ["counters", "growth"]
+    elif prof.get("counters") and "perf-60M" in prof["counters"] and not (p.get("size_scaling") or {}).get("phase_growth"):
+        out.append("growth")
+    if prof.get("docker") and "amd64_knobs" not in c:
+        out.append("amd64-knobs")
+    return out
+
+
+STATS_LINE = re.compile(r"^stats: (\S+)(?: lines)? (.*)$")
+
+
+def parse_stats(lines: list[str]) -> dict:
+    """`stats: <kind> lines fast=F split_fields=S (x% fast)` and any `stats: <name> k=v ...` -> {name: {k: v}}."""
+    out: dict = {"raw": lines[:50]}
+    for line in lines:
+        m = STATS_LINE.match(line)
+        if not m:
+            continue
+        kv = {}
+        for k, v in re.findall(r"([A-Za-z_][\w.]*)=([-0-9.eE+]+)", m.group(2)):
+            kv[k] = float(v) if any(c in v for c in ".eE") else int(v)
+        if kv.get("rows_max") and kv.get("rows_mean"):
+            kv["skew_max_over_mean"] = round(kv["rows_max"] / kv["rows_mean"], 3)
+        if "fast" in kv and "split_fields" in kv:
+            total = kv["fast"] + kv["split_fields"]
+            kv["fast_share"] = round(kv["fast"] / total, 4) if total else None
+        out.setdefault("kinds", {})[m.group(1)] = kv
+    return out
+
+
+def phase_growth(r: dict) -> dict:
+    """60M/20M growth per phase: wall, CPU and (when counted) instructions per row, normalised by event lines."""
+    p = r["perf"]["datasets"]
+    a, b = p.get("perf-20M"), p.get("perf-60M")
+    if not a or not b or not a["summary"]["wall_s"].get("n") or not b["summary"]["wall_s"].get("n"):
+        return {}
+    ev = b["events_lines"] / a["events_lines"]
+    pc = r["perf"].get("phase_counters", {})
+    ca, cb = pc.get("perf-20M", {}).get("phases", {}), pc.get("perf-60M", {}).get("phases", {})
+    rows = {}
+    for k, va in a["summary"].get("phases", {}).items():
+        vb = b["summary"].get("phases", {}).get(k)
+        if not vb or not va.get("median") or not vb.get("median"):
+            continue
+        row = {"wall_20m_s": va["median"], "wall_60m_s": vb["median"], "wall_ratio": round(vb["median"] / va["median"], 3),
+               "wall_ratio_per_event": round(vb["median"] / va["median"] / ev, 3)}
+        ca_cpu, cb_cpu = va.get("cpu_s", {}).get("median"), vb.get("cpu_s", {}).get("median")
+        if ca_cpu and cb_cpu:
+            row["cpu_ratio_per_event"] = round(cb_cpu / ca_cpu / ev, 3)
+        if k in ca and k in cb and ca[k]["instr_per_row"]:
+            row["instr_per_row_ratio"] = round(cb[k]["instr_per_row"] / ca[k]["instr_per_row"], 3)
+            row["cycles_per_row_ratio"] = round(cb[k]["cycles_per_row"] / ca[k]["cycles_per_row"], 3) \
+                if ca[k]["cycles_per_row"] else None
+        row["superlinear"] = row["wall_ratio_per_event"] > 1.15
+        rows[k] = row
+    return {"events_ratio": round(ev, 3), "phases": rows}
+
+
+def render_comparison(r: dict) -> list[str]:
+    cmpd = r.get("comparison")
+    if not cmpd:
+        return []
+    L = ["", f"## Compared with {cmpd['reference']} ({cmpd['reference_sha'][:10]}, the submitted reference)", "",
+         f"Full table: [{cmpd['file']}]({cmpd['file'].removeprefix('results/')}). "
+         "Δ is this version minus the reference. Significance needs > 2× pooled stdev, Welch |t| > 3 and ≥ 1%."]
+    for title, rows in cmpd["sections"]:
+        L += ["", f"**{title}**", "", f"| Metric | {cmpd['reference']} | {r['version']} | Δ | Δ% | significance |",
+              "| --- | ---: | ---: | ---: | ---: | --- |"]
+        L += ["| " + " | ".join(map(str, x)) + " |" for x in rows]
+    return L
+
+
+def render_headline(r: dict) -> list[str]:
+    """First thing in every report: predicted board time, instructions per row, the target, Linux and native 20M."""
+    cal = r.get("calibration") or {}
+    p = r["perf"]
+    a = p["datasets"].get("perf-20M", {})
+    w = a.get("summary", {}).get("wall_s", {})
+    tail = a.get("summary", {}).get("phases", {}).get("(after last mark: exit/unmap + spawn)", {}).get("median")
+    lt = p.get("linux_timing", {}).get("summary", {}).get("process_wall_s", {})
+    pc = p.get("phase_counters", {}).get("perf-20M", {})
+    ipr = cal.get("instructions_per_row") or pc.get("instr_per_row")
+    L = ["", "## Headline", "", "| Metric | Value |", "| --- | --- |"]
+    if cal.get("predicted_board_s") is not None:
+        L.append(f"| **Predicted board 20M** | **{cal['predicted_board_s']:.3f} s** ({cal['primary']} model) |")
+    if cal.get("estimated_scorer_20m_instr_s") is not None:
+        L.append(f"| … instructions predictor | {cal['estimated_scorer_20m_instr_s']:.3f} s |")
+    if cal.get("estimated_scorer_20m_s") is not None:
+        L.append(f"| … wall-ratio predictor | {cal['estimated_scorer_20m_s']:.3f} s |")
+    if ipr:
+        L.append(f"| **Instructions per row (20M)** | **{ipr:,.0f}** |")
+    t = cal.get("target") or {}
+    if t.get("instructions_per_row_max"):
+        vals = list(t["instructions_per_row_max"].values())
+        L.append(f"| Target ({t['board_target_s']:.2f} s, {t['ns_per_row']:.0f} ns/row) | ≤ {min(vals)}–{max(vals)} instr/row"
+                 + (f" ({ipr / max(vals):.1f}× to go)" if ipr else "") + " |")
+    if lt.get("n"):
+        L.append(f"| Linux arm64 20M (primary local timing) | {lt['median']:.3f} s ({lt['n']} runs, THP madvise) |")
+    if w.get("n"):
+        L.append(f"| Native 20M | {w['median']:.3f} s" + (f"; {w['median'] - tail:.3f} s without the macOS exit tail"
+                                                          if tail else "") + " |")
+    return L
+
+
+def render_counters(r: dict) -> list[str]:
+    """Per-phase instructions/cycles (untimed probes), fast-path share, debug stats, 60M/20M growth per phase."""
+    p = r["perf"]
+    L = []
+    pcs = p.get("phase_counters") or {}
+    if pcs:
+        L += ["", "## Per-phase instructions and cycles (untimed probe runs, proc_pid_rusage at each mark)"]
+        for role, pc in pcs.items():
+            if not pc.get("n"):
+                continue
+            L += ["", f"{pc['dataset']} ({role}, median of {pc['n']}): {pc.get('instr_per_row', 0):,.0f} instr/row, "
+                      f"{pc.get('cycles_per_row', 0):,.0f} cycles/row, IPC {pc.get('ipc')}", "",
+                  "| Phase | Instr/row | Share | Cycles/row | IPC |", "| --- | ---: | ---: | ---: | ---: |"]
+            for k, v in pc["phases"].items():
+                L.append(f"| {k} | {v['instr_per_row']:,.1f} | {100 * (v['share'] or 0):.1f}% | "
+                         f"{v['cycles_per_row']:,.1f} | {v['ipc']} |")
+            kinds = (pc.get("debug_stats") or {}).get("kinds") or {}
+            fast = {k: v for k, v in kinds.items() if v.get("fast_share") is not None}
+            if fast:
+                L.append("")
+                L.append("Fast-path share (`SESSIONS_DEBUG_STATS=1`): " + ", ".join(
+                    f"{k} {100 * v['fast_share']:.1f}% ({v['fast']:,} fast / {v['split_fields']:,} split_fields)"
+                    for k, v in fast.items())
+                    + ("" if pc["debug_stats"].get("output_matches_default", True)
+                       else " — **output under the stats knob differs from the default run**"))
+            other = {k: v for k, v in kinds.items() if k not in fast}
+            for k, v in other.items():
+                L.append(f"- stats `{k}`: " + ", ".join(f"{a}={b}" for a, b in v.items()))
+    g = (p.get("size_scaling") or {}).get("phase_growth") or {}
+    if g.get("phases"):
+        L += ["", f"## Growth per phase, 60M / 20M (event lines ×{g['events_ratio']})", "",
+              "| Phase | Wall 20M | Wall 60M | Wall ratio | Per event | CPU per event | Instr/row ratio | Cycles/row ratio |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
+        for k, v in g["phases"].items():
+            flag = " ⚠" if v["superlinear"] else ""
+            L.append(f"| {k}{flag} | {fmt_s(v['wall_20m_s'])} | {fmt_s(v['wall_60m_s'])} | ×{v['wall_ratio']} | "
+                     f"×{v['wall_ratio_per_event']} | {fmt_number(v.get('cpu_ratio_per_event'))} | "
+                     f"{fmt_number(v.get('instr_per_row_ratio'))} | {fmt_number(v.get('cycles_per_row_ratio'))} |")
+        L.append("")
+        L.append("⚠ = more than 15% slower per event at 60M. When instructions per row stay flat but cycles per row "
+                 "grow, the phase hit a cache or TLB cliff, not extra work.")
+    return L
 
 
 def render_prediction(cal: dict) -> list[str]:
@@ -892,6 +1136,8 @@ def render_md(r: dict) -> str:
          f"**Verdict: {r['verdict']['verdict']}**" + ("" if r["verdict"]["final"] else " (provisional)"), ""]
     L += [f"- {x}" for x in r["verdict"]["reasons"]]
     L += [f"- WARNING: {x}" for x in r["verdict"].get("warnings", [])]
+    L += render_headline(r)
+    L += render_comparison(r)
     L += render_prediction(r.get("calibration") or {})
     L += ["", f"Run {r['started']} → {r.get('finished')}, {r.get('duration_s')} s. Host: {r['host']['machine']}, "
                f"{r['host']['ncpu']} CPUs. Evaluator {r['evaluator']['eval_sha']}.", "", "## Gates", "",
@@ -1000,6 +1246,7 @@ def render_md(r: dict) -> str:
         counters = [("instructions/row", "instructions_per_row"), ("cycles/row", "cycles_per_row"), ("IPC", "ipc")]
         L.append("Hardware counters (median): " + ", ".join(
             f"{label} {fmt_number(b['summary'].get(key, {}).get('median'))}" for label, key in counters))
+    L += render_counters(r)
     if timing := p.get("linux_timing"):
         L += ["", "## Linux and native 20M timing", ""]
         if timing["status"] == "ok":

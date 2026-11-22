@@ -95,6 +95,14 @@ A **summary** object (`S` below) is `{n, median, mean, min, max, p90, stdev, cv,
                   "clean_image_build_ok", "clean_image_build_detail", "binary_bytes", "image_bytes": {"<arch>"},
                   "repo": {"tracked_bytes", "tracked_files", "data_files", "largest": [{"path", "bytes"}]}},
 
+  // perf.phase_counters (untimed, macOS proc_pid_rusage at each phase mark):
+  //   {"<role>": {"dataset", "n", "event_lines", "instructions", "instr_per_row", "cycles_per_row", "ipc",
+  //               "phases": {"<phase key>": {"instructions", "cycles", "instr_per_row", "cycles_per_row", "ipc", "share"}},
+  //               "debug_stats"?: {"raw": [...], "kinds": {"events|clicks|links|<name>": {"fast", "split_fields",
+  //                                "fast_share", "rows_max"?, "rows_mean"?, "skew_max_over_mean"?, ...}},
+  //                                "output_matches_default"?: bool}}}
+  // perf.size_scaling.phase_growth: {"events_ratio", "phases": {"<phase>": {"wall_20m_s", "wall_60m_s", "wall_ratio",
+  //   "wall_ratio_per_event", "cpu_ratio_per_event"?, "instr_per_row_ratio"?, "cycles_per_row_ratio"?, "superlinear"}}}
   "baseline": null | {"kind": "submitted|submit-ready", "version", "sha", "wall_s": S,
                       "board_time_s"?, "instructions_per_row"?: S, "ab_load_before"?, "ab_required_pairs"?, "ab_wall_s"?: S, "ab_candidate_wall_s"?: S},
   "calibration": {"method": "linear|ratio"|null, "points", "intercept"?, "slope"?, "local_range_s"?,
@@ -111,7 +119,7 @@ A **summary** object (`S` below) is `{n, median, mean, min, max, p90, stdev, cv,
                               "warnings"?: [...]}},       // C also has baseline, gain, pooled_sd_s, metric
   // Gate C extras: "linux_ab"?: {"status": "supports|regression|inconclusive|unavailable", ...},
   //   "instructions": {"status": "pass|fail|unavailable", "gain"?, "checks"}, "wall"? (when the instruction route passed)
-  "amendments"?: [{"at", "stages": ["review"|"windows"|"amd64-knobs"|"linux-ab"], "eval_sha", "duration_s"}],
+  "amendments"?: [{"at", "stages": ["review"|"windows"|"amd64-knobs"|"linux-ab"|"counters"|"growth"], "eval_sha", "duration_s"}],
   "verdict": {"verdict": "REJECT|HOLD|SUBMIT-READY", "final": bool, "reasons": [...], "warnings": [...],
               "predictions"?: "predicted board 20M: <instr model>; <wall model>. Target: ..."},
   "notes": [...], "errors": [{"stage", "error", "trace"}]

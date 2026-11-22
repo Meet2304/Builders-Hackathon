@@ -65,7 +65,7 @@ def row(rows, name, a, b, unit="s", stat="median", lower_is_better=True):
     if isinstance(av, (int, float)) and isinstance(bv, (int, float)):
         delta = bv - av
         pct = f"{100 * delta / av:+.1f}%" if av else ""
-        delta = fmt(delta, unit) if unit != "s" else f"{delta:+.4f}s"
+        delta = f"{delta:+.4f}s" if unit == "s" else (("+" if delta > 0 else "") + fmt(delta, unit))
     s, t = sig(a, b, lower_is_better) if stat == "median" and isinstance(a, dict) and isinstance(b, dict) and "samples" in a \
         else ("", None)
     rows.append((name, fmt(av, unit), fmt(bv, unit), str(delta), pct, s + (f" (t={t:.1f})" if t is not None and s else "")))
@@ -79,8 +79,52 @@ def dataset_summary(block: dict) -> dict:
     return summary
 
 
-def compare(A: dict, B: dict) -> list[tuple[str, list]]:
+def headline(A: dict, B: dict) -> list[tuple[str, list]]:
+    """Primary metrics: predicted board, instructions per row, same-session A/B (when B's eval re-timed A)."""
     sections = []
+    rows = []
+    ca, cb = A.get("calibration", {}), B.get("calibration", {})
+    row(rows, "predicted board 20M (instructions, primary)", ca.get("estimated_scorer_20m_instr_s"),
+        cb.get("estimated_scorer_20m_instr_s"))
+    row(rows, "predicted board 20M (wall ratio)", ca.get("estimated_scorer_20m_s"), cb.get("estimated_scorer_20m_s"))
+    ia, ib = (dataset_summary(r["perf"]["datasets"].get("perf-20M", {})) for r in (A, B))
+    row(rows, "instructions/row 20M", ia.get("instructions_per_row", {}), ib.get("instructions_per_row", {}), "n")
+    row(rows, "cycles/row 20M", ia.get("cycles_per_row", {}), ib.get("cycles_per_row", {}), "n")
+    row(rows, "IPC 20M (M5)", ia.get("ipc", {}), ib.get("ipc", {}), "x", lower_is_better=False)
+    sections.append(("Headline", rows))
+    base = B.get("baseline") or {}
+    if base.get("sha") == A.get("sha"):
+        rows = []
+        if base.get("ab_wall_s", {}).get("n"):
+            row(rows, "native 20M, interleaved A/B", base["ab_wall_s"], base["ab_candidate_wall_s"])
+        lt = B["perf"].get("linux_timing", {})
+        if lt.get("baseline_sha") == A.get("sha") and lt.get("summary"):
+            row(rows, "Linux arm64 20M, interleaved A/B", lt.get("baseline_summary", {}).get("process_wall_s", {}),
+                lt["summary"].get("process_wall_s", {}))
+            row(rows, "Linux minor faults", lt.get("baseline_summary", {}).get("minor_faults", {}),
+                lt["summary"].get("minor_faults", {}), "n")
+        if rows:
+            sections.append((f"Same-session timing (B's eval re-timed {A['version']} interleaved)", rows))
+    pa, pb = (r["perf"].get("phase_counters", {}).get("perf-20M", {}) for r in (A, B))
+    if pa.get("phases") or pb.get("phases"):
+        rows = []
+        for k in list(dict.fromkeys(list(pa.get("phases", {})) + list(pb.get("phases", {})))):
+            row(rows, f"{k} instr/row", pa.get("phases", {}).get(k, {}).get("instr_per_row"),
+                pb.get("phases", {}).get(k, {}).get("instr_per_row"), "n")
+            row(rows, f"{k} cycles/row", pa.get("phases", {}).get(k, {}).get("cycles_per_row"),
+                pb.get("phases", {}).get(k, {}).get("cycles_per_row"), "n")
+        fa = (pa.get("debug_stats") or {}).get("kinds", {})
+        fb = (pb.get("debug_stats") or {}).get("kinds", {})
+        for k in sorted(set(fa) | set(fb)):
+            if "fast_share" in fa.get(k, {}) or "fast_share" in fb.get(k, {}):
+                row(rows, f"fast-path share {k}", fa.get(k, {}).get("fast_share"), fb.get(k, {}).get("fast_share"), "x",
+                    lower_is_better=False)
+        sections.append(("Per-phase counters, 20M (untimed probes)", rows))
+    return sections
+
+
+def compare(A: dict, B: dict) -> list[tuple[str, list]]:
+    sections = headline(A, B)
     rows = [("verdict", A["verdict"]["verdict"], B["verdict"]["verdict"], "", "", ""),
             ("sha", A["sha"][:10], B["sha"][:10], "", "", ""), ("profile", A["profile"], B["profile"], "", "", "")]
     ca, cb = A["correctness"], B["correctness"]

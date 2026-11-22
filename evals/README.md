@@ -18,7 +18,7 @@ make eval-cache-ref                                # one-time reference caching 
 or directly: `.venv/bin/python evals/run.py --version NAME --rev GIT_REF [--profile quick|full|linux] [--fuzz-seeds N]
 [--no-docker] [--no-ledger] [--rebuild] [--amend STAGES]`.
 
-`--amend review,windows,amd64-knobs,linux-ab` adds stages to an existing `results/NAME.json` for the same commit
+`--amend review,windows,amd64-knobs,linux-ab,counters,growth` adds stages to an existing `results/NAME.json` for the same commit
 without re-timing anything. It holds the bench lock, uses the original profile's settings, recomputes Gates
 A/B/C and the verdict, rewrites `NAME.md`, replaces that version's ledger row, and logs the change under `amendments[]`.
 Use it when a new Gate A check lands after a candidate's eval:
@@ -254,6 +254,36 @@ invariants.
   instruction wins that barely show on the M5. When every route fails, the failing instruction checks are listed
   as `or (instructions route): …`.
 - **Verdict:** REJECT (A or B fails) / HOLD (C fails, or something wasn't run: provisional) / SUBMIT-READY.
+
+**Comparison with the reference (v3).** `suite.json` `reference_version` is `v3`, the submitted version and the
+current board best. Every new eval ends with two steps, both under the bench lock:
+1. **Reference refresh.** If the framework has gained untimed stages since the reference was evaluated (review
+   suites, the `windows` fuzz, phase counters, growth, amd64 knobs), they run on the reference's own binary via
+   `--amend`, so both sides carry the same metric set. Timed metrics aren't re-used across sessions. The
+   candidate's eval re-times v3 interleaved, natively and on Linux, because v3 is the Gate C baseline.
+2. **Comparison.** `results/<version>-vs-v3.md` holds the full `compare.py` table. The report also gets a
+   "Compared with v3" section, right after the headline: predicted board (both models), instructions, cycles and
+   IPC per row, same-session native and Linux A/B, and per-phase instructions and cycles plus fast-path share.
+
+**Headline.** Every report starts with a headline table: the predicted board time (instruction model first, then
+the wall ratio), 20M instructions per row, the target and how far there is to go, Linux arm64 20M (the primary
+local timing, because it has no macOS exit tail), and native 20M with and without the exit tail.
+
+**Per-phase instructions and cycles** (`lib/phase_counters.py`). These are untimed probe runs (full: 1M ×3, 20M ×3,
+60M ×2; quick and linux: 20M ×2). The candidate runs with stderr on a pipe. When each `[ t s] phase` mark arrives,
+Eval reads the child's cumulative retired instructions and cycles with macOS `proc_pid_rusage(RUSAGE_INFO_V4)`.
+These are the same counters `time -l` reports, over all threads. The final totals are read from the zombie after a
+kqueue `NOTE_EXIT`, before reaping, so the exit tail is counted. The candidate doesn't change. Each read lands
+about 0.1 ms after the mark, which misattributes well under 1% for phases of 10 ms or more. Per-phase sums match
+`time -l` totals to within 1%. The probes report instructions and cycles per row, IPC and share per phase.
+If the binary knows `SESSIONS_DEBUG_STATS`, one more run per dataset parses every `stats:` line:
+`stats: <kind> lines fast=F split_fields=S` becomes a fast-path share per input kind, and any
+`stats: <name> k=v …` line is kept, including partition skew once the candidate prints `rows_max=`/`rows_mean=`.
+That run's output hash must equal the default run's. `--amend counters,growth` adds all of this to an older result.
+
+**Growth per phase, 60M/20M.** Wall time, CPU per event, and instructions and cycles per row, each as a ratio.
+⚠ marks phases more than 15% slower per event at 60M. Flat instructions with rising cycles means a cache or TLB
+cliff, not extra work. For v3, lookups and dedup have flat instructions and ×1.5 cycles per row.
 
 **Primary metric: predicted board time.** Every report opens with a "Predicted board time (20M practice)" table, and
 every verdict carries a `predicted board 20M: …` reason line. Two predictors are reported side by side:
