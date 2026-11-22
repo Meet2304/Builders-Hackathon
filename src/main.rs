@@ -3364,8 +3364,10 @@ fn pipeline<'a, L: Layout>(
         category_sales: CategorySales { totals: vec![0i64; ncat], touched: Vec::new() },
         bins: Bins::default(),
     };
-    let camps: Vec<Mutex<(Vec<[i64; 4]>, Option<Scratch<L::Elem>>)>> =
-        (0..rayon::current_num_threads()).map(|_| Mutex::new((Vec::new(), None))).collect();
+    // The third field is the row count of the thread's latest accumulator: a new one
+    // reserves 1.25x that up front instead of doubling from empty (virtual until used).
+    let camps: Vec<Mutex<(Vec<[i64; 4]>, Option<Scratch<L::Elem>>, usize)>> =
+        (0..rayon::current_num_threads()).map(|_| Mutex::new((Vec::new(), None, 0))).collect();
     let mut accs: Vec<Acc> = (0..nb)
         .into_par_iter()
         .fold(
@@ -3376,14 +3378,18 @@ fn pipeline<'a, L: Layout>(
                 let slot = rayon::current_thread_index().and_then(|t| camps.get(t)).and_then(|m| m.try_lock().ok());
                 match slot {
                     Some(mut g) => {
-                        let (camp, sc) = &mut *g;
+                        let (camp, sc, hint) = &mut *g;
                         if camp.is_empty() {
                             *camp = vec![[0i64; 4]; camp_len];
+                        }
+                        if acc.users.capacity() == 0 && *hint > 0 {
+                            acc.users.reserve_exact(*hint + *hint / 4);
                         }
                         let sc = sc.get_or_insert_with(new_scratch);
                         std::mem::swap(&mut acc.camp, camp);
                         process_part(ctx, &mut acc, sc, &ev_out, &ck_out, &drops_by[p], p);
                         std::mem::swap(&mut acc.camp, camp);
+                        *hint = acc.users.len();
                     }
                     None => {
                         if acc.camp.is_empty() {
@@ -3400,7 +3406,7 @@ fn pipeline<'a, L: Layout>(
         .collect();
     // The per-thread totals ride along as accumulators with no user rows.
     for m in camps {
-        let (camp, _) = m.into_inner().unwrap();
+        let (camp, _, _) = m.into_inner().unwrap();
         if !camp.is_empty() {
             accs.push(Acc { users: Vec::new(), camp });
         }
