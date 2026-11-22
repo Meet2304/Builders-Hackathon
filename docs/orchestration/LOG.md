@@ -394,3 +394,9 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **v9b = `integ/v9b` @ `ee5aad8`** = `2bfb034` + neon-detective + links-par. Gates: fixtures 36/36, new dev MATCH under `NO_FAST` 0–3, seed-42 MATCH, **long-ID 240/240**. Full eval running (Orchestrator, eval worktree).
   - Eval guard patched (`78a8a78`) to tolerate the T3 Code UI (< 1 CPU), which had stalled the v9a timing.
   - Explorer Sol told to fix the `LongTable` bug (900/900 to re-admit it) by 06:30.
+- **Red Team (03:58), v9a root cause, both in the 16 B `LongTable` (`d74b275`):**
+  1. **First-insert race:** a CAS on `hi`, then a store of `lo`; a concurrent same-ID insert sees `lo == 0` and claims a second slot, splitting the user (60–300 users per run at NCPU=8; `evals/redteam/race_long.py`).
+  2. **`hi == 0` sentinel collision** (`longzero` cases).
+
+  v8 is clean on both. This confirms the clean bisect, and links-par and neon-detective pass so far. The fix (a WRITING sentinel, publish `hi` last with Release, `hi ∈ {0, MAX}` → interner) was sent to Explorer Sol. To re-admit: both repros pass plus long-ID 900/900.
+- **Analyst 3:** v9a x86 MATCH (dev and seed-42 under Rosetta at NCPU=8; valgrind at NCPU 1 and 8 and `NO_FAST`). Instructions flat vs v8 (1,220 vs 1,219 per event line); clicks +6 per line on both architectures. Re-tasked to v9b, including the long-ID suite on x86.
