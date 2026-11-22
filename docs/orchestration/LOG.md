@@ -657,3 +657,4 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **Scorer-lab round 2, run `45030152141`:**
   - 20M, 5 interleaved reps: v16, write, levers-default, and levers with huge, pf8, chunk 128K, chunk 1M, parts 64, parts 1024, pop1.
   - 60M: v16 vs write.
+- **09:03: lab round 2 (`45030152141`) INVALID.** The runner had no AVX-512, so every cascadelake binary hit SIGILL (rc 132, no output). Re-run as **round 2b, `45030685392`, with x86-64-v3 builds**. (Round 1 landed on an AVX-512 runner. The scorer has AVX-512, so cascadelake stays the shipping target.)
