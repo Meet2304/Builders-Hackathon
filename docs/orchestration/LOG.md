@@ -477,3 +477,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
     - **Tier 1 screen** (< 10 min): build, fixtures, dev, x86 instructions per row (callgrind, `x86-64-v2`, NCPU=1, new dev) vs best, and a 3-pair 20M gVisor run.
     - **Promote** to tier 2 (full gate plus ≥ 9-pair 60M gVisor) only if x86 instructions per row are ≥ 5% lower, or gVisor shows a large clear gain.
     - **Primary predictor:** x86 instructions per row, fitted to board points.
+- **Eval: v10.1 vs v8 x86 instructions are identical:** 1,316.2 vs 1,315.7 per event line (callgrind, `x86-64-v2`, NCPU=1, new dev). v10.1 per event line: events 584.5, sessions 279.1, write 187.0, dedup 107.0, clicks 108.3, lookups 22.1.
+  - **Fit on 4 board points: board ≈ −2.355 + 0.00259 s per (Ir/line), R² 0.91.** That's about 26 ms of board per 10 Ir/line; −5% Ir ≈ −16% board.
+  - Residual: v7b beat its Ir (−0.21 s), because the futex contention fix (58k → 79) isn't visible at NCPU=1. Contention cuts count on the board; fault and syscall cuts don't.
+  - v3 and v4 counts running for a 6-point fit; then `--profile screen` is committed with baseline v8.
+  - Builders told: Sol owns events (584.5), Explorer 4 owns sessions (279) and write (187). Small, separately gated commits, x86 count each.
