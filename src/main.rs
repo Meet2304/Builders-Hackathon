@@ -2863,7 +2863,7 @@ fn main() {
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()));
     rayon::ThreadPoolBuilder::new()
         .num_threads(ncpu)
-        .stack_size(256 * 1024)
+        .stack_size(8 << 20) // 8 MiB: nested rayon joins overflowed 256 KiB (Red Team seed 535, PARTS=4096); pages are touched only when used
         .build_global()
         .ok();
     // `[  1.234s] phase (detail, cpu=X.XXXs)`: wall since start, then the process's
