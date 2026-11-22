@@ -27,6 +27,7 @@
   .ss-big { font-family: var(--font-anthropic-serif); font-weight: 400; font-size: var(--cds-font-size-title); line-height: 1.1; }
   .ss-pill { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor;
     font-size: var(--cds-font-size-caption); font-weight: var(--cds-font-weight-medium); white-space: nowrap; }
+  .ss-pending { color: var(--color-fg-muted); border-style: dashed !important; }
   .ss-ok { color: var(--color-ok); } .ss-warn { color: var(--color-warn); } .ss-bad { color: var(--color-bad); }
 
   .ss-two { display: grid; gap: var(--cds-gap-xl); grid-template-columns: minmax(0, 1fr); }
@@ -309,7 +310,8 @@
   };
   window.ssVerdictClass = (v) => {
     const s = String(v || '');
-    return s.startsWith('SUBMIT-READY') ? 'ss-ok' : s.startsWith('HOLD') ? 'ss-warn' : s.startsWith('REJECT') ? 'ss-bad' : '';
+    return s.startsWith('SUBMIT-READY') ? 'ss-ok' : s.startsWith('HOLD') ? 'ss-warn' : s.startsWith('REJECT') ? 'ss-bad'
+      : s.startsWith('IN EVAL') ? 'ss-pending' : '';
   };
   window.ssFailed = (d) => d.status === 'error' || d.status === 'missing';
 
@@ -566,7 +568,7 @@
       const k = kind(r);
       tip.replaceChildren(b,
         line(k === 'board' ? `Board time ${ssFmt(r.board_time_s, 's4')}${r.submission ? ' · ' + r.submission : ''}`
-          : k === 'predicted' ? `Predicted board ${ssFmt(r.pred_board_s, 's2')} (not submitted)` : 'No calibration yet: local time'),
+          : k === 'predicted' ? `Predicted board ${ssFmt(r.pred_board_s, 's2')}${r.pred_basis ? ' (' + r.pred_basis + ')' : ''}` : 'No calibration yet: local time'),
         line(`Local 20M ${ssFmt(r.median_20m_s, 's3')}${r.median_20m_basis ? ' (' + r.median_20m_basis + ')' : ''}`),
         line(`${ssIsNum(r.instr_per_row_20m) ? ssFmt(r.instr_per_row_20m, 'int') + ' instr/row · ' : ''}${r.verdict || 'no verdict'}`),
         line(isFinite(target) ? (val(r) / target).toFixed(2) + '× the board target' : ''));

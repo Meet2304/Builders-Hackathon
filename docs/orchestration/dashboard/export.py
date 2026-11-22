@@ -323,6 +323,9 @@ def load_versions(root, log):
         merge(from_ledger_row(row))
     for row in md_rows(section(log, "Version ledger")):
         merge(from_log_row(row))
+    cand = in_eval_candidate(log, versions)
+    if cand:
+        merge(cand)
 
     subs = get(read_json(evals_dir(root) / "submissions.json"), "submissions") or []
     for s in subs if isinstance(subs, list) else []:
@@ -365,8 +368,11 @@ def apply_calibration(root, versions):
     for v in versions.values():
         if num(v.get("board_time_s")):
             v["board_or_pred_s"], v["board_basis"] = v["board_time_s"], "board"
+        elif num(v.get("pred_board_s")):  # a stated projection (e.g. Method's) wins over local x ratio
+            v["board_or_pred_s"], v["board_basis"] = v["pred_board_s"], "predicted"
         elif ratio and num(v.get("median_20m_s")):
             v["pred_board_s"] = round(v["median_20m_s"] * ratio, 3)
+            v["pred_basis"] = "local 20M × calibration"
             v["board_or_pred_s"], v["board_basis"] = v["pred_board_s"], "predicted"
     versions.setdefault("__calibration__", {})  # carrier, removed in build()
     versions["__calibration__"] = {"ratio": round(ratio, 3) if ratio else None, "basis": basis}
@@ -404,6 +410,10 @@ def load_threads(log):
 
 
 def load_log(log):
+    return log_entries(log)[-LOG_ENTRIES:]
+
+
+def log_entries(log):
     body = section(log, "Entries")
     entries, day = [], None
     for line in body.splitlines():
@@ -421,7 +431,37 @@ def load_log(log):
             entries.append({"index": len(entries), "day": day, "who": who, "text": text})
         elif entries and line.strip() and not h:
             entries[-1]["text"] += " " + plain(line)
-    return entries[-LOG_ENTRIES:]
+    return entries
+
+
+def in_eval_candidate(log, versions):
+    """The newest "eval of vN `sha`" the log asks for, if that version has no results yet.
+
+    Returns a version row with verdict IN EVAL plus what Method's log entry for that commit claims
+    (instructions per line, projected board time, quick 20M run), each labelled as Method's."""
+    hits = re.findall(r"eval of (v\d+)\s*`([0-9a-f]{7,40})`", section(log, "Entries"))
+    if not hits:
+        return None
+    name, sha = hits[-1]
+    if name in versions and versions[name].get("verdict"):
+        return None
+    row = {"version": name, "sha": sha[:8], "verdict": "IN EVAL", "source": "docs/orchestration/LOG.md (in eval)"}
+    method = [e for e in log_entries(log) if (e.get("who") or "").startswith("Method") and sha[:7] in e["text"]]
+    if method:
+        t = method[-1]["text"]
+        m = re.search(r"Instructions per line, 20M:\s*([\d,]+)(?:\s*[–-]\s*([\d,]+))?", t)
+        if m:
+            lo = int(m[1].replace(",", "")); hi = int((m[2] or m[1]).replace(",", ""))
+            row["instr_per_row_20m"] = round((lo + hi) / 2)
+        m = re.search(r"projects? to about ([\d.]+)\s*s on the board", t)
+        if m:
+            row["pred_board_s"] = float(m[1])
+            row["pred_basis"] = "Method's projection from instructions per row"
+        m = re.search(r"Quick 20M run:\s*([\d.]+)\s*s", t)
+        if m:
+            row["median_20m_s"] = float(m[1])
+            row["median_20m_basis"] = "Method quick run"
+    return row
 
 
 def load_insights(root):
