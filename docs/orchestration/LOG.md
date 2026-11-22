@@ -279,3 +279,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Adversarial suite `evals/insights2/v7_longid`: 54/150 seeds × 6 knobs, 0 mismatches. It catches 4 deliberately broken builds. Seed-42 MATCHes Eval's regenerated oracle.
   - Perf: NCPU=1 events-parse CPU 3.72 → 2.73 s. The scalar hex32 costs about 190 instructions per long ID, so Explorer 2's SIMD kernel is the follow-up.
 - Machine load is 30–60. **v7's board prediction will come from interleaved v5/v7 gVisor pairs** (Explorer 5): 2.146 s × the ratio.
+- **Analyst 3 (x86 strace):** v7 futex calls in events parse at 20M: **58,192 → 79**.
+- **Method:**
+  - **v7b = `method/v7b` @ `96af24b`** = `e693e18` + move 6b: mimalloc `purge_delay=-1` and `purge_decommits=0`, plus `libc::_exit(0)` after the last writer closes. Knobs `SESSIONS_PURGE=on` and `SESSIONS_EXIT=normal` restore the old behaviour. madvise 13,834 → 3. Outputs byte-identical to `e693e18` at NCPU=1; seeds 7–11 50/50.
+  - **v8 work on `method/v8`:** move 7 (`6c56c54`, Explorer 4's column decoder wired to the long-ID table) + hex32 (`2b9aecd`).
+- Explorer 5: three-armed gVisor ABBA (v5 / v7 / v7b) once Eval's `v5-newgen` releases the lock. The Red Team adds v7b, focusing on `_exit` output completeness.
