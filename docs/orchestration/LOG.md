@@ -401,10 +401,10 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   v8 is clean on both. This confirms the clean bisect, and links-par and neon-detective pass so far. The fix (a WRITING sentinel, publish `hi` last with Release, `hi ∈ {0, MAX}` → interner) was sent to Explorer Sol. To re-admit: both repros pass plus long-ID 900/900.
 - **Analyst 3:** v9a x86 MATCH (dev and seed-42 under Rosetta at NCPU=8; valgrind at NCPU 1 and 8 and `NO_FAST`). Instructions flat vs v8 (1,220 vs 1,219 per event line); clicks +6 per line on both architectures. Re-tasked to v9b, including the long-ID suite on x86.
 - **05:35, restart after the overnight rate limits.** Accounts: claudeAgent works (the Orchestrator's lane); claude_andrew resets 05:40; Codex 05:47; claude_master 07:20; Kiro out for the month.
-  - **v9b  full eval (Orchestrator-run, pid 90538) passes every correctness stage:** fixtures, differential dev and seed-42, seed-43 consistency vs v8, fuzz, long-ID 900/900. Native A/B: 0.463 s vs v7b's 0.516 s. Linux and gVisor timing in progress.
+  - **v9b `ee5aad8` full eval (Orchestrator-run, pid 90538) passes every correctness stage:** fixtures, differential dev and seed-42, seed-43 consistency vs v8, fuzz, long-ID 900/900. Native A/B: 0.463 s vs v7b's 0.516 s. Linux and gVisor timing in progress.
   - **Completed prototype reports:**
-    - Footprint pread (): gates pass, but **no gVisor gain** (1.26 vs 1.27 s; gVisor copies the input either way). It halves RSS. Not a speed lever.
-    - Write path (): one write per file (2,263 → 209 writes), both tables in parallel, encoding unchanged.
-    - Clicks fault (): 24 B click rows plus exact-size allocation per task, about 19% fewer fresh pages in the clicks phase.
+    - Footprint pread (`9775367`): gates pass, but **no gVisor gain** (1.26 vs 1.27 s; gVisor copies the input either way). It halves RSS. Not a speed lever.
+    - Write path (`96325d9`): one write per file (2,263 → 209 writes), both tables in parallel, encoding unchanged.
+    - Clicks fault (`41f7c0e`): 24 B click rows plus exact-size allocation per task, about 19% fewer fresh pages in the clicks phase.
     - **Explorer 5, 60M gVisor: v9a is about 6% slower than v8** (event parse +160–450 ms, faults 7.32M → 7.81M). Cause: sol-longtable or neon-detective, not isolated. v9b still contains neon-detective, so **v9b needs a 60M gVisor vs v8 before release.**
-  - **v10 =  @ def3d26** = v9b + write-syscalls + clicks-fault (clean cherry-picks). Gates: fixtures 36/36, new dev MATCH under  0–3, seed-42 MATCH, long-ID 120/120 (20 seeds).
+  - **v10 = `integ/v10` @ `def3d26`** = v9b `ee5aad8` + write-syscalls (`958bad1`) + clicks-fault (`def3d26`), both clean cherry-picks. Gates: fixtures 36/36, new dev MATCH under `SESSIONS_DEBUG_NO_FAST` 0–3, seed-42 MATCH, long-ID 120/120 (20 seeds).
