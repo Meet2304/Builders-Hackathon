@@ -51,6 +51,8 @@ mod columns;
 #[allow(dead_code)]
 mod hex32;
 mod links;
+#[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
+mod event_columns;
 
 use links::load_links;
 use std::borrow::Cow;
@@ -1831,20 +1833,42 @@ fn validate<'a>(f: &[&'a [u8]; 7], ts: i64, ingest: i64, w: &Win) -> Option<(&'a
     Some((user, ts, price))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EventValues {
+    user: u64,
+    ts: i64,
+    price: u32,
+    cat: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct EvRec {
+    eid: u64,
+    ingest: i64,
+    row: Option<EventValues>,
+}
+
 #[inline]
-fn parse_event<'a, L: Layout>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &mut EvOut<L>) {
+fn decode_event<'a>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win) -> Option<EvRec> {
     if f[0].is_empty() {
-        return;
+        return None;
     }
     let eid = lk.ids.key(f[0]);
     let (ts, ingest) = w.parse_pair(f[2], f[3]);
-    match validate(f, ts, ingest, w) {
-        Some((user, ts, price)) => {
-            let user = lk.ids.key(user);
-            // only purchases (price >= 1) ever read the category; views/carts skip the lookup
-            let cat = if price > 0 { lk.category(f[5]) } else { 0 };
-            o.queue(L::row(user, ts, price, cat, o.base), eid, ingest, lk);
-        }
+    let row = validate(f, ts, ingest, w).map(|(user, ts, price)| EventValues {
+        user: lk.ids.key(user),
+        ts,
+        price,
+        cat: if price > 0 { lk.category(f[5]) } else { 0 },
+    });
+    Some(EvRec { eid, ingest, row })
+}
+
+#[inline(always)]
+fn emit_event<L: Layout>(rec: EvRec, lk: &Lookups, o: &mut EvOut<L>) {
+    let EvRec { eid, ingest, row } = rec;
+    match row {
+        Some(EventValues { user, ts, price, cat }) => o.queue(L::row(user, ts, price, cat, o.base), eid, ingest, lk),
         None => {
             let q = bucket(lk.hpart(eid), o.e.len());
             // SAFETY: q < nb == o.e.len() == o.rf.len()
@@ -1853,6 +1877,13 @@ fn parse_event<'a, L: Layout>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &
                 o.rf.get_unchecked_mut(q).push(INVALID);
             }
         }
+    }
+}
+
+#[inline]
+fn parse_event<'a, L: Layout>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &mut EvOut<L>) {
+    if let Some(rec) = decode_event(f, lk, w) {
+        emit_event(rec, lk, o);
     }
 }
 
@@ -2636,6 +2667,11 @@ fn pipeline<'a, L: Layout>(
             let mut o = EvOut::<L>::new(nb, bytes, base);
             for &(fi, s, e) in task {
                 let buf: &[u8] = &events_in.maps[fi];
+                #[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
+                if scan == Scan::Simd && lk.ids.simd_pack && let Some(decoder) = &win.decoder {
+                    event_columns::parse_chunk(buf, s, e, lk, win, decoder, &mut o);
+                    continue;
+                }
                 for_each_record(buf, s, e, scan, |f| parse_event(f, lk, win, &mut o));
             }
             o.flush(lk);
