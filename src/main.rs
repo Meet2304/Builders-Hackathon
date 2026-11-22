@@ -38,7 +38,9 @@
 //!                               v1's timestamp parser only
 //!   SESSIONS_DEBUG_NO_FAST=2    half the IDs (by hash parity) take the interned fallback,
 //!                               to mix packed and interned keys
-//!   SESSIONS_DEBUG_NO_FAST=3    the portable SWAR classifier instead of NEON/SSE2
+//!   SESSIONS_DEBUG_NO_FAST=3    the portable SWAR classifier and the scalar ID packer
+//!                               instead of NEON/SSE2 and NEON/SSSE3 (knobs 1 and 2
+//!                               also use the scalar packer)
 //!   SESSIONS_DEBUG_STATS=1      print fast-path / split_fields line counts per input kind
 
 mod links;
@@ -141,6 +143,19 @@ impl Knobs {
     }
 }
 
+/// Instructions retired by the process so far (macOS only: proc_pid_rusage V4).
+#[cfg(target_os = "macos")]
+fn instructions() -> Option<u64> {
+    let mut ri: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+    let p = &mut ri as *mut libc::rusage_info_v4 as *mut libc::rusage_info_t;
+    (unsafe { libc::proc_pid_rusage(libc::getpid(), libc::RUSAGE_INFO_V4, p) } == 0).then_some(ri.ri_instructions)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn instructions() -> Option<u64> {
+    None
+}
+
 /// Process CPU time so far (user + sys, all threads), in seconds.
 fn cpu_secs() -> f64 {
     let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
@@ -205,6 +220,127 @@ fn pack(b: &[u8]) -> Option<u64> {
     Some(k)
 }
 
+/// SIMD pack: the same result as `pack` (asserted by the unit test and, at startup, by
+/// `pack_simd_self_test`). One 16-byte load; nibble-table lookups classify each byte
+/// and give its code offset; two multiply/shift merges join the 6-bit codes, and three
+/// scalar ops place them. Reads 16 bytes from `b`'s start, so it only runs when those
+/// stay inside `b`'s page; any other case uses `pack`.
+#[inline(always)]
+fn pack_fast(b: &[u8]) -> Option<u64> {
+    let n = b.len();
+    if n.wrapping_sub(1) >= 10 {
+        return None;
+    }
+    let p = b.as_ptr();
+    if (p as usize & 4095) > 4096 - 16 {
+        return pack(b);
+    }
+    unsafe { pack_simd(p, n) }
+}
+
+/// Class bits by low nibble: 1 = 0..=9 (row 3, digits), 2 = 1..=f (rows 4, 6: letters
+/// after '@' and '`'), 4 = 0..=a (rows 5, 7: up to 'Z' and 'z'), 8 = f (row 5: '_').
+const PK_LO: [u8; 16] = [5, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6, 2, 2, 2, 2, 10];
+/// Class bits allowed by high nibble (row); 0 for every other row, including >= 0x80.
+const PK_HI: [u8; 16] = [0, 0, 0, 1, 2, 12, 2, 4, 0, 0, 0, 0, 0, 0, 0, 0];
+/// Code = byte + offset by row (wrapping): '0' -> 1, 'A' -> 11, 'a' -> 38. '_' (row 5
+/// gives 41) is fixed up to 37 separately.
+const PK_OFF: [u8; 16] = [0, 0, 0, 209, 202, 202, 197, 197, 0, 0, 0, 0, 0, 0, 0, 0];
+const PK_IDX: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+
+/// Codes c0..c11 as u32 lanes q0 = c0..c3, q1 = c4..c7 (in `lo`) and q2 (in `hi`), 24
+/// bits each, c0 highest; c10, c11 are zero. Place them as `pack` does.
+#[inline(always)]
+fn pk_place(lo: u64, hi: u64) -> u64 {
+    lo << 40 | (lo >> 32) << 16 | hi >> 8
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+unsafe fn pack_simd(p: *const u8, n: usize) -> Option<u64> {
+    use std::arch::aarch64::*;
+    unsafe {
+        let v = vld1q_u8(p);
+        let live = vcltq_u8(vld1q_u8(PK_IDX.as_ptr()), vdupq_n_u8(n as u8));
+        let (hi, lo) = (vshrq_n_u8(v, 4), vandq_u8(v, vdupq_n_u8(15)));
+        let valid = vtstq_u8(vqtbl1q_u8(vld1q_u8(PK_LO.as_ptr()), lo), vqtbl1q_u8(vld1q_u8(PK_HI.as_ptr()), hi));
+        if vmaxvq_u8(vbicq_u8(live, valid)) != 0 {
+            return None;
+        }
+        let code = vaddq_u8(v, vqtbl1q_u8(vld1q_u8(PK_OFF.as_ptr()), hi));
+        let code = vsubq_u8(code, vandq_u8(vceqq_u8(v, vdupq_n_u8(b'_')), vdupq_n_u8(4)));
+        let w16 = vreinterpretq_u16_u8(vandq_u8(code, live));
+        // u16 lane = c_even | c_odd << 8  ->  c_even << 6 | c_odd
+        let pairs = vsraq_n_u16(vandq_u16(vshlq_n_u16(w16, 6), vdupq_n_u16(0x0fc0)), w16, 8);
+        // u32 lane = p_even | p_odd << 16  ->  p_even << 12 | p_odd
+        let w32 = vreinterpretq_u32_u16(pairs);
+        let quads = vreinterpretq_u64_u32(vsraq_n_u32(vandq_u32(vshlq_n_u32(w32, 12), vdupq_n_u32(0x00ff_f000)), w32, 16));
+        Some(pk_place(vgetq_lane_u64(quads, 0), vgetq_lane_u64(quads, 1)))
+    }
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "ssse3"))]
+#[inline(always)]
+unsafe fn pack_simd(p: *const u8, n: usize) -> Option<u64> {
+    use std::arch::x86_64::*;
+    unsafe {
+        let ld = |t: &[u8; 16]| _mm_loadu_si128(t.as_ptr() as *const __m128i);
+        let v = _mm_loadu_si128(p as *const __m128i);
+        let live = _mm_cmpgt_epi8(_mm_set1_epi8(n as i8), ld(&PK_IDX));
+        let nib = _mm_set1_epi8(15);
+        let (hi, lo) = (_mm_and_si128(_mm_srli_epi16(v, 4), nib), _mm_and_si128(v, nib));
+        let cls = _mm_and_si128(_mm_shuffle_epi8(ld(&PK_LO), lo), _mm_shuffle_epi8(ld(&PK_HI), hi));
+        let bad = _mm_and_si128(_mm_cmpeq_epi8(cls, _mm_setzero_si128()), live);
+        if _mm_movemask_epi8(bad) != 0 {
+            return None;
+        }
+        let code = _mm_add_epi8(v, _mm_shuffle_epi8(ld(&PK_OFF), hi));
+        let code = _mm_sub_epi8(code, _mm_and_si128(_mm_cmpeq_epi8(v, _mm_set1_epi8(b'_' as i8)), _mm_set1_epi8(4)));
+        let code = _mm_and_si128(code, live);
+        // c_even * 64 + c_odd per u16 (<= 4095), then p_even * 4096 + p_odd per u32
+        let pairs = _mm_maddubs_epi16(code, _mm_set1_epi16(0x0140));
+        let quads = _mm_madd_epi16(pairs, _mm_set1_epi32(0x0001_1000));
+        let lo = _mm_cvtsi128_si64(quads) as u64;
+        let hi = _mm_cvtsi128_si64(_mm_srli_si128(quads, 8)) as u64;
+        Some(pk_place(lo, hi))
+    }
+}
+
+#[cfg(not(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3"))))]
+#[inline(always)]
+unsafe fn pack_simd(p: *const u8, n: usize) -> Option<u64> {
+    pack(unsafe { std::slice::from_raw_parts(p, n) })
+}
+
+/// Startup guard for the SIMD packer, whose x86 build only the scorer runs natively.
+/// Lanes are classified independently, so: every byte value filling 1..=10 lanes (with
+/// a packable or unpackable tail behind it), and every rotation of a mixed string at
+/// every length, against `pack`. Any disagreement switches the run to `pack` (exact
+/// either way). About 1k checks.
+fn pack_simd_self_test() -> bool {
+    let check = |s: &[u8], fill: u8| -> bool {
+        let mut buf = [fill; 32];
+        buf[..s.len()].copy_from_slice(s);
+        unsafe { pack_simd(buf.as_ptr(), s.len()) == pack(&buf[..s.len()]) }
+    };
+    for c in 0..=255u8 {
+        if !check(&[c; 10], b'a') || !check(&[c; 1], 0xff) || !check(&[c; 7], b'_') {
+            return false;
+        }
+    }
+    let base: &[u8; 10] = b"Az_09azZ9_";
+    for n in 1..=10 {
+        for r in 0..10 {
+            let mut s = *base;
+            s.rotate_left(r);
+            if !check(&s[..n], b'0') || !check(&s[..n], b',') {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 #[inline]
 fn is_packed(k: u64) -> bool {
     k & 15 == 0
@@ -219,17 +355,34 @@ struct Shard<'a> {
 struct Ids<'a> {
     shards: Vec<Mutex<Shard<'a>>>,
     no_fast: u8,
+    simd_pack: bool, // off under any NO_FAST knob or if the startup self-test fails
 }
 
 impl<'a> Ids<'a> {
     fn new(no_fast: u8) -> Self {
         let shards = (0..64).map(|_| Mutex::new(Shard { map: new_map(0), strs: Vec::new() })).collect();
-        Ids { shards, no_fast }
+        let simd_pack = no_fast == 0 && pack_simd_self_test();
+        if !simd_pack && no_fast == 0 {
+            eprintln!("warning: SIMD ID packer failed its self-test; using the scalar packer");
+        }
+        Ids { shards, no_fast, simd_pack }
     }
 
     /// Key of a non-empty ID.
     #[inline]
     fn key(&self, b: &'a [u8]) -> u64 {
+        if self.simd_pack {
+            if let Some(k) = pack_fast(b) {
+                return k;
+            }
+            return self.intern(b);
+        }
+        self.key_slow(b)
+    }
+
+    /// `key` under a debug knob or a failed self-test.
+    #[inline(never)]
+    fn key_slow(&self, b: &'a [u8]) -> u64 {
         let try_pack = match self.no_fast {
             1 => false,
             2 => xxh3_64(b) & 1 == 0,
@@ -1954,11 +2107,13 @@ fn main() {
     rayon::ThreadPoolBuilder::new().num_threads(ncpu).build_global().ok();
     // `[  1.234s] phase (detail, cpu=X.XXXs)`: wall since start, then the process's
     // cumulative user+sys CPU, inside the parentheses so the Eval phase key is unchanged.
+    // On macOS also the cumulative instructions retired: `, instr=1.234G`.
     let lap = |what: &str| {
         let (wall, cpu) = (t0.elapsed().as_secs_f64(), cpu_secs());
+        let ins = instructions().map_or(String::new(), |i| format!(", instr={:.4}G", i as f64 / 1e9));
         match what.strip_suffix(')') {
-            Some(head) if head.contains(" (") => eprintln!("[{wall:>7.3}s] {head}, cpu={cpu:.3}s)"),
-            _ => eprintln!("[{wall:>7.3}s] {what} (cpu={cpu:.3}s)"),
+            Some(head) if head.contains(" (") => eprintln!("[{wall:>7.3}s] {head}, cpu={cpu:.3}s{ins})"),
+            _ => eprintln!("[{wall:>7.3}s] {what} (cpu={cpu:.3}s{ins})"),
         }
     };
     let knobs = Knobs::from_env();
@@ -2296,6 +2451,173 @@ mod tests {
             a.sort_unstable();
             b.sort_unstable();
             assert_eq!(a, b, "same multiset, len {len}");
+        }
+    }
+
+    #[test]
+    fn simd_pack_matches_pack() {
+        assert!(pack_simd_self_test());
+        // A buffer spanning a real page boundary: IDs placed in the last 32 bytes before
+        // it take pack_fast's scalar fallback, the others its SIMD path.
+        let mut buf = vec![0u8; 3 * 4096];
+        let base = buf.as_ptr() as usize;
+        let edge = ((base + 4096) & !4095) + 4096 - base; // a page start inside buf
+        let ats: Vec<usize> = [0usize, 1, 7, 15, 100].into_iter().chain(edge - 32..edge).collect();
+        let mut n_checks = 0u64;
+        let mut check = |s: &[u8], fill: u8| {
+            for &at in &ats {
+                buf[at..at + s.len()].copy_from_slice(s);
+                buf[at + s.len()..at + s.len() + 16].fill(fill);
+                let b = &buf[at..at + s.len()];
+                assert_eq!(pack_fast(b), pack(b), "{:?} at {at} fill {fill}", String::from_utf8_lossy(s));
+                n_checks += 1;
+            }
+        };
+        // One byte of each class at every position of every length 1..=12: every byte
+        // value 0..=255 (so digits, upper, lower, '_', the gaps between them, controls,
+        // and >= 0x80) at position i of a packable base, with packable and unpackable
+        // tails. Covers 10 (longest packed) vs 11 and 12 (never packed).
+        let bases: [&[u8]; 3] = [b"u9_ZaQ0x7_kM", b"zzzzzzzzzzzz", b"000000000000"];
+        for base in bases {
+            for len in 1..=12 {
+                for i in 0..len {
+                    for c in 0..=255u8 {
+                        let mut s = base[..len].to_vec();
+                        s[i] = c;
+                        for fill in [b'a', b'_', b',', 0, 0xff] {
+                            check(&s, fill);
+                        }
+                    }
+                }
+            }
+        }
+        // Every 1- and 2-byte string.
+        for a in 0..=255u8 {
+            check(&[a], b'0');
+            for b in 0..=255u8 {
+                check(&[a, b], b'z');
+            }
+        }
+        // 3-byte strings over the packable symbols and their neighbours.
+        let near: Vec<u8> = (0..=255u8)
+            .filter(|&c| SYM[c as usize] != 0 || SYM[c.wrapping_add(1) as usize] != 0 || SYM[c.wrapping_sub(1) as usize] != 0)
+            .collect();
+        for &a in &near {
+            for &b in &near {
+                for &c in &near {
+                    check(&[a, b, c], 0);
+                }
+            }
+        }
+        // Random strings of 1..=12 bytes, mostly near-packable.
+        let mut x = 0x5eed_0f_1d5u64;
+        let mut next = || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        let mut packable: Vec<Vec<u8>> = Vec::new();
+        for _ in 0..200_000 {
+            let len = 1 + (next() % 12) as usize;
+            let s: Vec<u8> = (0..len).map(|_| if next() % 8 == 0 { next() as u8 } else { near[(next() % near.len() as u64) as usize] }).collect();
+            check(&s, next() as u8);
+            if pack(&s).is_some() {
+                packable.push(s);
+            }
+        }
+        assert!(n_checks > 10_000_000, "{n_checks}");
+        // Order preservation: u64 order of packed keys == byte-wise order, including
+        // prefixes and the class boundaries ('9' < 'A', 'Z' < '_' < 'a').
+        for s in [&b"0"[..], b"9", b"A", b"Z", b"_", b"a", b"z", b"a0", b"a_", b"aZ", b"az", b"zzzzzzzzzz", b"0000000000", b"_________"] {
+            packable.push(s.to_vec());
+        }
+        let alphabet: Vec<u8> = (0..=255u8).filter(|&c| SYM[c as usize] != 0).collect();
+        for &a in &alphabet {
+            packable.push(vec![a]);
+            for &b in &alphabet {
+                packable.push(vec![a, b]);
+            }
+        }
+        let mut by_bytes = packable.clone();
+        by_bytes.sort();
+        by_bytes.dedup();
+        let mut by_key: Vec<(u64, Vec<u8>)> = by_bytes.iter().map(|s| (pack_fast(s).unwrap(), s.clone())).collect();
+        by_key.sort();
+        assert!(by_key.windows(2).all(|w| w[0].0 < w[1].0), "distinct strings, distinct keys");
+        assert!(by_key.iter().map(|(_, s)| s).eq(by_bytes.iter()), "key order == byte order");
+        // Keys decode back to their bytes.
+        let ids = Ids::new(0);
+        let mut dec = [0u8; 10];
+        for (k, s) in &by_key {
+            assert_eq!(ids.bytes(*k, &mut dec), &s[..]);
+        }
+    }
+}
+
+#[cfg(test)]
+mod idbench {
+    use super::*;
+    use std::hint::black_box;
+
+    fn strip(f: &[u8]) -> &[u8] {
+        if f.len() >= 2 && f[0] == b'"' && f[f.len() - 1] == b'"' { &f[1..f.len() - 1] } else { f }
+    }
+
+    /// Instructions and time per ID for the packers and `Ids::key` over the dev set's
+    /// event and click IDs: cargo test --release idbench -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn idbench() {
+        let mut bufs = Vec::new();
+        for dir in ["data/dev/events", "data/dev/clicks"] {
+            let mut ps: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+            ps.sort();
+            for p in ps {
+                bufs.push(std::fs::read(p).unwrap());
+            }
+        }
+        let mut ids: Vec<&[u8]> = Vec::new();
+        for b in &bufs {
+            for line in b.split(|&c| c == b'\n').skip(1) {
+                let mut it = line.split(|&c| c == b',');
+                for _ in 0..2 {
+                    if let Some(f) = it.next() {
+                        let f = strip(f);
+                        if !f.is_empty() {
+                            ids.push(f);
+                        }
+                    }
+                }
+            }
+        }
+        let n = ids.len() as f64;
+        macro_rules! run {
+            ($name:expr, $f:expr) => {{
+                let f = $f;
+                let i0 = instructions().unwrap();
+                let t0 = std::time::Instant::now();
+                let mut acc = 0u64;
+                for &b in &ids {
+                    acc = acc.wrapping_add(f(black_box(b)));
+                }
+                black_box(acc);
+                let i1 = instructions().unwrap();
+                eprintln!("{:>12}: {:6.1} instr/id  {:6.2} ns/id", $name, (i1 - i0) as f64 / n, t0.elapsed().as_nanos() as f64 / n);
+            }};
+        }
+        let packable = ids.iter().filter(|b| pack(b).is_some()).count();
+        eprintln!("{} ids, {:.2}% packable", ids.len(), 100.0 * packable as f64 / n);
+        for _ in 0..2 {
+            run!("baseline", |b: &[u8]| b.len() as u64);
+            run!("pack", |b: &[u8]| pack(b).unwrap_or(1));
+            run!("pack_fast", |b: &[u8]| pack_fast(b).unwrap_or(1));
+            run!("xxh3", |b: &[u8]| xxh3_64(b));
+            let ids0 = Ids::new(0);
+            run!("key(simd)", |b| ids0.key(b));
+            run!("key(again)", |b| ids0.key(b));
+            let ids3 = Ids::new(3);
+            run!("key(scalar)", |b| ids3.key(b));
         }
     }
 }
