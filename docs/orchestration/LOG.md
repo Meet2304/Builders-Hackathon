@@ -555,3 +555,19 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Neon Architect plus Gemini Neon:** ranks hypotheses for the 2× gVisor gap and prototypes the top one as an env switch.
   - **Scout 2** (claude_master): how the 0.4–0.45 s entries read input, use threads and memory, and build images. Ideas only.
 - **Paused:** Bins, which is Ir-only work.
+
+### 07:35 — Scout 2: the scorer is real Linux, not gVisor
+- **Probes from three teams agree.** Sources: Vibhor7-7 `BENCH.md`, sarvesh2003 `PROGRESS.md`, krishchopda `SUBMISSIONS.md`.
+  - Hardware: a GCE Cascade Lake at 2.8 GHz, kernel `7.0.0-1017-gcp`, THP `madvise`, 8 vCPUs (4 cores × 2 HT), 24 GiB.
+  - Overhead outside the process is about 0.08–0.1 s.
+  - Board noise is 10–20% between draws, so v8 1.0844 vs v13 1.0770 is one draw each.
+- **The real gap is CPU work.** Leaders report about 460–500 total instructions per line, kernel included; we're at about 1,000.
+- **Our gVisor harness was the wrong predictor.** That explains the v10.1, v11 and v12 local wins that didn't show up on the board.
+- **Not pursuing:** the rumour (Vibhor `MORNING.md`) that the 0.27–0.35 s cluster reuses `/scratch` across timed runs. It wouldn't be a valid solution.
+- **Re-targeting:**
+  - **Scorer Lab:** runc on x86, v8/v13/v14n, `perf stat`, PGO A/B, exit teardown.
+  - **Neon:** events-parse rewrite with Gemini, `explore/v15-events`.
+  - **PGO agent:** early free/unmap for 60M exit teardown, `explore/v15-free`.
+  - **Bins:** relaunched on claude_master, from `c9b6fa6`.
+  - Sol (clicks) and Explorer 4 (write) continue.
+  - Integration target: about 09:00. Freeze: 09:30.
