@@ -351,8 +351,7 @@ unsafe fn short_id_pair(p: *const u8) -> Option<(u64, u64, *const u8)> {
 const _: () = assert!(super::SYM[b'e' as usize] != 0 && super::SYM[b'u' as usize] != 0);
 
 #[cfg(target_arch = "x86_64")]
-#[cold]
-#[inline(never)]
+#[inline(always)]
 unsafe fn other_id_pair<'a>(p: *const u8) -> Option<(FieldId<'a>, FieldId<'a>, *const u8)> {
     unsafe {
         let (eid, p) = Column::open(p).id::<b'e'>()?;
