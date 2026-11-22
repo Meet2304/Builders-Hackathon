@@ -2464,15 +2464,14 @@ fn walk_person<L: Layout, const HAS_CLICKS: bool>(
     sales: &mut CategorySales,
 ) {
     let base = ctx.base;
-    let mut k = 0;
-    let mut day = L::ts(events[0], base).div_euclid(DAY_MS);
+    let mut remaining = events;
+    let mut start = L::ts(events[0], base);
+    let mut day = start.div_euclid(DAY_MS);
     let mut next_day = (day + 1).saturating_mul(DAY_MS);
     let mut day_index = (day - ctx.first_day) as usize;
     let mut daily = DayTotals::default();
     let (mut lo, mut hi) = (0, 0);
-    while k < events.len() {
-        let first = k;
-        let start = L::ts(events[k], base);
+    while let Some((&first, rest)) = remaining.split_first() {
         if start >= next_day {
             flush_day::<HAS_CLICKS>(ctx, acc, person, day, day_index, daily, sales);
             day = start.div_euclid(DAY_MS);
@@ -2481,25 +2480,33 @@ fn walk_person<L: Layout, const HAS_CLICKS: bool>(
             daily = DayTotals::default();
         }
 
-        // Attribute all events in a session to its start day, even past midnight.
+        // Keep the lookahead timestamp for the next session. Purchases,
+        // including those after midnight, always belong to this start day.
         let mut last = start;
-        let mut revenue = 0;
-        while let Some(&event) = events.get(k) {
+        let mut next_start = start;
+        let mut revenue = L::price(first) as i64;
+        if revenue > 0 {
+            sales.add(L::cat(first), revenue);
+        }
+        let before = remaining.len();
+        remaining = rest;
+        while let Some((&event, tail)) = remaining.split_first() {
             let ts = L::ts(event, base);
             if ts - last > GAP_MS {
+                next_start = ts;
                 break;
             }
+            remaining = tail;
             last = ts;
             let price = L::price(event) as i64;
             if price > 0 {
                 sales.add(L::cat(event), price);
                 revenue += price;
             }
-            k += 1;
         }
         let purchased = i64::from(revenue > 0);
         daily.sessions += 1;
-        daily.events += (k - first) as i64;
+        daily.events += (before - remaining.len()) as i64;
         daily.revenue += revenue;
         if HAS_CLICKS {
             // The two cursors delimit the inclusive 7-day click window.
@@ -2522,6 +2529,7 @@ fn walk_person<L: Layout, const HAS_CLICKS: bool>(
         } else {
             daily.purchasing += purchased;
         }
+        start = next_start;
     }
     flush_day::<HAS_CLICKS>(ctx, acc, person, day, day_index, daily, sales);
     if HAS_CLICKS {
