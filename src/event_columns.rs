@@ -347,6 +347,9 @@ unsafe fn short_id_pair(p: *const u8) -> Option<(u64, u64, *const u8)> {
     }
 }
 
+// try_line relies on short keys being non-empty.
+const _: () = assert!(super::SYM[b'e' as usize] != 0 && super::SYM[b'u' as usize] != 0);
+
 #[cfg(target_arch = "x86_64")]
 #[cold]
 #[inline(never)]
@@ -797,17 +800,21 @@ unsafe fn try_line<'a>(
     dec: &TimestampDecoder,
 ) -> Option<(*const u8, Option<EvRec>)> {
     unsafe {
+        // `eid_ok`/`user_ok`: the key is non-empty. Short keys always carry the
+        // prefix symbol in their top bits (SYM is non-zero for 'e' and 'u'), so
+        // the fast path knows both without re-testing the merged enum.
         #[cfg(target_arch = "x86_64")]
-        let (eid, user, p) = if let Some((eid, user, p)) = short_id_pair(p) {
-            (FieldId::Packed(eid), FieldId::Packed(user), p)
+        let (eid, user, p, eid_ok, user_ok) = if let Some((eid, user, p)) = short_id_pair(p) {
+            (FieldId::Packed(eid), FieldId::Packed(user), p, true, true)
         } else {
-            other_id_pair(p)?
+            let (eid, user, p) = other_id_pair(p)?;
+            (eid, user, p, !eid.is_empty(), !user.is_empty())
         };
         #[cfg(target_arch = "aarch64")]
-        let (eid, user, p) = {
+        let (eid, user, p, eid_ok, user_ok) = {
             let (eid, p) = Column::open(p).id::<b'e'>()?;
             let (user, p) = Column::open(p).id::<b'u'>()?;
-            (eid, user, p)
+            (eid, user, p, !eid.is_empty(), !user.is_empty())
         };
         #[cfg(target_arch = "x86_64")]
         let (p, ts, ingest) = if let Some(decoded) = common_timestamps(p, dec) {
@@ -834,11 +841,13 @@ unsafe fn try_line<'a>(
         }
         let p = kind.end::<b','>(kind_len)?;
 
-        let valid_time_user = !eid.is_empty()
-            && !user.is_empty()
-            && ts >= w.start
-            && ts < w.end
-            && ingest.saturating_sub(ts) <= DAY_MS;
+        // ts < w.end (a parsed manifest timestamp) keeps ts + DAY_MS far from
+        // overflow, so this equals `ingest.saturating_sub(ts) <= DAY_MS`.
+        let valid_time_user = eid_ok
+            & user_ok
+            & (ts >= w.start)
+            & (ts < w.end)
+            & (ingest <= ts.wrapping_add(DAY_MS));
         let (next, row) = if purchase {
             let prod = Column::open(p);
             let (prod_len, product_digits, p) = if prod.bytes.words().0 as u8 == b'p' {
@@ -882,7 +891,7 @@ unsafe fn try_line<'a>(
             });
             (next, row)
         };
-        if eid.is_empty() {
+        if !eid_ok {
             return Some((next, None));
         }
         Some((
