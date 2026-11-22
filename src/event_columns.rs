@@ -2,9 +2,9 @@
 //! The only speculative reads are within the current guarded chunk.
 
 use super::{
-    BAD_CLOCK, DAY_MS, EvOut, EvRec, EventValues, Layout, Lookups, PK_HI, PK_IDX, PK_LO, PK_OFF,
-    Relaxed, STATS, STATS_ON, TimestampDecoder, Win, clock_millis, decimal_eight, decode_event,
-    direct_clock, emit_event, fallback_timestamp, pk_place, split_fields,
+    BAD_CLOCK, DAY_MS, EvOut, EvRec, EventValues, Ids, Layout, Lookups, PK_HI, PK_IDX, PK_LO,
+    PK_OFF, Relaxed, STATS, STATS_ON, TimestampDecoder, Win, clock_millis, decimal_eight,
+    decode_event, direct_clock, emit_event, fallback_timestamp, pk_place, split_fields,
 };
 
 #[cfg(target_arch = "aarch64")]
@@ -75,6 +75,19 @@ impl Bytes {
                 bad = vsetq_lane_u8(0, bad, 0);
             }
             Self::first_pos(bad)
+        }
+    }
+
+    #[inline(always)]
+    fn is_hex<const PREFIX: bool>(self) -> bool {
+        unsafe {
+            let digits = vcleq_u8(vsubq_u8(self.0, vdupq_n_u8(b'0')), vdupq_n_u8(9));
+            let letters = vcleq_u8(vsubq_u8(self.0, vdupq_n_u8(b'a')), vdupq_n_u8(5));
+            let mut valid = vorrq_u8(digits, letters);
+            if PREFIX {
+                valid = vsetq_lane_u8(u8::MAX, valid, 0);
+            }
+            vminvq_u8(valid) == u8::MAX
         }
     }
 
@@ -175,6 +188,18 @@ impl Bytes {
     }
 
     #[inline(always)]
+    fn is_hex<const PREFIX: bool>(self) -> bool {
+        unsafe {
+            let digits = _mm_sub_epi8(self.0, _mm_set1_epi8(b'0' as i8));
+            let letters = _mm_sub_epi8(self.0, _mm_set1_epi8(b'a' as i8));
+            let limit =
+                |x, max| _mm_cmpeq_epi8(_mm_subs_epu8(x, _mm_set1_epi8(max)), _mm_setzero_si128());
+            let valid = _mm_movemask_epi8(_mm_or_si128(limit(digits, 9), limit(letters, 5)));
+            (valid | i32::from(PREFIX)) == 0xffff
+        }
+    }
+
+    #[inline(always)]
     fn special_len<const IGNORE_OPEN_QUOTE: bool>(self) -> usize {
         unsafe {
             let comma = _mm_cmpeq_epi8(self.0, _mm_set1_epi8(b',' as i8));
@@ -235,6 +260,27 @@ struct Column {
     bytes: Bytes,
 }
 
+#[derive(Clone, Copy)]
+enum FieldId<'a> {
+    Packed(u64),
+    Long(&'a [u8; 33]),
+}
+
+impl<'a> FieldId<'a> {
+    #[inline(always)]
+    fn is_empty(self) -> bool {
+        matches!(self, Self::Packed(0))
+    }
+
+    #[inline(always)]
+    fn key(self, ids: &Ids<'a>) -> u64 {
+        match self {
+            Self::Packed(key) => key,
+            Self::Long(field) => ids.pack_long(field),
+        }
+    }
+}
+
 #[inline(always)]
 unsafe fn terminate<const TERM: u8>(last: *const u8, quote: usize) -> Option<*const u8> {
     unsafe {
@@ -280,19 +326,34 @@ impl Column {
     }
 
     #[inline(always)]
-    unsafe fn id(&self) -> Option<(u64, *const u8)> {
+    unsafe fn id<'a, const PREFIX: u8>(&self) -> Option<(FieldId<'a>, *const u8)> {
         // A verified delimiter at the common width lets the next column's
         // address be computed independently of packing the nine symbols.
         if let Some(next) = unsafe { self.end::<b','>(9) }
             && let Some((_, key)) = self.bytes.pack_id::<9>()
         {
-            return Some((key, next));
+            return Some((FieldId::Packed(key), next));
+        }
+        // The first register covers the prefix and 15 hex digits. Read the
+        // following 16 digits in one block and check the final digit separately.
+        if let Some(next) = unsafe { self.end::<b','>(33) }
+            && self.bytes.words().0 as u8 == PREFIX
+            && self.bytes.is_hex::<true>()
+            && unsafe { Bytes::load(self.start.add(16)) }.is_hex::<false>()
+        {
+            let last = unsafe { *self.start.add(32) };
+            if last.wrapping_sub(b'0') <= 9 || last.wrapping_sub(b'a') <= 5 {
+                return Some((
+                    FieldId::Long(unsafe { &*self.start.cast::<[u8; 33]>() }),
+                    next,
+                ));
+            }
         }
         let (len, key) = self.bytes.pack_id::<0>()?;
         if len > 10 {
             return None;
         }
-        Some((key, unsafe { self.end::<b','>(len)? }))
+        Some((FieldId::Packed(key), unsafe { self.end::<b','>(len)? }))
     }
 
     #[inline(always)]
@@ -523,18 +584,19 @@ fn price(c: &Column, len: usize) -> u32 {
 }
 
 /// Requires LINE_GUARD bytes starting at p. The longest successful advances
-/// are 13 + 13 + 28 + 23 + 18 + 19 + 19 bytes, including quotes and delimiters.
+/// are 36 + 36 + 28 + 23 + 18 + 19 + 19 bytes, including quotes and delimiters.
 /// A failed field causes an immediate return, so the same bound covers failures.
+/// Any raw field referenced by the interner must live as long as the lookups.
 #[inline(always)]
-unsafe fn try_line(
+unsafe fn try_line<'a>(
     p: *const u8,
-    lk: &Lookups,
+    lk: &Lookups<'a>,
     w: &Win,
     dec: &TimestampDecoder,
 ) -> Option<(*const u8, Option<EvRec>)> {
     unsafe {
-        let (eid, p) = Column::open(p).id()?;
-        let (user, p) = Column::open(p).id()?;
+        let (eid, p) = Column::open(p).id::<b'e'>()?;
+        let (user, p) = Column::open(p).id::<b'u'>()?;
         let event = Column::open(p);
         let (event_time, event_len, p) = event_time(&event, dec)?;
         let ing = Column::open(p);
@@ -562,8 +624,11 @@ unsafe fn try_line(
         let p = kind.end::<b','>(kind_len)?;
 
         let (ts, ingest) = timestamp_pair(dec, event_time, &event, event_len, &ing, date);
-        let valid_time_user =
-            user != 0 && ts >= w.start && ts < w.end && ingest.saturating_sub(ts) <= DAY_MS;
+        let valid_time_user = !eid.is_empty()
+            && !user.is_empty()
+            && ts >= w.start
+            && ts < w.end
+            && ingest.saturating_sub(ts) <= DAY_MS;
         let (next, row) = if purchase {
             let prod = Column::open(p);
             let (prod_len, product_digits, p) = if prod.bytes.words().0 as u8 == b'p' {
@@ -591,7 +656,7 @@ unsafe fn try_line(
                 (0, p)
             };
             let row = (valid_time_user && prod_len != 0 && price != 0).then(|| EventValues {
-                user,
+                user: user.key(&lk.ids),
                 ts,
                 price,
                 cat: category(&prod, prod_len, product_digits, lk),
@@ -600,18 +665,25 @@ unsafe fn try_line(
         } else {
             let (product, p) = skip_ignored::<b','>(p)?;
             let (_, next) = skip_ignored::<b'\n'>(p)?;
-            let row = (valid_time_user && valid_type && product).then_some(EventValues {
-                user,
+            let row = (valid_time_user && valid_type && product).then(|| EventValues {
+                user: user.key(&lk.ids),
                 ts,
                 price: 0,
                 cat: 0,
             });
             (next, row)
         };
-        if eid == 0 {
+        if eid.is_empty() {
             return Some((next, None));
         }
-        Some((next, Some(EvRec { eid, ingest, row })))
+        Some((
+            next,
+            Some(EvRec {
+                eid: eid.key(&lk.ids),
+                ingest,
+                row,
+            }),
+        ))
     }
 }
 
@@ -739,7 +811,7 @@ mod tests {
     fn column_quotes_match_decoded_records() {
         let start = parse_ts(b"2026-10-01T00:00:00Z").unwrap();
         let w = window(start, start + 14 * DAY_MS);
-        let patterns: [[&[u8]; 7]; 8] = [
+        let patterns: [[&[u8]; 7]; 11] = [
             [
                 b"eA_09Zx9I",
                 b"U_2a3Z_9k",
@@ -804,6 +876,33 @@ mod tests {
                 b"p1",
                 b"100",
             ],
+            [
+                b"e0123456789abcdef0123456789abcdef",
+                b"uabcdef0123456789abcdef0123456789",
+                b"2026-10-01T01:02:03Z",
+                b"2026-10-01T01:03:01Z",
+                b"view",
+                b"p1",
+                b"",
+            ],
+            [
+                b"e0123456789abcdef0123456789abcdef",
+                b"uabcdef0123456789abcdef0123456789",
+                b"2026-10-01T25:02:03Z",
+                b"2026-10-01T01:03:00Z",
+                b"purchase",
+                b"p01",
+                b"350",
+            ],
+            [
+                b"e0123456789abcdef0123456789abcdeF",
+                b"uabcdef0123456789abcdef0123456789",
+                b"2026-10-01T01:02:03Z",
+                b"2026-10-01T01:03:01Z",
+                b"view",
+                b"p1",
+                b"",
+            ],
         ];
         let mut cases = Vec::new();
         let mut add = |mut line: Vec<u8>, pad, want| {
@@ -830,9 +929,9 @@ mod tests {
                         line.push(b'"');
                     }
                 }
-                add(line.clone(), true, Some(case != 5));
+                add(line.clone(), true, Some(!matches!(case, 5 | 10)));
                 for i in 0..=line.len() {
-                    for byte in [b',', b'"', b'\r'] {
+                    for byte in [b',', b'"', b'\r', b'g'] {
                         let mut inserted = line.clone();
                         inserted.insert(i, byte);
                         add(inserted, true, None);

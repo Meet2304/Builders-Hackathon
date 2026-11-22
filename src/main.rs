@@ -578,6 +578,15 @@ impl<'a> Ids<'a> {
         (((local as u64) * 64 + s as u64) << 4) | 1
     }
 
+    /// Key of a prefix + 32 lowercase hex digits the event column decoder has already
+    /// checked: exactly `Ids::key`'s result for these bytes (lock-free table, or the
+    /// interner if the value's probe window is full).
+    #[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
+    #[inline]
+    fn pack_long(&self, field: &'a [u8; 33]) -> u64 {
+        self.long_key(field).unwrap_or_else(|| self.intern(field))
+    }
+
     /// The bytes of key `k`; `buf` holds a decoded packed or long key.
     fn bytes<'s>(&self, k: u64, buf: &'s mut IdBuf) -> &'s [u8]
     where
