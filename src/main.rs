@@ -3329,8 +3329,21 @@ fn pipeline<'a, L: Layout>(
     }
 
     // dedup per eid partition; the losers' drops go to their person partitions
-    let drops: Vec<Vec<u64>> =
-        (0..nb).into_par_iter().map_init(DedupScratch::default, |tab, q| dedup_part(&ev_out, q, hmask, tab)).collect();
+    // One table per thread, not per rayon leaf: map_init's init runs once per split
+    // job (hundreds), and each fresh table was a zeroed allocation of up to 2n slots.
+    // Generation tags make a reused table logically empty, as they do within a leaf.
+    let tabs: Vec<Mutex<DedupScratch>> = (0..rayon::current_num_threads()).map(|_| Mutex::default()).collect();
+    let drops: Vec<Vec<u64>> = (0..nb)
+        .into_par_iter()
+        .map_init(
+            || None::<DedupScratch>,
+            |own, q| match rayon::current_thread_index().and_then(|t| tabs.get(t)).and_then(|m| m.try_lock().ok()) {
+                Some(mut tab) => dedup_part(&ev_out, q, hmask, &mut tab),
+                None => dedup_part(&ev_out, q, hmask, own.get_or_insert_with(DedupScratch::default)),
+            },
+        )
+        .collect();
+    drop(tabs);
     let mut per = vec![0usize; nb];
     for &d in drops.iter().flatten() {
         per[(d >> 48) as usize] += 1;
@@ -3346,34 +3359,74 @@ fn pipeline<'a, L: Layout>(
     lap(&format!("events deduped ({ndrops} dropped rows)"));
 
 
-    (0..nb)
+    // Campaign totals are per worker thread, not per fold accumulator: rayon makes
+    // hundreds of accumulators at 20M (208 at NCPU=8), and each one zeroed and the
+    // main thread then summed a (ncamp + 1) x ndays array. Integer sums: exact in any order.
+    let camp_len = (ncamp + 1) * ndays;
+    // The scratch buffers are per thread for the same reason: a fresh Scratch per
+    // accumulator regrew every buffer from empty, 208 times instead of 8.
+    let new_scratch = || Scratch {
+        persons: Interner::default(),
+        off: Vec::new(),
+        locs: Vec::new(),
+        evs: Vec::new(),
+        spare: Vec::new(),
+        cks: Vec::new(),
+        ck_spare: Vec::new(),
+        ck_at: Vec::new(),
+        ck_keys: Vec::new(),
+        active: ActiveSet::new(ncamp),
+        category_sales: CategorySales { totals: vec![0i64; ncat], touched: Vec::new() },
+        bins: Bins::default(),
+    };
+    // The third field is the row count of the thread's latest accumulator: a new one
+    // reserves 1.25x that up front instead of doubling from empty (virtual until used).
+    let camps: Vec<Mutex<(Vec<[i64; 4]>, Option<Scratch<L::Elem>>, usize)>> =
+        (0..rayon::current_num_threads()).map(|_| Mutex::new((Vec::new(), None, 0))).collect();
+    let mut accs: Vec<Acc> = (0..nb)
         .into_par_iter()
         .fold(
-            || {
-                let acc = Acc { users: Vec::new(), camp: vec![[0i64; 4]; (ncamp + 1) * ndays] };
-                let sc = Scratch {
-                    persons: Interner::default(),
-                    off: Vec::new(),
-                    locs: Vec::new(),
-                    evs: Vec::new(),
-                    spare: Vec::new(),
-                    cks: Vec::new(),
-                    ck_spare: Vec::new(),
-                    ck_at: Vec::new(),
-                    ck_keys: Vec::new(),
-                    active: ActiveSet::new(ncamp),
-                    category_sales: CategorySales { totals: vec![0i64; ncat], touched: Vec::new() },
-                    bins: Bins::default(),
-                };
-                (acc, sc)
-            },
-            |(mut acc, mut sc), p| {
-                process_part(ctx, &mut acc, &mut sc, &ev_out, &ck_out, &drops_by[p], p);
-                (acc, sc)
+            || (Acc { users: Vec::new(), camp: Vec::new() }, None::<Scratch<L::Elem>>),
+            |(mut acc, mut own), p| {
+                // Borrow this thread's totals and scratch for the partition. If they are
+                // taken (a nested steal on this thread), the accumulator keeps its own.
+                let slot = rayon::current_thread_index().and_then(|t| camps.get(t)).and_then(|m| m.try_lock().ok());
+                match slot {
+                    Some(mut g) => {
+                        let (camp, sc, hint) = &mut *g;
+                        if camp.is_empty() {
+                            *camp = vec![[0i64; 4]; camp_len];
+                        }
+                        if acc.users.capacity() == 0 && *hint > 0 {
+                            acc.users.reserve_exact(*hint + *hint / 4);
+                        }
+                        let sc = sc.get_or_insert_with(new_scratch);
+                        std::mem::swap(&mut acc.camp, camp);
+                        process_part(ctx, &mut acc, sc, &ev_out, &ck_out, &drops_by[p], p);
+                        std::mem::swap(&mut acc.camp, camp);
+                        *hint = acc.users.len();
+                    }
+                    None => {
+                        if acc.camp.is_empty() {
+                            acc.camp = vec![[0i64; 4]; camp_len];
+                        }
+                        let sc = own.get_or_insert_with(new_scratch);
+                        process_part(ctx, &mut acc, sc, &ev_out, &ck_out, &drops_by[p], p);
+                    }
+                }
+                (acc, own)
             },
         )
         .map(|(acc, _)| acc)
-        .collect()
+        .collect();
+    // The per-thread totals ride along as accumulators with no user rows.
+    for m in camps {
+        let (camp, _, _) = m.into_inner().unwrap();
+        if !camp.is_empty() {
+            accs.push(Acc { users: Vec::new(), camp });
+        }
+    }
+    accs
 }
 
 fn main() {
