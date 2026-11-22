@@ -601,3 +601,18 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Memcpy/memset waste** (claude_master, `explore/v17-mem`): presize `user_daily`, avoid the dedup memset (`alloc_zeroed`), reused-buffer copies. Wall time decides.
   - Plan: whatever passes the gates by 09:15 gets integrated as v17, released by 09:30. Otherwise v16 is final.
 - **USER SUBMITTED v15** (`12c449e`): board **0.9504 s** (BB-1C15BD67, Sun 08:33 ET, rank 84). It's our best and is entered in the final. That's −11.8% vs v13's 1.0770, matching the ~10% x86 Ir cut. The user says it's still not enough to win. v16 (−9.3% on 60M in Linux) has not been submitted yet.
+
+### 08:47 — Final push ("not enough to win"; claude_andrew reset: "go crazy")
+- **Release plan:** branch reports by 09:50, v17 integration plus the final gate by 10:15, release by about 10:30, submissions close 11:00. v16 stays the fallback.
+- **8 worker threads:**
+  - **claude_master:**
+    - Events micro-cuts (`explore/v17-events`)
+    - Memcpy/memset waste (`explore/v17-mem`)
+  - **Antigravity Opus 4.6:**
+    - **PGO** regenerated on v16 (`explore/v17-pgo`), with a clean cascadelake build-time check
+    - **Scorer Lab:** real x86 Linux timing on GitHub Actions (`lab/scorer`) for v15, v16 and PGO
+  - **claude_andrew:**
+    - **Red Team:** adversarial run on v16 (bins tie fix-up × tag-3, writer edges, `MADV_DONTNEED` × late input reads with `SESSIONS_FREE=3`)
+    - **Eval:** record the v15 board point; v16 untimed full + 60M consistency + amd64; pre-stage the v17 final gate
+    - **Sessions deep cut** (`explore/v17-sessions`)
+    - **Dedup + links deep cut** (`explore/v17-dedup`)
