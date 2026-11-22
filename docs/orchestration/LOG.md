@@ -136,3 +136,20 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - 60M: peak footprint 5.06 GB, Linux cgroup peak 5.29 GiB, median 1.32 s.
   - Correctness: fixtures 36/36 (native, arm64, amd64, and the portable amd64 path), 11/11 oracle diffs, fuzz 854/854 under every knob, review 120/120, window fuzz 227/227, deterministic. Clean cascadelake build passes.
 - **Orchestrator:** merged `method/v4` @ `a019739` into main (src identical), re-checked fixtures 36/36 and dev MATCH on main, tagged `v4`, pushed. Asked the user to submit v4.
+- **Idle-thread reports (all finished about 22:00 ET, picked up at 23:45 ET):**
+  - **Method:** SIMD ID packer `20b8e79` (NEON `tbl` / SSSE3 `pshufb` nibble tables). Events 915 → 825 and clicks 763 → 669 instructions per line (dev, one thread). The cost was in `pack`, not `Ids::key`. The self-test was cut from 15.7M instructions per run to about 1k. Differential test over 10M cases.
+  - **Explorer 2:** the scan has a floor of about 300 per line (classify 31, bit walk 63, seven slices 51, quote stripping about 150) while it builds generic slices. The target of 80 isn't reachable that way.
+  - **Explorer 3:** session kernel `9ba36f2`. Not worth porting (574 → 563). The event sort, at about 310 per kept row, is the real cost.
+  - **Sol:** the paired timestamp decoder passes 50/50 review comparisons. The instruction comparison is still pending.
+  - **Analyst 2** (`248688c`, merged):
+    - Recounts confirm G1 −679, category −116, links −38 at 20M, and G2 −162 at 20M.
+    - **Method's "G1 saved 3" came from a stale binary:** the shared cargo target fingerprints by mtime.
+    - **60M final model:** head about 4.1 s with the cache cliff, against about 0.84 s for leaders who scale linearly. **We're about 5× off on the final.** 100 instructions per line is worth 0.223 s at 60M.
+- **Orchestrator re-tasked everyone (user: "keep pushing"):**
+  - **Method:** `method/v5` from `20b8e79`. Link lookup + row path, then Sol's paired timestamps, then clicks. Clean rebuild and binary hash before every count.
+  - **Analyst:** `v5-plan.md`. Minimal-work budget per phase from the spec, settle the partition conflict (Analyst 2 vs Sol), spec a fused per-column decoder, rank moves in 60M board seconds, and weigh a clean-room rewrite.
+  - **Explorer 2:** a per-column fused event decoder that builds no generic slices (`explore/gemini-fused`). Target: events parse ≤ 450 per line.
+  - **Explorer 3:** sortedness of each person's input, run-aware sort, or a single (person, ts) key in bucketing (`explore/gemini3-sort`). Then the output writer.
+  - **Sol:** finish the paired timestamp decoder and write a port recipe. Then subdivide dedup inside each person partition for 60M.
+  - **Eval:** quick profile of `20b8e79` as `v5-pre1`, a scan of the cascadelake binary for 512-bit instructions, a stale-binary guard plus the binary's sha256 in each result, and predicted 60M board time as a headline.
+  - **Analyst 2:** verify the packer, a 60M cliff map (instructions vs cache/TLB, THP), and a Gemini brief on how leaders reach about 0.84 s at 60M.
