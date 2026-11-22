@@ -694,3 +694,14 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **v17-pre = `integ/v17` @ `c97d604`** (pushed) = v16 + write `92a2834` + mem `23a10bf`.
   - Orchestrator gates: fixtures 36/36; dev under `NO_FAST` 0–3; seed-42 at NCPU 1/2/8 (6× at 8); seed-535 at `PARTS=4096` ×8; long-ID 240/240; bins fuzz 400/400; `PARTS=1`, `CHUNK=97`, `HASH_BITS=4` dev MATCH.
   - In flight: Eval final gate (+ determinism); Red Team attack (`try_lock` fallback, stale state, writer edges); x86 lab round 3 `45031637997` (v16 vs v17pre, 8 reps at 20M + 4 at 60M).
+- **09:20: real-x86 round 3 `45031637997`** (AVX-512 runner, v3 builds): v17-pre vs v16 at 20M median −0.95% (min −1.2%); at 60M +0.9% (min −0.3%). Within noise.
+- **Final-hour deliveries:**
+  - **events** `53ce778`: events 493.5 → 445.2 Ir/line, **−5.3% total**
+  - **sessions** `a0cf9b2`: sessions −16.4%, **−3.69% total**
+  - **dedup/links** `a1301b5`: **−1.27%** (parallel catalog load, lazy `Ids::cmp`)
+
+  All gated (fixtures, dev under `NO_FAST` 0–3, seed-42, long-ID 240/240, plus phase-specific checks; events also x86 long-ID and seed-42).
+- **v17 = `integ/v17` @ `3929776`** (pushed) = v16 + write + mem + events + sessions + dedup, all merged cleanly. About **−13% x86 Ir vs v16** in total.
+  - Orchestrator gates: fixtures 36/36; dev under `NO_FAST` 0–3; seed-42 at NCPU 1/2/8 (×4 at 8); `PARTS` 1/4096, `CHUNK=97`, `HASH_BITS=4` dev MATCH.
+  - In flight: long-ID 100 seeds, bins fuzz 150, s535 ×8; Eval final gate; Red Team; x86 round 4 `45032998223`.
+  - **ETA release about 10:05.**
