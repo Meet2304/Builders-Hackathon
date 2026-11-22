@@ -79,19 +79,6 @@ impl Bytes {
     }
 
     #[inline(always)]
-    fn is_hex<const PREFIX: bool>(self) -> bool {
-        unsafe {
-            let digits = vcleq_u8(vsubq_u8(self.0, vdupq_n_u8(b'0')), vdupq_n_u8(9));
-            let letters = vcleq_u8(vsubq_u8(self.0, vdupq_n_u8(b'a')), vdupq_n_u8(5));
-            let mut valid = vorrq_u8(digits, letters);
-            if PREFIX {
-                valid = vsetq_lane_u8(u8::MAX, valid, 0);
-            }
-            vminvq_u8(valid) == u8::MAX
-        }
-    }
-
-    #[inline(always)]
     fn special_len<const IGNORE_OPEN_QUOTE: bool>(self) -> usize {
         unsafe {
             let comma = vceqq_u8(self.0, vdupq_n_u8(b','));
@@ -188,18 +175,6 @@ impl Bytes {
     }
 
     #[inline(always)]
-    fn is_hex<const PREFIX: bool>(self) -> bool {
-        unsafe {
-            let digits = _mm_sub_epi8(self.0, _mm_set1_epi8(b'0' as i8));
-            let letters = _mm_sub_epi8(self.0, _mm_set1_epi8(b'a' as i8));
-            let limit =
-                |x, max| _mm_cmpeq_epi8(_mm_subs_epu8(x, _mm_set1_epi8(max)), _mm_setzero_si128());
-            let valid = _mm_movemask_epi8(_mm_or_si128(limit(digits, 9), limit(letters, 5)));
-            (valid | i32::from(PREFIX)) == 0xffff
-        }
-    }
-
-    #[inline(always)]
     fn special_len<const IGNORE_OPEN_QUOTE: bool>(self) -> usize {
         unsafe {
             let comma = _mm_cmpeq_epi8(self.0, _mm_set1_epi8(b',' as i8));
@@ -263,7 +238,8 @@ struct Column {
 #[derive(Clone, Copy)]
 enum FieldId<'a> {
     Packed(u64),
-    Long(&'a [u8; 33]),
+    /// The field and its 32 digits, already parsed by `hex32::digits`.
+    Long(&'a [u8; 33], u128),
 }
 
 impl<'a> FieldId<'a> {
@@ -276,7 +252,7 @@ impl<'a> FieldId<'a> {
     fn key(self, ids: &Ids<'a>) -> u64 {
         match self {
             Self::Packed(key) => key,
-            Self::Long(field) => ids.pack_long(field),
+            Self::Long(field, digits) => ids.pack_long_parsed(field, digits),
         }
     }
 }
@@ -347,9 +323,11 @@ unsafe fn short_id_pair(p: *const u8) -> Option<(u64, u64, *const u8)> {
     }
 }
 
+// try_line relies on short keys being non-empty.
+const _: () = assert!(super::SYM[b'e' as usize] != 0 && super::SYM[b'u' as usize] != 0);
+
 #[cfg(target_arch = "x86_64")]
-#[cold]
-#[inline(never)]
+#[inline(always)]
 unsafe fn other_id_pair<'a>(p: *const u8) -> Option<(FieldId<'a>, FieldId<'a>, *const u8)> {
     unsafe {
         let (eid, p) = Column::open(p).id::<b'e'>()?;
@@ -443,20 +421,16 @@ impl Column {
         {
             return Some((FieldId::Packed(key), next));
         }
-        // The first register covers the prefix and 15 hex digits. Read the
-        // following 16 digits in one block and check the final digit separately.
+        // Validate and parse the 32 lowercase hex digits once; the key reuses
+        // the value instead of parsing the field again.
         if let Some(next) = unsafe { self.end::<b','>(33) }
             && self.bytes.words().0 as u8 == PREFIX
-            && self.bytes.is_hex::<true>()
-            && unsafe { Bytes::load(self.start.add(16)) }.is_hex::<false>()
+            && let Some(digits) = unsafe { super::hex32::digits(self.start.add(1)) }
         {
-            let last = unsafe { *self.start.add(32) };
-            if last.wrapping_sub(b'0') <= 9 || last.wrapping_sub(b'a') <= 5 {
-                return Some((
-                    FieldId::Long(unsafe { &*self.start.cast::<[u8; 33]>() }),
-                    next,
-                ));
-            }
+            return Some((
+                FieldId::Long(unsafe { &*self.start.cast::<[u8; 33]>() }, digits),
+                next,
+            ));
         }
         let (len, key) = self.bytes.pack_id::<0>()?;
         if len > 10 {
@@ -785,6 +759,26 @@ fn price(c: &Column, len: usize) -> u32 {
     if value > 10_000_000 { 0 } else { value }
 }
 
+/// Where the fast decoder hands a decoded record (statically dispatched and
+/// inlined: a closure here was outlined by LLVM).
+trait EvSink {
+    fn emit(&mut self, rec: EvRec);
+}
+
+impl<L: Layout> EvSink for (&mut EvOut<L>, &Lookups<'_>) {
+    #[inline(always)]
+    fn emit(&mut self, rec: EvRec) {
+        emit_event(rec, self.1, self.0);
+    }
+}
+
+#[cfg(test)]
+impl EvSink for Option<EvRec> {
+    fn emit(&mut self, rec: EvRec) {
+        *self = Some(rec);
+    }
+}
+
 /// Requires LINE_GUARD bytes starting at p. The longest successful advances
 /// are 36 + 36 + 28 + 23 + 18 + 19 + 19 bytes, including quotes and delimiters.
 /// A failed field causes an immediate return, so the same bound covers failures.
@@ -795,20 +789,43 @@ unsafe fn try_line<'a>(
     lk: &Lookups<'a>,
     w: &Win,
     dec: &TimestampDecoder,
-) -> Option<(*const u8, Option<EvRec>)> {
+    emit: &mut impl EvSink,
+) -> Option<*const u8> {
     unsafe {
+        // The rest of the line is generic over the ID path, so on the short
+        // path both keys are known `Packed` and non-empty at compile time.
         #[cfg(target_arch = "x86_64")]
-        let (eid, user, p) = if let Some((eid, user, p)) = short_id_pair(p) {
-            (FieldId::Packed(eid), FieldId::Packed(user), p)
-        } else {
-            other_id_pair(p)?
-        };
+        {
+            if let Some((eid, user, p)) = short_id_pair(p) {
+                return line_tail::<true>(FieldId::Packed(eid), FieldId::Packed(user), p, lk, w, dec, emit);
+            }
+            let (eid, user, p) = other_id_pair(p)?;
+            line_tail::<false>(eid, user, p, lk, w, dec, emit)
+        }
         #[cfg(target_arch = "aarch64")]
-        let (eid, user, p) = {
+        {
             let (eid, p) = Column::open(p).id::<b'e'>()?;
             let (user, p) = Column::open(p).id::<b'u'>()?;
-            (eid, user, p)
-        };
+            line_tail::<false>(eid, user, p, lk, w, dec, emit)
+        }
+    }
+}
+
+/// `SHORT`: both IDs came from `short_id_pair`, so they are `Packed` and
+/// non-empty (SYM is non-zero for 'e' and 'u').
+#[inline(always)]
+unsafe fn line_tail<'a, const SHORT: bool>(
+    eid: FieldId<'a>,
+    user: FieldId<'a>,
+    p: *const u8,
+    lk: &Lookups<'a>,
+    w: &Win,
+    dec: &TimestampDecoder,
+    emit: &mut impl EvSink,
+) -> Option<*const u8> {
+    unsafe {
+        let eid_ok = SHORT || !eid.is_empty();
+        let user_ok = SHORT || !user.is_empty();
         #[cfg(target_arch = "x86_64")]
         let (p, ts, ingest) = if let Some(decoded) = common_timestamps(p, dec) {
             decoded
@@ -820,12 +837,14 @@ unsafe fn try_line<'a>(
 
         let kind = Column::open(p);
         let k = kind.bytes.words().0;
-        let (kind_len, purchase, valid_type) = if k == u64::from_le_bytes(*b"purchase") {
-            (8, true, true)
-        } else if k as u32 == u32::from_le_bytes(*b"view")
+        // Most frequent first. "purc" is neither "view" nor "cart", so the
+        // order does not change which branch a value takes.
+        let (kind_len, purchase, valid_type) = if k as u32 == u32::from_le_bytes(*b"view")
             || k as u32 == u32::from_le_bytes(*b"cart")
         {
             (4, false, true)
+        } else if k == u64::from_le_bytes(*b"purchase") {
+            (8, true, true)
         } else {
             (kind.bytes.special_len::<false>(), false, false)
         };
@@ -834,11 +853,13 @@ unsafe fn try_line<'a>(
         }
         let p = kind.end::<b','>(kind_len)?;
 
-        let valid_time_user = !eid.is_empty()
-            && !user.is_empty()
-            && ts >= w.start
-            && ts < w.end
-            && ingest.saturating_sub(ts) <= DAY_MS;
+        // ts < w.end (a parsed manifest timestamp) keeps ts + DAY_MS far from
+        // overflow, so this equals `ingest.saturating_sub(ts) <= DAY_MS`.
+        let valid_time_user = eid_ok
+            & user_ok
+            & (ts >= w.start)
+            & (ts < w.end)
+            & (ingest <= ts.wrapping_add(DAY_MS));
         let (next, row) = if purchase {
             let prod = Column::open(p);
             let (prod_len, product_digits, p) = if prod.bytes.words().0 as u8 == b'p' {
@@ -882,17 +903,14 @@ unsafe fn try_line<'a>(
             });
             (next, row)
         };
-        if eid.is_empty() {
-            return Some((next, None));
-        }
-        Some((
-            next,
-            Some(EvRec {
+        if eid_ok {
+            emit.emit(EvRec {
                 eid: eid.key(&lk.ids),
                 ingest,
                 row,
-            }),
-        ))
+            });
+        }
+        Some(next)
     }
 }
 
@@ -929,10 +947,7 @@ pub(super) fn parse_chunk<'a, L: Layout>(
     while pos < end {
         if end - pos >= LINE_GUARD {
             // SAFETY: the guard bounds all speculative reads from this line.
-            if let Some((next, rec)) = unsafe { try_line(base.add(pos), lk, w, dec) } {
-                if let Some(rec) = rec {
-                    emit_event(rec, lk, out);
-                }
+            if let Some(next) = unsafe { try_line(base.add(pos), lk, w, dec, &mut (&mut *out, lk)) } {
                 pos = unsafe { next.offset_from(base) } as usize;
                 fast += 1;
                 continue;
@@ -999,7 +1014,11 @@ mod tests {
         };
         let decoded = if end - pos >= LINE_GUARD {
             // SAFETY: this is the same guard as parse_chunk.
-            unsafe { try_line(buf.as_ptr().add(pos), lk, w, w.decoder.as_ref().unwrap()) }
+            let mut got = None;
+            let next = unsafe {
+                try_line(buf.as_ptr().add(pos), lk, w, w.decoder.as_ref().unwrap(), &mut got)
+            };
+            next.map(|next| (next, got))
         } else {
             None
         };
