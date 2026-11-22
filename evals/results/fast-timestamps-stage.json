@@ -1,0 +1,446 @@
+{
+  "stage-base": {
+    "rev": "c9e1a0c",
+    "delta_per_record": {
+      "instructions": 151.90908807833628,
+      "cycles": 27.330866359794225
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1432574392,
+          "cycles": 425364560,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1440268101,
+          "cycles": 440311331,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1432183616,
+          "cycles": 426677626,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1428435797,
+          "cycles": 424086454,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1431679920,
+          "cycles": 430079694,
+          "elapsed_s": 0.1
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1828559185,
+          "cycles": 498603148,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1827344423,
+          "cycles": 496584975,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1826966507,
+          "cycles": 495351060,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1827456977,
+          "cycles": 505682689,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1824457810,
+          "cycles": 497773354,
+          "elapsed_s": 0.11
+        }
+      ]
+    },
+    "records": 2601298
+  },
+  "stage-fast": {
+    "rev": "919ec48",
+    "delta_per_record": {
+      "instructions": 101.82339624295255,
+      "cycles": 20.323156362708154
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1424960811,
+          "cycles": 429320870,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1425884279,
+          "cycles": 432983506,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1424503659,
+          "cycles": 429966749,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1424435037,
+          "cycles": 427342313,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1425735134,
+          "cycles": 429630865,
+          "elapsed_s": 0.1
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1689833808,
+          "cycles": 487162019,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1690962854,
+          "cycles": 481597599,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1689236135,
+          "cycles": 482497451,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1689183764,
+          "cycles": 480305413,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1699500160,
+          "cycles": 497439423,
+          "elapsed_s": 0.11
+        }
+      ]
+    },
+    "records": 2601298
+  },
+  "stage-lut": {
+    "rev": "scratch-lut",
+    "delta_per_record": {
+      "instructions": 88.72276686484977,
+      "cycles": 19.035584542793636
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1435206587,
+          "cycles": 442586177,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1426337823,
+          "cycles": 423373559,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1431998820,
+          "cycles": 429826849,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1423974984,
+          "cycles": 421342926,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1421785387,
+          "cycles": 424696833,
+          "elapsed_s": 0.1
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1660627776,
+          "cycles": 477644022,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1656838386,
+          "cycles": 477297881,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1658345950,
+          "cycles": 466343038,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1657132179,
+          "cycles": 468980867,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1656088398,
+          "cycles": 474214061,
+          "elapsed_s": 0.11
+        }
+      ]
+    },
+    "records": 2601298
+  },
+  "stage-hour": {
+    "rev": "scratch-hour",
+    "delta_per_record": {
+      "instructions": 86.75716353912547,
+      "cycles": 23.16176347346594
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1423872727,
+          "cycles": 423217221,
+          "elapsed_s": 0.09
+        },
+        {
+          "records": 2601298,
+          "instructions": 1423796081,
+          "cycles": 420072366,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1423169637,
+          "cycles": 419327071,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1424709580,
+          "cycles": 418020825,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1425169811,
+          "cycles": 428105680,
+          "elapsed_s": 0.1
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1648504528,
+          "cycles": 476217176,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1651386671,
+          "cycles": 482214860,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1652312333,
+          "cycles": 492760540,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1649194158,
+          "cycles": 473254921,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1649553963,
+          "cycles": 480323015,
+          "elapsed_s": 0.11
+        }
+      ]
+    },
+    "records": 2601298
+  },
+  "stage-only-ingest": {
+    "rev": "scratch-hour ingest only",
+    "delta_per_record": {
+      "instructions": 40.87067264111993,
+      "cycles": 2.1724216141326367
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1426868616,
+          "cycles": 426614405,
+          "elapsed_s": 0.16
+        },
+        {
+          "records": 2601298,
+          "instructions": 1433160674,
+          "cycles": 428287590,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1433405959,
+          "cycles": 443172156,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1427935965,
+          "cycles": 426440355,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1427506975,
+          "cycles": 424504125,
+          "elapsed_s": 0.1
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1532003561,
+          "cycles": 429267180,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1531791869,
+          "cycles": 425124717,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1536455993,
+          "cycles": 437899876,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1534252764,
+          "cycles": 432967846,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1534476321,
+          "cycles": 432265521,
+          "elapsed_s": 0.1
+        }
+      ]
+    },
+    "records": 2601298
+  },
+  "stage-only-event": {
+    "rev": "scratch-hour event only",
+    "delta_per_record": {
+      "instructions": 53.32581119118225,
+      "cycles": 16.78477706129786
+    },
+    "runs": {
+      "7": [
+        {
+          "records": 2601298,
+          "instructions": 1434031139,
+          "cycles": 428516701,
+          "elapsed_s": 0.17
+        },
+        {
+          "records": 2601298,
+          "instructions": 1427225147,
+          "cycles": 425067605,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1427699922,
+          "cycles": 429708201,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1427153736,
+          "cycles": 424749556,
+          "elapsed_s": 0.1
+        },
+        {
+          "records": 2601298,
+          "instructions": 1427231576,
+          "cycles": 424100231,
+          "elapsed_s": 0.1
+        }
+      ],
+      "8": [
+        {
+          "records": 2601298,
+          "instructions": 1565947902,
+          "cycles": 471347490,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1565574640,
+          "cycles": 468729812,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1566812891,
+          "cycles": 469312842,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1564808174,
+          "cycles": 464469672,
+          "elapsed_s": 0.11
+        },
+        {
+          "records": 2601298,
+          "instructions": 1566963056,
+          "cycles": 465245595,
+          "elapsed_s": 0.11
+        }
+      ]
+    },
+    "records": 2601298
+  }
+}
