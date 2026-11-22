@@ -79,19 +79,6 @@ impl Bytes {
     }
 
     #[inline(always)]
-    fn is_hex<const PREFIX: bool>(self) -> bool {
-        unsafe {
-            let digits = vcleq_u8(vsubq_u8(self.0, vdupq_n_u8(b'0')), vdupq_n_u8(9));
-            let letters = vcleq_u8(vsubq_u8(self.0, vdupq_n_u8(b'a')), vdupq_n_u8(5));
-            let mut valid = vorrq_u8(digits, letters);
-            if PREFIX {
-                valid = vsetq_lane_u8(u8::MAX, valid, 0);
-            }
-            vminvq_u8(valid) == u8::MAX
-        }
-    }
-
-    #[inline(always)]
     fn special_len<const IGNORE_OPEN_QUOTE: bool>(self) -> usize {
         unsafe {
             let comma = vceqq_u8(self.0, vdupq_n_u8(b','));
@@ -188,18 +175,6 @@ impl Bytes {
     }
 
     #[inline(always)]
-    fn is_hex<const PREFIX: bool>(self) -> bool {
-        unsafe {
-            let digits = _mm_sub_epi8(self.0, _mm_set1_epi8(b'0' as i8));
-            let letters = _mm_sub_epi8(self.0, _mm_set1_epi8(b'a' as i8));
-            let limit =
-                |x, max| _mm_cmpeq_epi8(_mm_subs_epu8(x, _mm_set1_epi8(max)), _mm_setzero_si128());
-            let valid = _mm_movemask_epi8(_mm_or_si128(limit(digits, 9), limit(letters, 5)));
-            (valid | i32::from(PREFIX)) == 0xffff
-        }
-    }
-
-    #[inline(always)]
     fn special_len<const IGNORE_OPEN_QUOTE: bool>(self) -> usize {
         unsafe {
             let comma = _mm_cmpeq_epi8(self.0, _mm_set1_epi8(b',' as i8));
@@ -263,7 +238,8 @@ struct Column {
 #[derive(Clone, Copy)]
 enum FieldId<'a> {
     Packed(u64),
-    Long(&'a [u8; 33]),
+    /// The field and its 32 digits, already parsed by `hex32::digits`.
+    Long(&'a [u8; 33], u128),
 }
 
 impl<'a> FieldId<'a> {
@@ -276,7 +252,7 @@ impl<'a> FieldId<'a> {
     fn key(self, ids: &Ids<'a>) -> u64 {
         match self {
             Self::Packed(key) => key,
-            Self::Long(field) => ids.pack_long(field),
+            Self::Long(field, digits) => ids.pack_long_parsed(field, digits),
         }
     }
 }
@@ -445,20 +421,16 @@ impl Column {
         {
             return Some((FieldId::Packed(key), next));
         }
-        // The first register covers the prefix and 15 hex digits. Read the
-        // following 16 digits in one block and check the final digit separately.
+        // Validate and parse the 32 lowercase hex digits once; the key reuses
+        // the value instead of parsing the field again.
         if let Some(next) = unsafe { self.end::<b','>(33) }
             && self.bytes.words().0 as u8 == PREFIX
-            && self.bytes.is_hex::<true>()
-            && unsafe { Bytes::load(self.start.add(16)) }.is_hex::<false>()
+            && let Some(digits) = unsafe { super::hex32::digits(self.start.add(1)) }
         {
-            let last = unsafe { *self.start.add(32) };
-            if last.wrapping_sub(b'0') <= 9 || last.wrapping_sub(b'a') <= 5 {
-                return Some((
-                    FieldId::Long(unsafe { &*self.start.cast::<[u8; 33]>() }),
-                    next,
-                ));
-            }
+            return Some((
+                FieldId::Long(unsafe { &*self.start.cast::<[u8; 33]>() }, digits),
+                next,
+            ));
         }
         let (len, key) = self.bytes.pack_id::<0>()?;
         if len > 10 {

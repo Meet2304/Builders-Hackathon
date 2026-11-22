@@ -712,6 +712,20 @@ impl<'a> Ids<'a> {
         self.long_key(field).unwrap_or_else(|| self.intern(field))
     }
 
+    /// `pack_long` for a field whose 32 digits `hex32::digits` already parsed
+    /// to `digits` (the same value `long_key` would compute).
+    #[inline]
+    fn pack_long_parsed(&self, field: &'a [u8; 33], digits: u128) -> u64 {
+        let sym = SYM[field[0] as usize];
+        if !self.simd_hex || sym == 0 {
+            return self.pack_long(field);
+        }
+        match self.long.slot((digits >> 64) as u64, digits as u64) {
+            Some(s) => (s as u64) << 10 | (sym as u64) << 4 | 2,
+            None => self.intern(field),
+        }
+    }
+
     /// The bytes of key `k`; `buf` holds a decoded packed or long key.
     fn bytes<'s>(&self, k: u64, buf: &'s mut IdBuf) -> &'s [u8]
     where

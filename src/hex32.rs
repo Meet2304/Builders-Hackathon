@@ -165,7 +165,7 @@ const HX_OFF: [u8; 16] = [0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 /// SAFETY: `p..p+32` readable.
 #[cfg(target_arch = "aarch64")]
 #[inline(always)]
-unsafe fn digits(p: *const u8) -> Option<u128> {
+pub(crate) unsafe fn digits(p: *const u8) -> Option<u128> {
     use std::arch::aarch64::*;
     unsafe {
         let (tlo, thi, toff) = (vld1q_u8(HX_LO.as_ptr()), vld1q_u8(HX_HI.as_ptr()), vld1q_u8(HX_OFF.as_ptr()));
@@ -198,7 +198,7 @@ unsafe fn digits(p: *const u8) -> Option<u128> {
 /// SAFETY: `p..p+32` readable.
 #[cfg(all(target_arch = "x86_64", target_feature = "ssse3"))]
 #[inline(always)]
-unsafe fn digits(p: *const u8) -> Option<u128> {
+pub(crate) unsafe fn digits(p: *const u8) -> Option<u128> {
     use std::arch::x86_64::*;
     unsafe {
         let ld = |t: &[u8; 16]| _mm_loadu_si128(t.as_ptr() as *const __m128i);
@@ -229,7 +229,7 @@ unsafe fn digits(p: *const u8) -> Option<u128> {
 /// SAFETY: `p..p+32` readable.
 #[cfg(not(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3"))))]
 #[inline(always)]
-unsafe fn digits(p: *const u8) -> Option<u128> {
+pub(crate) unsafe fn digits(p: *const u8) -> Option<u128> {
     let s = unsafe { std::slice::from_raw_parts(p, 32) };
     let mut v = 0u128;
     for &c in s {
