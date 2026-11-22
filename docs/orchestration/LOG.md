@@ -368,3 +368,13 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Neon Detective (Gemini Flash) → write-path syscalls with the encoding unchanged.
   - Explorer 4 (Gemini Flash) → clicks-phase faults.
 - **User rule (03:45): no Gemini Flash for anything; use Gemini 4 Neon in the browser.** Stopped the Flash runs of Neon Detective and Explorer 4, and re-configured both as **Opus drivers on claude_master (medium effort) consulting Gemini 4 Neon in a browser tab**. Tasks unchanged: write-path syscalls; clicks-phase faults. Gemini Flash is banned from all future routing.
+- **User (03:48): "run as many as you can on Neon instances in the browser using claude_master."** Moved 5 more threads to **Opus driver on claude_master (medium) + Gemini 4 Neon in a browser tab**:
+  - **Red Team:** adversarial run on v9a `0340530`: `LongTable` overflow, union-find races, `Input::open` edge cases; every knob, NCPU 1/2/8.
+  - **Analyst 2:** spec and memory-model review of v9a plus the long-ID suite (`evals/insights2/v9a_review.md`).
+  - **Analyst 3:** x86 valgrind gate for v9a.
+  - **Explorer 5:** fix the 15–20 min gVisor harness, then 60M gVisor v8 vs v9a (decides the final pick).
+  - **Explorer Sol:** dedup + sessions buffer memory (`explore/sol-dedup-mem`).
+
+  Together with Footprint, Neon Detective (write path) and Explorer 4 (clicks faults), that's **8 threads on claude_master** plus the Orchestrator.
+  - Risk: one account. If it caps, everything (including the Orchestrator) stalls until its reset.
+  - Method and Analyst stay pinned by stale background commands until claudeAgent resets (about 05:00). Eval waits for claude_andrew (05:40).
