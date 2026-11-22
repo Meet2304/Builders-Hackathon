@@ -2000,6 +2000,15 @@ struct EvOut<L> {
     pend: [PendEv<L>; BATCH], // valid rows waiting on their (prefetched) link lookup
     np: usize,                // rows in `pend`
     base: i64,
+    pfw: usize, // SESSIONS_PF_SCATTER: bytes ahead of each destination tail to prefetch (0 = off)
+}
+
+/// SESSIONS_PF_SCATTER=B: after each scatter push, prefetch the destination Vecs B bytes
+/// past their new tail, so the next cache line of each of the 2 x 256 write streams is
+/// already owned when it's written (the hardware prefetcher can't track 512 streams).
+fn pf_scatter() -> usize {
+    static B: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *B.get_or_init(|| env::var("SESSIONS_PF_SCATTER").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
 }
 
 /// Link lookups go in batches of BATCH: a row's table slot is prefetched when it's
@@ -2024,7 +2033,7 @@ impl<L: Layout> EvOut<L> {
         // ~75 bytes per line; reserve 25% headroom (virtual memory only until touched)
         let per = bytes / 75 / nb * 5 / 4 + 16;
         let pend = [PendEv { row: L::row(0, base, 0, 0, base), eid: 0, ingest: 0, slot: 0 }; BATCH];
-        EvOut { e: buckets_with(nb, per), r: buckets_with(nb, per), pend, np: 0, base }
+        EvOut { e: buckets_with(nb, per), r: buckets_with(nb, per), pend, np: 0, base, pfw: pf_scatter() }
     }
 
     /// Queue a valid row (person = user key): its link slot is prefetched now and probed
@@ -2045,6 +2054,7 @@ impl<L: Layout> EvOut<L> {
     fn flush(&mut self, lk: &Lookups) {
         let nb = self.r.len();
         let np = std::mem::take(&mut self.np);
+        let pfw = self.pfw;
         for x in &self.pend[..np] {
             let (mut row, user) = (x.row, x.row.person());
             let person = lk.links.get_at(user, x.slot).wrapping_mul(PART_MULTIPLIER);
@@ -2058,6 +2068,11 @@ impl<L: Layout> EvOut<L> {
             assert!(seq < 1 << 20, "rows per (task, partition) overflow the 20-bit ref");
             r.push(row);
             e.push(EidEnt { eid: x.eid, ingest: x.ingest, rf: (d as u32) << 20 | seq as u32 });
+            if pfw != 0 {
+                // prefetch never faults; past the allocation it's only a wasted hint
+                prefetch(r.as_ptr().cast::<u8>().wrapping_add(r.len() * size_of::<L>() + pfw));
+                prefetch(e.as_ptr().cast::<u8>().wrapping_add(e.len() * size_of::<EidEnt>() + pfw));
+            }
         }
     }
 }
