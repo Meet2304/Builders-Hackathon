@@ -1580,6 +1580,7 @@ impl<'a> Lookups<'a> {
 struct EidEnt {
     eid: u64,
     ingest: i64,
+    rf: u32, // dest << 20 | seq of the row this copy produced, or INVALID
 }
 
 /// A valid event row in its person's partition, and the per-person sort element it
@@ -1801,7 +1802,6 @@ impl Win {
 /// One parse task's output for events.
 struct EvOut<L> {
     e: Vec<Vec<EidEnt>>, // by eid partition
-    rf: Vec<Vec<u32>>,   // parallel to e: dest << 20 | seq, or INVALID
     r: Vec<Vec<L>>,      // by person partition
     pend: [PendEv<L>; BATCH], // valid rows waiting on their (prefetched) link lookup
     np: usize,                // rows in `pend`
@@ -1830,7 +1830,7 @@ impl<L: Layout> EvOut<L> {
         // ~75 bytes per line; reserve 25% headroom (virtual memory only until touched)
         let per = bytes / 75 / nb * 5 / 4 + 16;
         let pend = [PendEv { row: L::row(0, base, 0, 0, base), eid: 0, ingest: 0, slot: 0 }; BATCH];
-        EvOut { e: buckets_with(nb, per), rf: buckets_with(nb, per), r: buckets_with(nb, per), pend, np: 0, base }
+        EvOut { e: buckets_with(nb, per), r: buckets_with(nb, per), pend, np: 0, base }
     }
 
     /// Queue a valid row (person = user key): its link slot is prefetched now and probed
@@ -1857,14 +1857,13 @@ impl<L: Layout> EvOut<L> {
             row.set_person(person);
             let d = bucket(person & lk.hmask, nb);
             let q = bucket(lk.hpart(x.eid), nb);
-            // SAFETY: bucket(_, nb) < nb == self.r.len() == self.e.len() == self.rf.len()
-            let (r, e, rf) = unsafe { (self.r.get_unchecked_mut(d), self.e.get_unchecked_mut(q), self.rf.get_unchecked_mut(q)) };
+            // SAFETY: bucket(_, nb) < nb == self.r.len() == self.e.len()
+            let (r, e) = unsafe { (self.r.get_unchecked_mut(d), self.e.get_unchecked_mut(q)) };
             let seq = r.len();
             // MAX_TASK_BYTES keeps this far below 2^20; fail loudly rather than corrupt
             assert!(seq < 1 << 20, "rows per (task, partition) overflow the 20-bit ref");
             r.push(row);
-            e.push(EidEnt { eid: x.eid, ingest: x.ingest });
-            rf.push((d as u32) << 20 | seq as u32);
+            e.push(EidEnt { eid: x.eid, ingest: x.ingest, rf: (d as u32) << 20 | seq as u32 });
         }
     }
 }
@@ -1928,11 +1927,8 @@ fn emit_event<L: Layout>(rec: EvRec, lk: &Lookups, o: &mut EvOut<L>) {
         Some(EventValues { user, ts, price, cat }) => o.queue(L::row(user, ts, price, cat, o.base), eid, ingest, lk),
         None => {
             let q = bucket(lk.hpart(eid), o.e.len());
-            // SAFETY: q < nb == o.e.len() == o.rf.len()
-            unsafe {
-                o.e.get_unchecked_mut(q).push(EidEnt { eid, ingest });
-                o.rf.get_unchecked_mut(q).push(INVALID);
-            }
+            // SAFETY: q < nb == o.e.len()
+            unsafe { o.e.get_unchecked_mut(q).push(EidEnt { eid, ingest, rf: INVALID }) };
         }
     }
 }
@@ -2098,13 +2094,13 @@ fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, scratch: &mut DedupScrat
                 if slot.0 == en.eid {
                     let (wt, wi) = (((slot.1 >> 24) & 0xff_ffff) as usize, (slot.1 & 0xff_ffff) as usize);
                     // strictly smaller ingest wins; on a tie the first copy stays
-                    let (lt, li) = if en.ingest < ev[wt].e[q][wi].ingest {
+                    let w = &ev[wt].e[q][wi];
+                    let (lt, rf) = if en.ingest < w.ingest {
                         slot.1 = tag | (t as u64) << 24 | i as u64;
-                        (wt, wi)
+                        (wt, w.rf)
                     } else {
-                        (t, i)
+                        (t, en.rf)
                     };
-                    let rf = ev[lt].rf[q][li];
                     if rf != INVALID {
                         drops.push(((rf >> 20) as u64) << 48 | (lt as u64) << 24 | (rf & 0xf_ffff) as u64);
                     }
@@ -2880,7 +2876,6 @@ fn pipeline<'a, L: Layout>(
     let ndrops: usize = drops.iter().map(|d| d.len()).sum();
     ev_out.par_iter_mut().for_each(|o| {
         o.e = Vec::new();
-        o.rf = Vec::new();
     });
     lap(&format!("events deduped ({ndrops} dropped rows)"));
 
@@ -3100,8 +3095,7 @@ mod tests {
                         let eid = (i % 19 + 1) as u64;
                         let ingest = ((i * 13 + t * 7) % 31) as i64;
                         let rf = if (i + t) % 5 == 0 { INVALID } else { i as u32 };
-                        o.e[0].push(EidEnt { eid, ingest });
-                        o.rf[0].push(rf);
+                        o.e[0].push(EidEnt { eid, ingest, rf });
                         let drop = if rf == INVALID { None } else { Some((t as u64) << 24 | i as u64) };
                         let encoded = drop.unwrap_or(u64::MAX);
                         match winners.get_mut(&eid) {
