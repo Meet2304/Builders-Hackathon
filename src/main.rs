@@ -807,6 +807,9 @@ impl<'a> Ids<'a> {
 
 /// Open-addressing map u64 -> u64 (key 0 = empty slot), safe to fill from many threads.
 pub(crate) struct LinkTable {
+    // One bit per home slot, published after link resolution. False positives
+    // probe the full table; an absent bit proves the user has no link.
+    pub(crate) membership: Vec<AtomicU64>,
     pub(crate) slots: Vec<[AtomicU64; 2]>,
     pub(crate) mask: usize,
     pub(crate) shift: u32, // 64 - log2(slots.len())
@@ -822,7 +825,8 @@ impl LinkTable {
             std::alloc::handle_alloc_error(layout);
         }
         let slots = unsafe { Vec::from_raw_parts(ptr, cap, cap) };
-        LinkTable { slots, mask: cap - 1, shift: 64 - cap.trailing_zeros(), hmask }
+        let membership = (0..cap.div_ceil(64)).map(|_| AtomicU64::new(0)).collect();
+        LinkTable { membership, slots, mask: cap - 1, shift: 64 - cap.trailing_zeros(), hmask }
     }
 
     #[allow(dead_code)]
@@ -836,9 +840,21 @@ impl LinkTable {
         ((k.wrapping_mul(PART_MULTIPLIER) & self.hmask) >> self.shift) as usize
     }
 
+    /// Avoid touching the large link table for definitely unlinked users.
+    #[inline(always)]
+    fn prefetch_lookup(&self, k: u64) -> usize {
+        let s = self.slot(k);
+        if self.membership[s >> 6].load(Relaxed) & (1u64 << (s & 63)) == 0 {
+            return usize::MAX;
+        }
+        prefetch(&self.slots[s]);
+        s
+    }
+
     /// The person of user key `k` (itself when it isn't linked to a smaller ID).
     #[inline(always)]
     pub(crate) fn get_at(&self, k: u64, mut s: usize) -> u64 {
+        if s == usize::MAX { return k; }
         loop {
             let e = unsafe { self.slots.get_unchecked(s) };
             let kk = e[0].load(Relaxed);
@@ -2040,7 +2056,7 @@ impl Win {
 struct EvOut<L> {
     e: Vec<Vec<EidEnt>>, // by eid partition
     r: Vec<Vec<L>>,      // by person partition
-    pend: [PendEv<L>; BATCH], // valid rows waiting on their (prefetched) link lookup
+    pend: [PendEv<L>; EVENT_BATCH], // valid rows waiting on their (prefetched) link lookup
     np: usize,                // rows in `pend`
     base: i64,
 }
@@ -2048,6 +2064,7 @@ struct EvOut<L> {
 /// Link lookups go in batches of BATCH: a row's table slot is prefetched when it's
 /// parsed and probed BATCH rows later, so the DRAM misses overlap.
 const BATCH: usize = 16;
+const EVENT_BATCH: usize = 64;
 
 /// A valid row whose `person` still holds the user key, and that key's link slot.
 #[derive(Clone, Copy)]
@@ -2066,7 +2083,7 @@ impl<L: Layout> EvOut<L> {
     fn new(nb: usize, bytes: usize, base: i64) -> Self {
         // ~75 bytes per line; reserve 25% headroom (virtual memory only until touched)
         let per = bytes / 75 / nb * 5 / 4 + 16;
-        let pend = [PendEv { row: L::row(0, base, 0, 0, base), eid: 0, ingest: 0, slot: 0 }; BATCH];
+        let pend = [PendEv { row: L::row(0, base, 0, 0, base), eid: 0, ingest: 0, slot: 0 }; EVENT_BATCH];
         EvOut { e: buckets_with(nb, per), r: buckets_with(nb, per), pend, np: 0, base }
     }
 
@@ -2074,11 +2091,10 @@ impl<L: Layout> EvOut<L> {
     /// when the batch is full.
     #[inline(always)]
     fn queue(&mut self, row: L, eid: u64, ingest: i64, lk: &Lookups) {
-        let slot = lk.links.slot(row.person());
-        prefetch(&lk.links.slots[slot]);
-        self.pend[self.np & (BATCH - 1)] = PendEv { row, eid, ingest, slot };
+        let slot = lk.links.prefetch_lookup(row.person());
+        self.pend[self.np & (EVENT_BATCH - 1)] = PendEv { row, eid, ingest, slot };
         self.np += 1;
-        if self.np == BATCH {
+        if self.np == EVENT_BATCH {
             self.flush(lk);
         }
     }
@@ -2088,12 +2104,23 @@ impl<L: Layout> EvOut<L> {
     fn flush(&mut self, lk: &Lookups) {
         let nb = self.r.len();
         let np = std::mem::take(&mut self.np);
-        for x in &self.pend[..np] {
-            let (mut row, user) = (x.row, x.row.person());
-            let person = lk.links.get_at(user, x.slot).wrapping_mul(PART_MULTIPLIER);
-            row.set_person(person);
+        // Resolve the entire batch before scattering. Destination cache misses
+        // overlap with the remaining link lookups instead of serializing each row.
+        let mut destinations = [(0usize, 0usize); EVENT_BATCH];
+        for (x, dest) in self.pend[..np].iter_mut().zip(&mut destinations) {
+            let person = lk.links.get_at(x.row.person(), x.slot).wrapping_mul(PART_MULTIPLIER);
+            x.row.set_person(person);
             let d = bucket(person & lk.hmask, nb);
             let q = bucket(lk.hpart(x.eid), nb);
+            *dest = (d, q);
+            let r = &self.r[d];
+            let e = &self.e[q];
+            // Prefetch only allocated storage. No uninitialized value is read.
+            if r.len() < r.capacity() { prefetch(unsafe { r.as_ptr().add(r.len()) }); }
+            if e.len() < e.capacity() { prefetch(unsafe { e.as_ptr().add(e.len()) }); }
+        }
+        for (x, &(d, q)) in self.pend[..np].iter().zip(&destinations) {
+            let row = x.row;
             // SAFETY: bucket(_, nb) < nb == self.r.len() == self.e.len()
             let (r, e) = unsafe { (self.r.get_unchecked_mut(d), self.e.get_unchecked_mut(q)) };
             let seq = r.len();
@@ -2243,8 +2270,7 @@ impl CkOut {
 
     #[inline(always)]
     fn queue(&mut self, c: Ck, lk: &Lookups) {
-        let slot = lk.links.slot(c.person);
-        prefetch(&lk.links.slots[slot]);
+        let slot = lk.links.prefetch_lookup(c.person);
         self.pend[self.np & (BATCH - 1)] = (c, slot);
         self.np += 1;
         if self.np == BATCH {
@@ -2288,6 +2314,7 @@ fn task_group(nchunks: usize, nb: usize, chunk: usize) -> usize {
 const _: () = assert!(std::mem::size_of::<(u64, u64)>() == 16); // dedup_part's byte offsets
 #[derive(Default)]
 struct DedupScratch {
+    filter: Vec<u8>,
     generation: u16,
     slots: Vec<(u64, u64)>,
 }
@@ -2301,7 +2328,32 @@ fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, scratch: &mut DedupScrat
     }
     // 2 to 4% of events are duplicated copies; reserve for 1 in 16 to avoid regrowth.
     let mut drops = Vec::with_capacity(n / 16 + 16);
-    let cap = (2 * n).next_power_of_two();
+    // Two-bit saturating counters cheaply prove singleton hashes. Only rows
+    // in repeated hash buckets enter the exact table; collisions merely add work.
+    // The filter uses a separate capacity from the exact table, never ID equality.
+    let filter_cap = (4 * n).next_power_of_two().max(4);
+    let filter_mask = (filter_cap - 1) as u64 & hmask;
+    scratch.filter.resize(filter_cap / 4, 0);
+    scratch.filter.fill(0);
+    let mut candidates = 0usize;
+    for o in ev {
+        for en in &o.e[q] {
+            let h = (en.eid.wrapping_mul(PART_MULTIPLIER).rotate_left(32) & filter_mask) as usize;
+            let shift = (h & 3) * 2;
+            let byte = &mut scratch.filter[h >> 2];
+            let count = (*byte >> shift) & 3;
+            if count == 0 {
+                *byte |= 1 << shift;
+            } else if count == 1 {
+                *byte = (*byte & !(3 << shift)) | (2 << shift);
+                candidates += 2;
+            } else {
+                candidates += 1;
+            }
+        }
+    }
+    if candidates == 0 { return drops; }
+    let cap = (2 * candidates).next_power_of_two();
     // Grow only: untouched slots have generation zero. Reusing a table for a
     // smaller partition must not discard the generations of its unused tail.
     if scratch.slots.len() < cap {
@@ -2329,6 +2381,11 @@ fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, scratch: &mut DedupScrat
         // locator of es[i] is tag | t << 24 | i: advance it with the entry
         let mut loc = tag | (t as u64) << 24;
         for en in es {
+            let h = (en.eid.wrapping_mul(PART_MULTIPLIER).rotate_left(32) & filter_mask) as usize;
+            if (scratch.filter[h >> 2] >> ((h & 3) * 2)) & 3 == 1 {
+                loc += 1;
+                continue;
+            }
             // Partition routing consumes the top hash bits; use middle bits
             // of a multiplicative hash for this partition-local table. Full
             // eid equality still resolves every collision exactly.
@@ -3612,54 +3669,27 @@ fn pipeline<'a, L: Layout>(
         category_sales: CategorySales { totals: vec![0i64; ncat], touched: Vec::new() },
         bins: Bins::default(),
     };
-    // The third field is the row count of the thread's latest accumulator: a new one
-    // reserves 1.25x that up front instead of doubling from empty (virtual until used).
-    let camps: Vec<Mutex<(Vec<[i64; 4]>, Option<Scratch<L::Elem>>, usize)>> =
-        (0..rayon::current_num_threads()).map(|_| Mutex::new((Vec::new(), None, 0))).collect();
-    let mut accs: Vec<Acc> = (0..nb)
+    // Persistent workers retain their output and scratch for the whole phase.
+    // Claim the largest partition next so a late whale cannot strand other cores.
+    let mut order: Vec<(usize, usize)> = (0..nb).map(|p| {
+        let weight = ev_out.iter().map(|o| o.r[p].len()).sum::<usize>();
+        (p, weight)
+    }).collect();
+    order.sort_unstable_by_key(|&(p, weight)| (std::cmp::Reverse(weight), p));
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    (0..rayon::current_num_threads().min(nb))
         .into_par_iter()
-        .fold(
-            || (Acc { users: Vec::new(), camp: Vec::new() }, None::<Scratch<L::Elem>>),
-            |(mut acc, mut own), p| {
-                // Borrow this thread's totals and scratch for the partition. If they are
-                // taken (a nested steal on this thread), the accumulator keeps its own.
-                let slot = rayon::current_thread_index().and_then(|t| camps.get(t)).and_then(|m| m.try_lock().ok());
-                match slot {
-                    Some(mut g) => {
-                        let (camp, sc, hint) = &mut *g;
-                        if camp.is_empty() {
-                            *camp = vec![[0i64; 4]; camp_len];
-                        }
-                        if acc.users.capacity() == 0 && *hint > 0 {
-                            acc.users.reserve_exact(*hint + *hint / 4);
-                        }
-                        let sc = sc.get_or_insert_with(new_scratch);
-                        std::mem::swap(&mut acc.camp, camp);
-                        process_part(ctx, &mut acc, sc, &ev_out, &ck_out, &drops_by[p], p);
-                        std::mem::swap(&mut acc.camp, camp);
-                        *hint = acc.users.len();
-                    }
-                    None => {
-                        if acc.camp.is_empty() {
-                            acc.camp = vec![[0i64; 4]; camp_len];
-                        }
-                        let sc = own.get_or_insert_with(new_scratch);
-                        process_part(ctx, &mut acc, sc, &ev_out, &ck_out, &drops_by[p], p);
-                    }
-                }
-                (acc, own)
-            },
-        )
-        .map(|(acc, _)| acc)
-        .collect();
-    // The per-thread totals ride along as accumulators with no user rows.
-    for m in camps {
-        let (camp, _, _) = m.into_inner().unwrap();
-        if !camp.is_empty() {
-            accs.push(Acc { users: Vec::new(), camp });
-        }
-    }
-    accs
+        .map(|_| {
+            let mut acc = Acc { users: Vec::new(), camp: vec![[0i64; 4]; camp_len] };
+            let mut sc = new_scratch();
+            loop {
+                let i = next.fetch_add(1, Relaxed);
+                let Some(&(p, _)) = order.get(i) else { break; };
+                process_part(ctx, &mut acc, &mut sc, &ev_out, &ck_out, &drops_by[p], p);
+            }
+            acc
+        })
+        .collect()
 }
 
 fn main() {

@@ -713,3 +713,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - A consistent wall gain at both sizes. (This runner is slower overall than round 1's.)
 - **USER SUBMITTED v17** (`bf93837`): board **0.8900 s** (BB-CCCBB93B, Sun 09:31 ET, **rank 80**). It's our best and is entered in the final. −5.1% vs v16 (0.9378 s).
 - **User plan:** keep improving, and prepare a **hail-mary on Codex gpt-6.2-astra (fast)** for the roughly 10-minute window when two Codex instances reset. Last shot.
+
+### v18 hail-mary — user-authorized no-eval release
+- Based on v17; added exact link-membership filtering, 64-row staged event scatter, two-bit duplicate prefilter with exact fallback, and persistent largest-first session workers.
+- Native release build succeeded. No tests, evals, benchmarks, or candidate executions, per explicit user instruction. Scorer performance and correctness unverified; no rank guarantee.
+- Submission tag: `v18-hailmary`. Full rationale: `HAIL-MARY-v18.md`. v17 retained as fallback.

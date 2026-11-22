@@ -147,6 +147,8 @@ pub(super) fn load_links<'a>(
                 let key = slot[0].load(Relaxed);
                 if key != 0 {
                     count += 1;
+                    let home = table.slot(key);
+                    table.membership[home >> 6].fetch_or(1u64 << (home & 63), Relaxed);
                     let i = (chunk_idx * 4096 + offset) as u32;
                     let p_raw = slot[1].load(Relaxed) as u32;
                     let root = if p_raw == 0 || p_raw == i + 1 { i } else { p_raw - 1 };
