@@ -788,6 +788,26 @@ fn price(c: &Column, len: usize) -> u32 {
     if value > 10_000_000 { 0 } else { value }
 }
 
+/// Where the fast decoder hands a decoded record (statically dispatched and
+/// inlined: a closure here was outlined by LLVM).
+trait EvSink {
+    fn emit(&mut self, rec: EvRec);
+}
+
+impl<L: Layout> EvSink for (&mut EvOut<L>, &Lookups<'_>) {
+    #[inline(always)]
+    fn emit(&mut self, rec: EvRec) {
+        emit_event(rec, self.1, self.0);
+    }
+}
+
+#[cfg(test)]
+impl EvSink for Option<EvRec> {
+    fn emit(&mut self, rec: EvRec) {
+        *self = Some(rec);
+    }
+}
+
 /// Requires LINE_GUARD bytes starting at p. The longest successful advances
 /// are 36 + 36 + 28 + 23 + 18 + 19 + 19 bytes, including quotes and delimiters.
 /// A failed field causes an immediate return, so the same bound covers failures.
@@ -798,7 +818,7 @@ unsafe fn try_line<'a>(
     lk: &Lookups<'a>,
     w: &Win,
     dec: &TimestampDecoder,
-    emit: &mut impl FnMut(EvRec),
+    emit: &mut impl EvSink,
 ) -> Option<*const u8> {
     unsafe {
         // The rest of the line is generic over the ID path, so on the short
@@ -830,7 +850,7 @@ unsafe fn line_tail<'a, const SHORT: bool>(
     lk: &Lookups<'a>,
     w: &Win,
     dec: &TimestampDecoder,
-    emit: &mut impl FnMut(EvRec),
+    emit: &mut impl EvSink,
 ) -> Option<*const u8> {
     unsafe {
         let eid_ok = SHORT || !eid.is_empty();
@@ -911,7 +931,7 @@ unsafe fn line_tail<'a, const SHORT: bool>(
             (next, row)
         };
         if eid_ok {
-            emit(EvRec {
+            emit.emit(EvRec {
                 eid: eid.key(&lk.ids),
                 ingest,
                 row,
@@ -954,7 +974,7 @@ pub(super) fn parse_chunk<'a, L: Layout>(
     while pos < end {
         if end - pos >= LINE_GUARD {
             // SAFETY: the guard bounds all speculative reads from this line.
-            if let Some(next) = unsafe { try_line(base.add(pos), lk, w, dec, &mut |rec| emit_event(rec, lk, out)) } {
+            if let Some(next) = unsafe { try_line(base.add(pos), lk, w, dec, &mut (&mut *out, lk)) } {
                 pos = unsafe { next.offset_from(base) } as usize;
                 fast += 1;
                 continue;
@@ -1023,7 +1043,7 @@ mod tests {
             // SAFETY: this is the same guard as parse_chunk.
             let mut got = None;
             let next = unsafe {
-                try_line(buf.as_ptr().add(pos), lk, w, w.decoder.as_ref().unwrap(), &mut |rec| got = Some(rec))
+                try_line(buf.as_ptr().add(pos), lk, w, w.decoder.as_ref().unwrap(), &mut got)
             };
             next.map(|next| (next, got))
         } else {
