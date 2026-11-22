@@ -451,3 +451,5 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Neon Detective (Opus medium, claudeAgent, + Gemini Neon) → split events-parse time under gVisor (input copy vs faults on rows/dedup/refs vs compute vs fault serialization), then rank fixes.
   - Sol (Codex) → v11 per-thread dedup and sessions workers, rebased on `be41e2e`, 60M A/B by 07:15.
   - **At 07:21 (claude_master reset), Neon Architect → Opus medium + Neon: a one-command candidate pipeline** (build → parallel gate → paired gVisor A/B vs best → verdict in about 10 min).
+- **Eval: v10.1 `be41e2e` SUBMIT-READY.** Gates A, B, C pass: clean arm64, amd64 and cascadelake builds; amd64 fixtures and dev plus `NO_FAST=3` MATCH; seed-42 and seed-43 consistency MATCH; 22 GiB cgroup OK. Gate C carried from the `def3d26` paired gVisor A/B (+5.3% at 20M, +5.5%/+6.6% at 60M). Predicted board about 1.20 s (but v8 beat its prediction by about 15%).
+- **Orchestrator: released v10.1 to main** (src identical to `be41e2e`), with fixtures 36/36 and dev MATCH on main. Tag `v10.1` pushed; user asked to submit.
