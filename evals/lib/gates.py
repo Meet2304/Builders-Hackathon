@@ -71,6 +71,25 @@ def gate_a(r: dict) -> dict:
         out.append(check("fuzz/adversarial strict MATCH", _status(s["passed"] == n and n > 0),
                          f"{s['passed']}/{n} (seeds {fz['seeds'][0]}..{fz['seeds'][1] - 1})"
                          + (f"; failing seeds {[x['seed'] for x in s['failed']][:10]}" if s["failed"] else "")))
+    fw = c.get("fuzz_windows")
+    if fw:
+        s = fw["strict"]
+        n = s["total"] - s["skipped"]
+        out.append(check("fuzz windows focus strict MATCH", _status(s["passed"] == n and n > 0),
+                         f"{s['passed']}/{n} (seeds {fw['seeds'][0]}..{fw['seeds'][1] - 1})"
+                         + (f"; failing seeds {[x['seed'] for x in s['failed']][:10]}" if s["failed"] else "")))
+    reviews = c.get("review_suites")
+    if reviews is None:
+        out.append(check("review suites MATCH", "not_run"))
+    for name, rv in (reviews or {}).items():
+        detail = f"{rv['passed']}/{rv['total']} MATCH" + (f"; {rv['failed'][:3]}" if rv["failed"] else "") \
+            + (f"; {rv['error']}" if rv.get("error") else "")
+        out.append(check(f"review {name} MATCH", rv["status"], detail))
+    for label, item in c.get("amd64_knobs", {}).items():
+        f, d = item["fixtures"], item["dev"]
+        ok = f["passed"] == f["total"] and bool(d.get("match"))
+        out.append(check(f"amd64 container {label}: fixtures + dev", _status(ok),
+                         f"{f['passed']}/{f['total']}, dev {'MATCH' if d.get('match') else d.get('error', 'DIFFER')}"))
     det = c.get("determinism", {})
     knobs = c.get("debug_knobs", {})
     for name, item in knobs.items():

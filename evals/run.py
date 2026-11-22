@@ -34,8 +34,9 @@ from lib.calibration import report as calibration_report  # noqa: E402
 from lib.common import (CONSISTENCY, DATA, EVALS, EXPECTED, FIXTURES, REPO, WORK, canonical_hash, dataset_stats,  # noqa: E402
                         diff_outputs, invariants, log, read_json, reference_sha, sha256_file, write_json)
 from lib.correct import (DEBUG_CASES, DIALECT_ONLY, EXTRA_DEBUG_CASES, INVALID_DEBUG_CASES, check_output,  # noqa: E402
-                         fuzz_gen_sha, run_fixtures, run_fuzz, runner_cmd)
+                         WINDOWS_SEED0, fuzz_gen_sha, run_fixtures, run_fuzz, runner_cmd)
 from lib.linux_proxy import probe_linux  # noqa: E402
+from lib.review import run_suite  # noqa: E402
 from lib.measure import ContaminatedSample, load_snapshot, run_once, sample_load, summarize, summarize_runs  # noqa: E402
 
 SCHEMA_VERSION = 1
@@ -45,16 +46,20 @@ NOISY_CV = 0.03
 PROFILES = {
     "quick": {"runs": {"perf-1M": 3, "perf-20M": 5, "perf-60M": 1}, "warmup": {"perf-1M": 1, "perf-20M": 1,
                                                                               "perf-60M": 0},
-              "fuzz_seeds": 150, "thread_scaling": False, "docker": False, "probe": "perf-1M", "ab": False},
+              "fuzz_seeds": 150, "windows_seeds": 60, "thread_scaling": False, "docker": False, "probe": "perf-1M",
+              "ab": False},
     "full": {"runs": {"perf-1M": 5, "perf-20M": 5, "perf-60M": 3}, "warmup": {"perf-1M": 1, "perf-20M": 1,
                                                                             "perf-60M": 1},
-             "fuzz_seeds": 1000, "thread_scaling": True, "docker": True, "probe": "perf-60M", "ab": True},
-    "linux": {"runs": {"perf-20M": 5}, "warmup": {"perf-20M": 1}, "fuzz_seeds": 150,
+             "fuzz_seeds": 1000, "windows_seeds": 300, "thread_scaling": True, "docker": True, "probe": "perf-60M",
+             "ab": True},
+    "linux": {"runs": {"perf-20M": 5}, "warmup": {"perf-20M": 1}, "fuzz_seeds": 150, "windows_seeds": 60,
               "thread_scaling": False, "docker": False, "probe": None, "ab": True},
 }
+AMEND_STAGES = {"review": "review", "windows": "fuzz_windows", "amd64-knobs": "amd64_knobs", "linux-ab": "linux_ab"}
 SCALING_NCPU = [1, 2, 4, 5, 8]
 SCALING_RUNS = 3
 AB_RUNS = 5
+AMD64_KNOBS = (("SESSIONS_DEBUG_NO_FAST", "3"),)  # portable SWAR classifier on x86
 EFF_CORE_RATIO = (6.4 - 5) / 3  # Analyst's M5 estimate for an E-core relative to a P-core.
 
 
@@ -165,6 +170,21 @@ class Eval:
             shutil.rmtree(out, ignore_errors=True)
         if missing:
             self.note(f"oracle datasets missing or uncached: {missing} (run evals/cache_reference.py)")
+
+    def review(self):
+        """Analyst review suites from suite.json["review_suites"]: oracle vs candidate under every knob."""
+        specs = read_json(EVALS / "suite.json").get("review_suites", [])
+        out = self.r["correctness"]["review_suites"] = {}
+        for spec in specs:
+            out[spec["name"]] = run_suite(spec, self.binary, self.runs_dir / "review" / spec["name"])
+
+    def fuzz_windows(self):
+        """Window-edge fuzz focus (year end, leap day, off-midnight windows, decoder-table edges)."""
+        n = self.prof.get("windows_seeds", 0)
+        if n <= 0:
+            return
+        seeds = range(WINDOWS_SEED0, WINDOWS_SEED0 + n)
+        self.r["correctness"]["fuzz_windows"] = run_fuzz(self.run, seeds)
 
     def answer_hash(self, answer):
         cache = DATA / "stats" / f"{answer}.hash.json"
@@ -490,6 +510,7 @@ class Eval:
             c["fixtures_amd64"] = run_fixtures(run, jobs=6, label="amd64 container (emulated)")
             c["dev_answer_amd64"] = self.container_dev(run, "amd64")
             ro_ok &= c["fixtures_amd64"]["passed"] == c["fixtures_amd64"]["total"] and c["dev_answer_amd64"]["match"]
+            self.step("amd64 SWAR knob", self.amd64_knobs, run)
         else:
             c["fixtures_amd64"] = {"passed": 0, "total": 36, "failed": [{"case": "*", "error": "image build failed"}]}
             ro_ok = False
@@ -498,8 +519,27 @@ class Eval:
         self.r["constraints"]["cascadelake_build_ok"] = cascadelake["ok"]
         self.r["constraints"]["readonly_container_ok"] = ro_ok
 
+    def amd64_knobs(self, run=None):
+        """amd64 container fixtures + dev with the portable SWAR classifier (NO_FAST=3), next to the SSE2 default."""
+        if run is None:
+            amd = self.r["build"].get("images", {}).get("amd64")
+            if not amd or not amd.get("ok"):
+                amd = self.r["build"].setdefault("images", {})["amd64"] = build_image(self.sha, "amd64")
+            if not amd["ok"]:
+                raise RuntimeError("amd64 image build failed")
+            run = runner_cmd(None, amd)
+        c = self.r["correctness"]
+        for key, value in AMD64_KNOBS:
+            if key.encode() not in self.binary.read_bytes():
+                continue
+            label = f"{key}={value}"
+            knob_run = partial(run, extra_env={key: value})
+            fx = run_fixtures(knob_run, jobs=6, label=f"amd64 container {label}")
+            dev = self.container_dev(knob_run, f"amd64 {label}")
+            c.setdefault("amd64_knobs", {})[label] = {"fixtures": fx, "dev": dev}
+
     def container_dev(self, run, arch):
-        out = self.runs_dir / f"dev-{arch}"
+        out = self.runs_dir / f"dev-{arch}".replace(" ", "_").replace("=", "_")
         shutil.rmtree(out, ignore_errors=True)
         p = run(DATA / "dev", out)
         if p.returncode != 0:
@@ -578,6 +618,15 @@ class Eval:
         result["noisy"] = any((result.get(key, {}).get("process_wall_s", {}).get("cv") or 0) > NOISY_CV
                               for key in ("summary", "baseline_summary"))
         perf["linux_timing"] = result
+
+    def linux_ab(self):
+        """Paired Linux 20M A/B against the Gate C baseline, on its own (used by --amend linux-ab)."""
+        info = docker_info()
+        self.r["build"]["docker"] = info
+        if not info.get("available"):
+            raise RuntimeError("Docker unavailable")
+        arm = build_image(self.sha, "arm64")
+        self.linux_timing(arm, info, self.r.get("baseline") or gates.best_baseline(self.a.version))
 
     def linux_memory(self, image, info):
         name = self.role("perf-60M")
@@ -721,6 +770,49 @@ class Eval:
         log(f"wrote evals/results/{r['version']}.json and .md in {r['duration_s']:.0f}s")
 
     @benchmark_lock()
+    def amend(self, stages):
+        """Add stages to an existing result for the same commit, then recompute gates, verdict, report, ledger."""
+        path = EVALS / "results" / f"{self.a.version}.json"
+        old = read_json(path)
+        if not old:
+            raise SystemExit(f"--amend: {path} does not exist")
+        if old["sha"] != self.sha:
+            raise SystemExit(f"--amend: {path} is for {old['sha'][:12]}, not {self.sha[:12]}")
+        self.r = old
+        self.r.setdefault("errors", [])
+        self.r.setdefault("notes", [])
+        self.prof = dict(PROFILES[old["profile"]])
+        if self.a.fuzz_seeds is not None:
+            self.prof["fuzz_seeds"] = self.a.fuzz_seeds
+        log(f"amend {self.a.version} @ {self.sha[:12]} (profile {old['profile']}): {', '.join(stages)}")
+        self.step("build", self.build)
+        if not hasattr(self, "binary"):
+            raise SystemExit("--amend: native build failed")
+        for stage in stages:
+            self.step(stage, getattr(self, AMEND_STAGES[stage]))
+        r = self.r
+        r["_suite_oracle_missing"] = [n for n, d in self.suite.items() if d["kind"] == "oracle"
+                                      and n not in r["correctness"]["differential"]]
+        r["gates"] = {"A": gates.gate_a(r), "B": gates.gate_b(r), "C": gates.gate_c(r)}
+        r.pop("_suite_oracle_missing", None)
+        r["verdict"] = gates.verdict(r)
+        if r["errors"]:
+            r["verdict"]["reasons"].append(f"{len(r['errors'])} framework error(s): see errors[]")
+            if r["verdict"]["verdict"] == "SUBMIT-READY":
+                r["verdict"].update(verdict="HOLD", final=False)
+        r.setdefault("amendments", []).append({"at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "stages": stages,
+                                               "eval_sha": eval_sha(),
+                                               "duration_s": round(time.time() - self.t0, 1)})
+        write_json(path, r)
+        (EVALS / "results" / f"{r['version']}.md").write_text(render_md(r))
+        if not self.a.no_ledger:
+            append_ledger(r, replace=True)
+        shutil.rmtree(self.runs_dir, ignore_errors=True)
+        log(f"VERDICT {r['verdict']['verdict']}{'' if r['verdict']['final'] else ' (provisional)'}: "
+            + "; ".join(r["verdict"]["reasons"][:6]))
+        log(f"amended evals/results/{r['version']}.json and .md")
+
+    @benchmark_lock()
     def main(self):
         log(f"eval {self.a.version}: rev {self.a.rev} = {self.sha[:12]}, profile {self.a.profile}")
         self.step("build", self.build)
@@ -733,6 +825,8 @@ class Eval:
         self.step("correctness", self.correctness_untimed)
         self.step("fuzz", self.fuzz)
         self.step("debug knobs", self.debug_knobs)
+        self.step("review suites", self.review)
+        self.step("fuzz windows", self.fuzz_windows)
         if self.a.profile == "linux":
             self.step("Linux timing", self.linux_profile)
         self.perf()
@@ -806,6 +900,27 @@ def render_md(r: dict) -> str:
         for f in (s["failed"] + rb["failed"])[:10]:
             L.append(f"- seed {f['seed']} ({f['focus']}{', robust' if f['robust_reasons'] else ''}): "
                      f"{f.get('error') or 'DIFFER'} — `{f['repro']}`")
+    fw = c.get("fuzz_windows")
+    if fw:
+        s, rb = fw["strict"], fw["robust"]
+        L += ["", f"Fuzz `windows` focus (seeds {fw['seeds'][0]}..{fw['seeds'][1] - 1}): strict "
+                  f"{s['passed']}/{s['total'] - s['skipped']} MATCH, robust (off-midnight windows) "
+                  f"{rb['passed']}/{rb['total'] - rb['skipped']}."]
+        for f in (s["failed"] + rb["failed"])[:10]:
+            L.append(f"- seed {f['seed']} ({', '.join(f['tags'][:6])}{', robust' if f['robust_reasons'] else ''}): "
+                     f"{f.get('error') or 'DIFFER'} — `{f['repro']}`")
+    for name, rv in c.get("review_suites", {}).items():
+        per = ", ".join(f"{k} {v['passed']}/{v['total']} in {v['wall_s']}s" for k, v in rv.get("scripts", {}).items())
+        L += ["", f"Review suite `{name}` ({rv['runner']}): {rv['passed']}/{rv['total']} MATCH"
+                  + (f" ({per})" if per else "") + (f"; {rv['error']}" if rv.get("error") else "") + "."]
+        L += [f"- {x}" for x in rv["failed"][:10]]
+    for label, item in c.get("amd64_knobs", {}).items():
+        f, d = item["fixtures"], item["dev"]
+        L += ["", f"amd64 container with `{label}`: fixtures {f['passed']}/{f['total']}, dev "
+                  f"{'MATCH' if d.get('match') else d.get('error', 'DIFFER')}."]
+    if r.get("amendments"):
+        L += ["", "Amendments: " + "; ".join(f"{a['at']} added {', '.join(a['stages'])} (evaluator {a['eval_sha'][:12]})"
+                                            for a in r["amendments"])]
     if c["determinism"]:
         L += ["", "Determinism: " + ", ".join(
             f"{k} {'same hash' if v['deterministic'] else 'DIFFERENT hashes'} over {v['runs']} runs"
@@ -986,7 +1101,8 @@ LEDGER_HEADER = ("| Date | Version | Commit | Profile | Fixtures n/arm/amd | dev
                  "| Footprint 60M | Verdict | Board 20M (est.) | Linux 20M |\n" + "| --- " * 16 + "|\n")
 
 
-def append_ledger(r: dict):
+def append_ledger(r: dict, replace: bool = False):
+    """Append r's row; with replace, overwrite the newest row for the same version and commit instead."""
     path = EVALS / "ledger.md"
     if not path.exists():
         path.write_text("# Eval ledger\n\nOne row per eval run (newest last). Details: `results/<version>.json`.\n\n"
@@ -1021,6 +1137,13 @@ def append_ledger(r: dict):
            f"{med('perf-1M')} | {med('perf-20M')} | {med('perf-60M')} | "
            f"{f'{rss / 1e9:.1f} GB' if rss else '-'} | {r['verdict']['verdict']}"
            f"{'' if r['verdict']['final'] else ' (prov.)'} | {fmt_s(estimate)} | {linux} |\n")
+    lines = path.read_text().splitlines(keepends=True)
+    key = f"| {r['version']} | {r['sha'][:8]} |"
+    hits = [i for i, line in enumerate(lines) if key in line]
+    if replace and hits:
+        lines[hits[-1]] = row
+        path.write_text("".join(lines))
+        return
     with open(path, "a") as f:
         f.write(row)
 
@@ -1035,7 +1158,17 @@ def main():
     ap.add_argument("--no-docker", action="store_true", help="skip container gates even in the full profile")
     ap.add_argument("--no-ledger", action="store_true", help="don't append to evals/ledger.md")
     ap.add_argument("--rebuild", action="store_true", help="rebuild the native binary even if cached")
+    ap.add_argument("--amend", metavar="STAGES",
+                    help=f"comma-separated stages to add to the existing results/VERSION.json for the same commit "
+                         f"(gates, report and ledger row are recomputed): {', '.join(AMEND_STAGES)}")
     a = ap.parse_args()
+    if a.amend:
+        stages = [x for x in a.amend.split(",") if x]
+        bad = [x for x in stages if x not in AMEND_STAGES]
+        if bad:
+            ap.error(f"unknown --amend stage(s) {bad}; choose from {list(AMEND_STAGES)}")
+        Eval(a).amend(stages)
+        return
     if a.ab_runs is not None and (a.profile == "quick" or a.ab_runs < AB_RUNS):
         ap.error(f"--ab-runs requires the full or linux profile and at least {AB_RUNS} pairs")
     if a.profile == "linux" and a.no_docker:

@@ -107,29 +107,65 @@ class ContaminatedSample(RuntimeError):
     pass
 
 
-def sample_load(max_wait_s: float = 60) -> dict:
-    """Wait for a sample boundary without a foreign process over 20% of a CPU."""
+FOREIGN_PCPU = 20.0        # a foreign process above this postpones the sample ...
+NICED_MIN = 10             # ... unless it runs at nice >= 10 (PROTOCOL.md: builds under the lock use nice -n 19)
+NICED_BUDGET_PCPU = 150.0  # and all such niced work together stays under 1.5 CPUs
+SAMPLE_WAIT_S = 180.0
+
+
+def foreign_load(processes: list[tuple[int, int, int, float, str]], me: int) -> tuple[list[dict], list[dict]]:
+    """Split processes outside `me`'s tree into (blocking, tolerated niced) lists. Rows: pid, ppid, nice, pcpu, comm."""
+    owned = {me}
+    while True:
+        children = {pid for pid, ppid, _, _, _ in processes if ppid in owned}
+        if children <= owned:
+            break
+        owned.update(children)
+    busy = [{"pid": pid, "nice": ni, "pcpu": cpu, "comm": comm} for pid, _, ni, cpu, comm in processes
+            if pid not in owned and cpu > FOREIGN_PCPU]
+    niced = [x for x in busy if x["nice"] >= NICED_MIN]
+    blocking = [x for x in busy if x["nice"] < NICED_MIN]
+    if sum(x["pcpu"] for x in niced) > NICED_BUDGET_PCPU:
+        blocking += niced
+        niced = []
+    return blocking, niced
+
+
+def _ps() -> list[tuple[int, int, int, float, str]]:
+    p = subprocess.run(["ps", "-Ao", "pid=,ppid=,nice=,pcpu=,comm="], check=True, capture_output=True, text=True,
+                       env=dict(os.environ, LC_ALL="C"))
+    rows = []
+    for line in p.stdout.splitlines():
+        parts = line.split(None, 4)
+        if len(parts) == 5:
+            try:
+                rows.append((int(parts[0]), int(parts[1]), int(parts[2]), float(parts[3]), parts[4]))
+            except ValueError:
+                continue
+    return rows
+
+
+def sample_load(max_wait_s: float = SAMPLE_WAIT_S) -> dict:
+    """Wait for a sample boundary without a foreign process over 20% of a CPU.
+
+    Niced foreign work (nice >= 10, at most 1.5 CPUs in total) is tolerated and recorded, because the protocol
+    lets other threads build with `nice -n 19 -j 2` while the bench lock is held."""
     begin = time.monotonic()
     logged = False
     while True:
-        p = subprocess.run(["ps", "-Ao", "pid=,ppid=,pcpu=,comm="], check=True, capture_output=True, text=True,
-                           env=dict(os.environ, LC_ALL="C"))
-        processes = [line.split(None, 3) for line in p.stdout.splitlines() if line.strip()]
-        owned = {os.getpid()}
-        while True:
-            children = {int(pid) for pid, ppid, _, _ in processes if int(ppid) in owned}
-            if children <= owned:
-                break
-            owned.update(children)
-        foreign = [{"pid": int(pid), "pcpu": float(cpu), "comm": comm} for pid, _, cpu, comm in processes
-                   if int(pid) not in owned and float(cpu) > 20]
+        blocking, niced = foreign_load(_ps(), os.getpid())
         waited = time.monotonic() - begin
-        if not foreign:
+        if not blocking:
             l1, l5, l15 = os.getloadavg()
-            return {"load1": round(l1, 2), "load5": round(l5, 2), "load15": round(l15, 2),
-                    "contamination_wait_s": round(waited, 3)}
-        culprit = max(foreign, key=lambda p: p["pcpu"])
-        message = f"{culprit['comm']} pid={culprit['pid']} at {culprit['pcpu']:g}% CPU"
+            out = {"load1": round(l1, 2), "load5": round(l5, 2), "load15": round(l15, 2),
+                   "contamination_wait_s": round(waited, 3)}
+            if niced:
+                out["niced_background_pcpu"] = round(sum(x["pcpu"] for x in niced), 1)
+                out["niced_background"] = [f"{x['comm'].rsplit('/', 1)[-1]} pid={x['pid']} {x['pcpu']:g}%"
+                                           for x in niced][:5]
+            return out
+        culprit = max(blocking, key=lambda p: p["pcpu"])
+        message = f"{culprit['comm']} pid={culprit['pid']} nice={culprit['nice']} at {culprit['pcpu']:g}% CPU"
         if waited >= max_wait_s:
             raise ContaminatedSample(f"postponed sample for {waited:.1f}s: {message}")
         if not logged:

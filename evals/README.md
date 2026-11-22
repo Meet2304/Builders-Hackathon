@@ -16,15 +16,22 @@ make eval-cache-ref                                # one-time reference caching 
 ```
 
 or directly: `.venv/bin/python evals/run.py --version NAME --rev GIT_REF [--profile quick|full|linux] [--fuzz-seeds N]
-[--no-docker] [--no-ledger] [--rebuild]`.
+[--no-docker] [--no-ledger] [--rebuild] [--amend STAGES]`.
+
+`--amend review,windows,amd64-knobs,linux-ab` adds stages to an existing `results/NAME.json` for the same commit
+without re-timing anything. It holds the bench lock, uses the original profile's settings, recomputes Gates
+A/B/C and the verdict, rewrites `NAME.md`, replaces that version's ledger row, and logs the change under `amendments[]`.
+Use it when a new Gate A check lands after a candidate's eval:
+`make eval-amend VERSION=v3 REV=29b64bf STAGES=review,windows`.
 
 Outputs: `results/NAME.json` (machine-readable), `results/NAME.md` (summary), one row appended to
 [ledger.md](ledger.md). Progress is logged to stderr. Re-running a version name overwrites its result files
 and appends a new ledger row.
 
 **Only run timed evals on a quiet machine.** Each sample records host load and waits if a process outside
-the evaluator's process tree uses more than 20% of one CPU. A block postponed for 60 seconds stops sampling
-and records the blocker. Blocks with wall-time CV over 3% are marked noisy in the ledger, with raw values
+the evaluator's process tree uses more than 20% of one CPU. Niced work (nice ≥ 10, at most 1.5 CPUs in total) is
+tolerated and recorded as `niced_background_pcpu`, because PROTOCOL.md lets other threads build with
+`nice -n 19 -j 2` while the lock is held. A block postponed for 180 seconds stops sampling and records the blocker. Blocks with wall-time CV over 3% are marked noisy in the ledger, with raw values
 available in the result files. Native blocks also flag the host's existing 12% aggregate pre-block threshold.
 
 ## Shared benchmark lock
@@ -61,6 +68,8 @@ as `eval-selftest` do not acquire the benchmark lock. The orchestration protocol
 | fixtures, native (36) | ✓ | ✓ |
 | differential vs cached reference: dev (+ published answer), seeds 2–6, 15, 62, and seed-62-20m | ✓ | ✓ |
 | fuzz/adversarial suite, also under supported debug knobs | 150 seeds | 1000 seeds plus boundary and rejection checks |
+| fuzz `windows` focus (seeds 100000+) | 60 seeds | 300 seeds |
+| Analyst review suites (`suite.json` `review_suites`), every case × 10 knobs | ✓ | ✓ |
 | 1M (dev) timing | 1 warm-up + 3 | 1 + 5 |
 | 20M (seed-42) timing + oracle diff + determinism | 1 + 5 | 1 + 5 |
 | 60M (seed-43) timing + invariants + consistency + determinism | 0 + 1 | 1 + 3 |
@@ -69,6 +78,7 @@ as `eval-selftest` do not acquire the benchmark lock. The orchestration protocol
 | interleaved A/B vs the Gate C baseline on 20M | 11 pairs if fast | 5 pairs, or 11 if fast |
 | arm64 image clean build (`--no-cache`, timed), fixtures + dev in the container, container overhead | | ✓ |
 | amd64 image (emulated, `X86_CPU=x86-64-v2`), fixtures + dev in the container | | ✓ |
+| the same amd64 fixtures + dev under `SESSIONS_DEBUG_NO_FAST=3` (portable SWAR classifier, not SSE2) | | ✓ |
 | clean amd64 `cascadelake` build and 60M Linux memory cap check | | ✓ |
 | Linux named-volume 20M timing, or informational fallback probe | | ✓ |
 | cold-cache run | | ✓ (where available) |
@@ -189,6 +199,21 @@ A failure lists the seed, focus, tags, row-diff samples and a repro command.
 The ID-shape focus includes exact 10- and 11-character IDs, separate IDs with the same ten-character prefix,
 and a linked person with lowercase and uppercase/underscore IDs. It covers event dedup, person naming, and click ties.
 
+**`windows` focus.** Seeds from 100000 (`WINDOWS_SEED0`) take a focus that ordinary seeds never get, so the
+existing seeds generate byte-identical cases. Windows start at year end, new year, around Feb 29 2028 (in the
+event window or only in the click lookback), in a non-leap February, or at a month end. A quarter of them start
+off midnight, which is out of the generator's spec, so those cases count as robust and don't gate. Each case adds one
+fresh person per probe instant. Probes sit at the event and click window edges (±1 ms, ±1 s), at window − 8 days
+and window_end + 8 days (the date-table edges of v3's decoder), at every UTC midnight from −9 to +23 days, and at
+nearby Jan 1 and Mar 1 boundaries. They render as F1, as F3 with leading zeros, and as F2 with offsets up to
+±23:59, so the local date differs from the UTC date. About half the probes also get a click at the same instant,
+and some get a session start that the click may or may not credit.
+
+**Review suites.** `suite.json` `review_suites` lists Analyst-written adversarial suites. Each one has a runner and
+its case scripts, for example `evals/insights/v3_review/run.py` with `cases.py` and `cases_ts.py`. Eval only invokes
+the runner on the candidate binary and parses its `<case> [<knob>]: MATCH|MISMATCH|CRASH` lines. Every listed suite
+must be all MATCH for Gate A. The cases stay the Analyst's.
+
 For binaries that expose the debug environment variables, Eval reruns dev and the selected fuzz suite for each setting.
 The settings force 4-bit hashes, 97-byte chunks, 1 and 4,096 partitions, and disable fast paths. Each setting must
 match the default canonical hash on dev and strict cases. Debug variables absent from the release binary are marked
@@ -205,8 +230,10 @@ invariants.
 ## Gates and verdict (PROTOCOL.md, implemented in `lib/gates.py`)
 
 - **A, correctness:** fixtures 36/36 native and amd64; dev MATCH native and amd64; differential MATCH on every
-  oracle dataset in `suite.json` (including both 20M oracles); fuzz strict all MATCH; deterministic hash.
-  Supported debug knobs must also match on dev and strict fuzz.
+  oracle dataset in `suite.json` (including both 20M oracles); fuzz strict all MATCH (default and `windows`
+  focus); every review suite all MATCH; deterministic hash. Supported debug knobs must also match on dev and strict
+  fuzz. In the full profile, amd64 fixtures and dev must also match under `SESSIONS_DEBUG_NO_FAST=3` (SWAR) when
+  the binary supports it.
   The 60M consistency check is reported, but it isn't part of Gate A's oracle list.
 - **B, constraints:** 60M peak footprint ≤ 16 GB; 60M median ≤ 30 s; stdout < 1 MB; threads < 1000; the
   read-only container runs succeed; arm64 and scorer-target amd64 `cascadelake` build with `--no-cache`;

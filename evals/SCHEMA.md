@@ -45,6 +45,11 @@ A **summary** object (`S` below) is `{n, median, mean, min, max, p90, stdev, cv,
                     "dev"?: {"match", "hash"?, "rows"?, "error"?, "diff"?}, "fuzz"?: { ...same as fuzz... }},
                     "<rejection case>": {"status", "returncode", "stderr_tail"},
                     "<empty-output check>": {"status", "cases": {"<fixture>": {"expected", "hashes"}}}},
+    "fuzz_windows"?: { ...same as fuzz, seeds [100000, 100000 + N)... },
+    "review_suites"?: {"<suite name>": {"runner", "status": "pass|fail|not_run", "total", "passed",
+                       "failed": ["<script>: <runner line>"], "error"?,
+                       "scripts": {"<cases script>": {"wall_s", "returncode", "total", "passed", "failed"}}}},
+    "amd64_knobs"?: {"SESSIONS_DEBUG_NO_FAST=3": {"fixtures": { ...as fixtures_amd64... }, "dev": { ...as dev_answer_amd64... }}},
     "determinism": {"<dataset>": {"runs", "hashes": [...], "deterministic", "byte_identical_files"}},
     "row_counts": {"<dataset>": {"user_daily", "campaign_daily"}}
   },
@@ -98,6 +103,7 @@ A **summary** object (`S` below) is `{n, median, mean, min, max, p90, stdev, cv,
   "gates": {"A" | "B" | "C": {"status": "pass|fail|incomplete",
                               "checks": [{"name", "status": "pass|fail|not_run", "detail"}],
                               "warnings"?: [...]}},       // C also has baseline, gain, pooled_sd_s, metric
+  "amendments"?: [{"at", "stages": ["review"|"windows"|"amd64-knobs"], "eval_sha", "duration_s"}],
   "verdict": {"verdict": "REJECT|HOLD|SUBMIT-READY", "final": bool, "reasons": [...], "warnings": [...]},
   "notes": [...], "errors": [{"stage", "error", "trace"}]
 }
