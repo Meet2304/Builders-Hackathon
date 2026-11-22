@@ -367,3 +367,4 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Method is stuck (stale background commands block the provider switch).
   - Neon Detective (Gemini Flash) → write-path syscalls with the encoding unchanged.
   - Explorer 4 (Gemini Flash) → clicks-phase faults.
+- **User rule (03:45): no Gemini Flash for anything; use Gemini 4 Neon in the browser.** Stopped the Flash runs of Neon Detective and Explorer 4, and re-configured both as **Opus drivers on claude_master (medium effort) consulting Gemini 4 Neon in a browser tab**. Tasks unchanged: write-path syscalls; clicks-phase faults. Gemini Flash is banned from all future routing.
