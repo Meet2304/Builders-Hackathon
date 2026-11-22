@@ -464,3 +464,9 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Neon Detective stopped**; Sol covers the events-phase work. Explorer 4 was interrupted and reconfigured to Codex 6.2 Sol, idle for now.
   - **v12 (`explore/v12-dedup`, 4 B dedup offsets; Explorer 4):** all gates pass (fixtures, dev `NO_FAST` 0–3 and seed-42 at NCPU 1 and 8, long-ID 240/240, seed-535 ×10). Candidate native `c4b42d11fdd8` vs base `0748b677dd8a`. The interrupt killed its timing run; **the Orchestrator re-runs it** (`/tmp/builders-v12-run.py`: 20M faults 3 pairs, then 60M gVisor 5 pairs vs `be41e2e`; pid 83434).
   - **Active:** Sol (Codex, v13 events) and the Orchestrator; Eval idle (claudeAgent).
+- **v12 (4 B dedup offsets) DROPPED.** The Orchestrator re-ran the timing.
+  - 60M gVisor 5 pairs: median ratio 0.92, but noisy (0.920, 1.047, 0.908, 1.102, 0.684; one 5.47 s baseline spike).
+  - **Clean 9-pair re-run** (quiet machine, load about 5): candidate median 3.64 s vs v10.1 3.46 s, **−5.2%**. Ratios 1.186, 1.070, 1.078, 1.057, 1.067, 0.909, 1.029, 0.903, 0.798; v12 is slower in 6/9.
+  - RSS −0.9 GiB (11.37 → 10.46), but the dedup re-scan cost outweighs it.
+  - **Lesson: 5-pair 60M A/Bs are noisy under load; use ≥ 9 pairs on a quiet machine for ship decisions.**
+- **v10.1 remains the final candidate.** Sol's v13 (events phase) is the only open line.
