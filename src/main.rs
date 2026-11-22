@@ -42,6 +42,9 @@
 //!                               instead of NEON/SSE2 and NEON/SSSE3 (knobs 1 and 2
 //!                               also use the scalar packer)
 //!   SESSIONS_DEBUG_STATS=1      print fast-path / split_fields line counts per input kind
+//!   SESSIONS_PURGE=on           keep mimalloc's purging (default: never purge)
+//!   SESSIONS_EXIT=normal        exit through std::process::exit (default: _exit after
+//!                               every output file is closed)
 
 mod links;
 
@@ -70,6 +73,26 @@ use xxhash_rust::xxh3::xxh3_64;
 /// drops to ~0. No logic change.
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
+// mimalloc v3 (libmimalloc-sys 0.1.49 default) options, by their mi_option_t values.
+unsafe extern "C" {
+    fn mi_option_set(option: libc::c_int, value: libc::c_long);
+}
+const MI_OPTION_PURGE_DECOMMITS: libc::c_int = 5;
+const MI_OPTION_PURGE_DELAY: libc::c_int = 15;
+
+/// Never hand freed memory back to the OS: the process is short-lived, and every
+/// purge is an madvise now plus page faults on reuse, both slow under gVisor
+/// (Explorer 5: about -365 ms). SESSIONS_PURGE=on keeps mimalloc's defaults.
+fn no_purge() {
+    if env::var_os("SESSIONS_PURGE").is_some_and(|v| v == "on") {
+        return;
+    }
+    unsafe {
+        mi_option_set(MI_OPTION_PURGE_DELAY, -1);
+        mi_option_set(MI_OPTION_PURGE_DECOMMITS, 0);
+    }
+}
 
 type HashMap<K, V> = std::collections::HashMap<K, V, foldhash::fast::RandomState>;
 
@@ -2671,6 +2694,7 @@ fn pipeline<'a, L: Layout>(
 
 fn main() {
     let t0 = Instant::now();
+    no_purge();
     let get = |k: &str, d: &str| env::var(k).unwrap_or_else(|_| d.to_string());
     let data = PathBuf::from(get("DATA_DIR", "/data"));
     let out = PathBuf::from(get("OUTPUT_DIR", "/output"));
@@ -2805,7 +2829,14 @@ fn main() {
             CK_BUCKET[4].load(Relaxed)
         );
     }
-    std::process::exit(0);
+    // Every Parquet file is closed: write_parquet returns only after ArrowWriter::close
+    // succeeded and its File was dropped, and stderr is unbuffered. So skip atexit
+    // handlers and the allocator's teardown (Explorer 5: about -464 ms under gVisor).
+    // SESSIONS_EXIT=normal exits through std::process::exit for A/B.
+    if env::var_os("SESSIONS_EXIT").is_some_and(|v| v == "normal") {
+        std::process::exit(0);
+    }
+    unsafe { libc::_exit(0) }
 }
 
 #[cfg(test)]
