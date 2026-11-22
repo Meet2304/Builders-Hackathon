@@ -245,10 +245,11 @@ impl<'a> Id<'a> {
 
 const LONG_ID_LEN: usize = 33;
 
-/// Until the pipeline has a wider key, use the existing exact representation.
-#[cold]
+/// The same key `Ids::key` gives these bytes: the lock-free long-ID table, or the
+/// interner when the value's probe window is full.
+#[inline]
 fn pack_long<'a>(bytes: &'a [u8; LONG_ID_LEN], ids: &Ids<'a>) -> u64 {
-    ids.intern(bytes)
+    ids.long_key(bytes).unwrap_or_else(|| ids.intern(bytes))
 }
 
 struct Column {
