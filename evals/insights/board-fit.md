@@ -49,3 +49,34 @@ Reading the result:
 Meanwhile:
 - **Hold the writer settings out of v6** (submit v6 = v5 + click sort only). If H4 is even partly true, 4× the bytes adds time. Also, a change there muddles the P1 reading.
 - **Eval:** run the virtiofs bind-mount test plus `drop_caches` on mmap against `pread` locally. It's the cheapest local reproduction of H1 and can run while P1 is being built.
+
+## 4. Addendum (00:55 ET): root cause found, re-fit
+
+Two new facts:
+- **The generator changed at 21:08** (`docs/rules.md` line 101): 1 in 8 IDs is now 33 bytes, which goes past the 10-character packer into the mutex-sharded `Ids::intern`.
+- **Explorer 5 reproduced the board:** v5 on the new 20M data runs in 0.94 s under plain Docker and **2.23 s under gVisor (runsc)**, against a board of **2.146 s**. That puts the scorer in a gVisor-class sandbox, where every futex, mmap and page fault is a slow trip into the sandbox.
+
+**How much of the 1.70 s the long IDs explain:**
+- Scout's local cost is +0.72 s on the M5 (v5: 0.42 → 1.14 s).
+- If contention on Cascade Lake is 1.5–2× worse, the long IDs account for **≈ 1.1–1.4 s** of the 1.70 s.
+- The rest is gVisor's syscall cost: futex wake/wait on the contended `Mutex`, plus page faults and mmap. In the harness that is parse 0.565 → 1.528 s.
+- Together they explain **essentially all of the 1.70 s**.
+- They also explain the fit's odd shape. v3, v4 and v5 all share the same intern path, so it showed up as a constant. A serialized lock acts as a floor (Amdahl's law), so instruction cuts elsewhere only partly reached the board. That's the "68 G/s" slope. H1 was the right *shape* with the wrong cause.
+
+**The model from here:**
+- **Retire the linear fit.** The local gVisor time (Explorer 5's harness, new data) is the predictor of the board. Check it against each submission. For v5, the harness is +0.08 s above the board.
+- **Predicted board after an exact, lock-free long-ID path: ≈ 0.8–1.05 s.** That's v5 at 2.146 s, minus 1.1–1.4 s, plus the new path's own cost. The harness will give the real number before we submit.
+- **All instruction figures in `v5-plan.md` are from the old data.** Lines are now about 8% longer, and 1 in 8 IDs takes the long path. Re-count on the new seed-42 before ranking anything by instructions.
+
+**P1 (`pread`) loses its board slot to the long-ID fix.** mmap faults are still expensive under gVisor, so test it **in the gVisor harness, not on the board**: mmap against `pread` on new seed-42, under runsc. It earns a board slot only if the harness shows ≥ 0.1 s. Run these harness checks too, ranked by likely size:
+1. mimalloc purging (`madvise` calls). Try `MIMALLOC_PURGE_DELAY=-1` / `mi_option_set` at startup.
+2. Anonymous page faults on about 1.9 GB (gVisor gives no THP). Try pre-faulting or reusing buffers.
+3. Rayon park/wake futexes at phase barriers.
+4. Output `write` sizes.
+
+Every engine change is now gated on **gVisor time** as well as plain-Linux time.
+
+**Correctness traps for the u128 long-ID path (Method):**
+- Keys must order byte for byte **across forms**: short-packed against 33-byte against interned. Links name a person by the smallest ID, and click ties go to the smallest `click_id`, so a long ID can sort between two short ones that share a prefix.
+- Don't assume the prefix letters, the hex case, or the length. Only an exact 33-byte, lowercase-hex shape takes the fast path; upper-cased variants and every other length fall back to `intern`.
+- Test with mixed-form links and with click ties at equal `ts` across forms.
