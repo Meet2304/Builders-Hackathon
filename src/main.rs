@@ -2058,15 +2058,19 @@ struct DedupScratch {
 /// copy that produced a row.
 fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, scratch: &mut DedupScratch) -> Vec<u64> {
     let n: usize = ev.iter().map(|o| o.e[q].len()).sum();
-    let mut drops = Vec::new();
     if n == 0 {
-        return drops;
+        return Vec::new();
     }
+    // 2 to 4% of events are duplicated copies; reserve for 1 in 16 to avoid regrowth.
+    let mut drops = Vec::with_capacity(n / 16 + 16);
     let cap = (2 * n).next_power_of_two();
     // Grow only: untouched slots have generation zero. Reusing a table for a
     // smaller partition must not discard the generations of its unused tail.
     if scratch.slots.len() < cap {
-        scratch.slots.resize(cap, (0, 0));
+        // A fresh zeroed allocation (calloc: no memset on fresh pages, no realloc
+        // copy of the old slots). Generation zero is empty, so restart at zero.
+        scratch.slots = vec![(0, 0); cap];
+        scratch.generation = 0;
     }
     if scratch.generation == u16::MAX {
         scratch.slots.fill((0, 0));
@@ -2869,7 +2873,11 @@ fn pipeline<'a, L: Layout>(
     // dedup per eid partition; the losers' drops go to their person partitions
     let drops: Vec<Vec<u64>> =
         (0..nb).into_par_iter().map_init(DedupScratch::default, |tab, q| dedup_part(&ev_out, q, hmask, tab)).collect();
-    let mut drops_by: Vec<Vec<u64>> = (0..nb).map(|_| Vec::new()).collect();
+    let mut per = vec![0usize; nb];
+    for &d in drops.iter().flatten() {
+        per[(d >> 48) as usize] += 1;
+    }
+    let mut drops_by: Vec<Vec<u64>> = per.iter().map(|&c| Vec::with_capacity(c)).collect();
     for &d in drops.iter().flatten() {
         drops_by[(d >> 48) as usize].push(d);
     }
