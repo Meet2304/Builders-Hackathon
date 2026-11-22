@@ -674,3 +674,18 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 
   - Gemini Neon's top idea (a 64-way staged scatter with NT stores) wasn't built; too big to gate in time.
   - **Asked for `explore/v17-levers-on`:** defaults flipped to `POPULATE=1`, `PARTS=64`, `PF_SCATTER=128`, `HUGE=1`, each env-overridable, gated plus a Linux A/B, by 09:40. Real-x86 round 2b decides each lever.
+- **09:08: real-x86 round 2b `45030685392`** (AVX-512 runner, x86-64-v3 builds, 20M, 5 interleaved reps; v16 median 1.5625 s):
+
+  | Variant | Δ vs v16 |
+  | --- | --- |
+  | write | −0.6% (60M: +0.7%) |
+  | levers-default | +1.4% (noise floor) |
+  | huge | +1.2% |
+  | pf8 | +1.7% |
+  | parts64 | +1.3% |
+  | pop1 | +0.1% |
+  | parts1024 | +9.4% |
+  | chunk 1M | +9.9% |
+  | chunk 128K | +18.8% |
+
+  **No lever wins on x86; the arm64-container gains don't transfer. Levers are not shipped**, and Neon is stood down. The write −1.26% Ir is within wall noise (≈0.4% expected per the board model).
