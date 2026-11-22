@@ -1633,7 +1633,7 @@ impl Layout for Row16 {
                 spare.resize(run.len(), 0);
             }
             let n = run.len();
-            radix_u64(run, &mut spare[..n], |&e| e >> 32);
+            radix_event_times(run, &mut spare[..n]);
         } else {
             run.sort_unstable();
         }
@@ -1690,15 +1690,15 @@ const RADIX_RUN_MIN: usize = 512;
 
 /// 8-bit LSD radix on `key`, ping-ponging with `scratch`; skips a byte that is the same
 /// on every row. From Explorer 2's explore/gemini-radix (c99960e).
-fn radix_u64<T: Copy, F: Fn(&T) -> u64>(data: &mut [T], scratch: &mut [T], key: F) {
+fn radix_event_times(data: &mut [u64], scratch: &mut [u64]) {
     let n = data.len();
     debug_assert!(n >= 2 && scratch.len() >= n && n <= u32::MAX as usize);
-    let mut hists = [[0u32; 256]; 8];
-    let sample = key(&data[0]);
-    for item in data.iter() {
-        let k = key(item);
-        for (b, h) in hists.iter_mut().enumerate() {
-            h[((k >> (8 * b)) & 0xff) as usize] += 1;
+    let mut hists = [[0u32; 256]; 4];
+    let sample = (data[0] >> 32) as u32;
+    for &item in data.iter() {
+        let bytes = ((item >> 32) as u32).to_le_bytes();
+        for (hist, byte) in hists.iter_mut().zip(bytes) {
+            hist[byte as usize] += 1;
         }
     }
     let mut in_scratch = false;
@@ -1716,14 +1716,14 @@ fn radix_u64<T: Copy, F: Fn(&T) -> u64>(data: &mut [T], scratch: &mut [T], key: 
         if !in_scratch {
             for i in 0..n {
                 let item = data[i];
-                let b = ((key(&item) >> shift) & 0xff) as usize;
+                let b = ((item >> (32 + shift)) & 0xff) as usize;
                 scratch[hist[b] as usize] = item;
                 hist[b] += 1;
             }
         } else {
             for i in 0..n {
                 let item = scratch[i];
-                let b = ((key(&item) >> shift) & 0xff) as usize;
+                let b = ((item >> (32 + shift)) & 0xff) as usize;
                 data[hist[b] as usize] = item;
                 hist[b] += 1;
             }
