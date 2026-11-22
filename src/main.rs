@@ -1364,7 +1364,9 @@ fn parse_event<'a, L: Layout>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &
             let user = lk.ids.key(user);
             let slot = lk.links.slot(user);
             prefetch(&lk.links.slots[slot]);
-            o.pend.push(PendEv { eid, ingest, user, slot, ts, price, cat: lk.category(f[5]) });
+            // only purchases (price >= 1) ever read the category; views/carts skip the lookup
+            let cat = if price > 0 { lk.category(f[5]) } else { 0 };
+            o.pend.push(PendEv { eid, ingest, user, slot, ts, price, cat });
             if o.pend.len() == BATCH {
                 o.flush(lk);
             }
