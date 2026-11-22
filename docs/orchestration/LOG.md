@@ -437,3 +437,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Click packing: 17 cases × 16 configs × both click sorts MATCH (cross-campaign same-ms tie, up to 2,049 campaigns, 7-day lookback, last valid ms, invalid ts, empty partitions, year 9999).
   - Outputs: PyArrow and Polars agree on every file in 72 repeat runs (empty/single-row/far-future), 6 × 20M, 6 forced two-row-group runs, NCPU 1/8.
   - Fixtures 36/36, dev, 30 fresh seeds, 4,600 cached fuzz MATCH. Long-tail families continuing.
+- **06:05: Red Team FAIL on v10 `def3d26`:** a rayon worker stack overflow (exit −6) on seed 535 (v8col) with `NCPU=8 SESSIONS_DEBUG_PARTS=4096`; all other configs pass. It doesn't reproduce on demand (0/33 Orchestrator reruns).
+  - **Root cause:** `e9fda82` (neon-detective, in v9b and v10) set the global rayon pool to `.stack_size(256 * 1024)`; v8 used the 2 MiB default. Nested work-stealing joins can overflow 256 KiB, so the default config could hit it too.
+  - **Fix: v10.1 = `integ/v10` @ `be41e2e`** (stack 8 MiB). Gates: fixtures 36/36, new dev MATCH under `NO_FAST` 0–3, seed-42 MATCH, seed-535 PARTS=4096 10/10 clean; long-ID 40 seeds running.
+  - Eval runs the gate on `be41e2e` (untimed + cascadelake/amd64), carrying over Gate C and the 60M memory gate from `def3d26`. Red Team (now on Codex-Andrew 6.1 Sol) re-tests v8col × 16 configs on `be41e2e`.
+- **Eval v10 untimed gate on `def3d26`:** fixtures 36/36, differential 9/9, fuzz under every knob, **long-ID 900/900 in 48 s (8 shards; was 54 min)**.
