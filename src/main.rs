@@ -2284,13 +2284,18 @@ fn sort_clicks<L: Layout>(ctx: &Ctx, sc: &mut Scratch<L::Elem>, ck: &[CkPart], p
         sum += n;
     }
     sc.ck_spare.clear();
-    sc.ck_spare.resize(sc.cks.len(), PCk { loc: 0, ts: 0, cid: 0, camp: 0 });
+    let nclicks = sc.cks.len();
+    sc.ck_spare.reserve(nclicks);
+    let sorted = &mut sc.ck_spare.spare_capacity_mut()[..nclicks];
     for c in &sc.cks {
         let loc = c.loc as usize;
         let i = sc.ck_at[loc] as usize;
         sc.ck_at[loc] += 1;
-        sc.ck_spare[i] = *c;
+        sorted[i].write(*c);
     }
+    // Each person's count reserved a disjoint run, and the scatter just wrote
+    // one element for every row counted.
+    unsafe { sc.ck_spare.set_len(nclicks) };
     std::mem::swap(&mut sc.cks, &mut sc.ck_spare);
     let tally = sorted_probe();
     let mut s0 = 0usize;
@@ -2364,7 +2369,8 @@ fn process_part<L: Layout>(
     }
     // pass 2: scatter each kept row's element into its person's run (counting sort)
     sc.evs.clear();
-    sc.evs.resize(kept, L::Elem::default());
+    sc.evs.reserve(kept);
+    let sorted = &mut sc.evs.spare_capacity_mut()[..kept];
     let (mut b, mut j) = (0usize, 0usize);
     for x in ev {
         for r in &x.r[p] {
@@ -2375,10 +2381,13 @@ fn process_part<L: Layout>(
             }
             let loc = sc.locs[j] as usize;
             j += 1;
-            sc.evs[sc.starts[loc] as usize] = r.elem();
+            sorted[sc.starts[loc] as usize].write(r.elem());
             sc.starts[loc] += 1;
         }
     }
+    // The counts cover exactly the kept rows, and the same rows are visited
+    // here in the same order. Every slot in the prefix-summed runs is written.
+    unsafe { sc.evs.set_len(kept) };
     // starts[loc] is now the end of loc's run; sort each run by ts
     let mut s0 = 0usize;
     for &e in &sc.starts {
