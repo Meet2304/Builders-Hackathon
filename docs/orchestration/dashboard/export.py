@@ -464,7 +464,10 @@ def build(root):
     docs["insights"] = {"kind": "insights", **load_insights(root)}
     docs["git"] = {"kind": "git", **gi}
     # Drop nulls: the store keeps them, and absent reads the same on the page.
-    return {k: {f: x for f, x in d.items() if x is not None} for k, d in docs.items()}
+    # The page marks headline.best_board_s even before any submission, so it stays (as null).
+    keep = {"best_board_s"}
+    return {k: {f: x for f, x in d.items() if x is not None or (d.get("kind") == "headline" and f in keep)}
+            for k, d in docs.items()}
 
 
 def write_snapshot(docs, out_json, out_dir):
