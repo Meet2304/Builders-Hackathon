@@ -378,3 +378,19 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   Together with Footprint, Neon Detective (write path) and Explorer 4 (clicks faults), that's **8 threads on claude_master** plus the Orchestrator.
   - Risk: one account. If it caps, everything (including the Orchestrator) stalls until its reset.
   - Method and Analyst stay pinned by stale background commands until claudeAgent resets (about 05:00). Eval waits for claude_andrew (05:40).
+- **04:00: v9a `0340530` long-ID suite FAIL (542/900)** in the Orchestrator's full eval. Killed the eval.
+  - **Bisect, first attempt invalid:** a shared `CARGO_TARGET_DIR`, and a `| grep | head` pipe hid build failures, so even v8 looked broken. Proof: Eval's cached v8 binary MATCHes 5/5 while my build DIFFERs.
+  - **Clean bisect** (separate target dirs, `--locked`, exit codes checked; 20 seeds × 6 knobs):
+
+    | Build | Long-ID suite |
+    | --- | --- |
+    | v8 `2bfb034` | 120/120 |
+    | neon-detective `e9fda82` | 120/120 |
+    | links-par `ddcd7d3` | 120/120 |
+    | **sol-longtable `7413dfe`** | **70/120** |
+    | v9a | 70/120 |
+
+  - **Culprit: the 16 B `LongTable`** (written on Kiro Sonnet). Not a model-quota artifact (user asked to check); a real, deterministic DIFFER. The good branches are kept.
+- **v9b = `integ/v9b` @ `ee5aad8`** = `2bfb034` + neon-detective + links-par. Gates: fixtures 36/36, new dev MATCH under `NO_FAST` 0–3, seed-42 MATCH, **long-ID 240/240**. Full eval running (Orchestrator, eval worktree).
+  - Eval guard patched (`78a8a78`) to tolerate the T3 Code UI (< 1 CPU), which had stalled the v9a timing.
+  - Explorer Sol told to fix the `LongTable` bug (900/900 to re-admit it) by 06:30.
