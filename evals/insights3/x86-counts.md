@@ -115,6 +115,9 @@ Rust's std `Mutex` enters the kernel only when contended (`FUTEX_WAIT_BITSET` / 
 | v5 dev, NCPU=1 | 32 | 7 | 7 | 10 | 5 | 3 |
 | v5 dev, NCPU=8 | 95 | 541 | 135 | 63 | 50 | 71 |
 | **v5 seed-42 20M, NCPU=8** | 615 | **58,192** | 5,843 | 20 | 90 | 99 |
+| **v7 `e693e18` seed-42 20M, NCPU=8** | 106 | **79** | 73 | 59 | 108 | 75 |
+
+**v7 removes the contention:** events futex calls drop from 58,192 to 79, and clicks from 5,843 to 73. Under strace, events parse falls from 28.4 s to 1.9 s of wall time (end of events 28.73 s → 2.08 s) and the whole run from 32.6 s to 4.5 s. Both runs use the same `--cpus=2` and 8 threads. The v7 binary is an arm64 Linux build from clean source.
 
 - Lines grow 20× from dev to 20M, and futex calls in events grow **107×**. The shards get bigger, rehashes run under the lock, and hold times grow, so this is superlinear.
 - Under strace, where each syscall is expensive (the same shape as gVisor), v5's 20M events parse took **28.4 s wall for 12 s of CPU**.
