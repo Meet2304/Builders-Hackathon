@@ -241,6 +241,16 @@ impl<'a> Id<'a> {
             Self::Long(bytes) => pack_long(bytes, ids),
         }
     }
+
+    /// A key that orders like `key` under `Ids::cmp` but is only valid for comparison:
+    /// long IDs keep their bytes in place instead of entering the long-ID table.
+    #[inline(always)]
+    fn order_key(self) -> u64 {
+        match self {
+            Self::Short(key) => key,
+            Self::Long(bytes) => super::raw33_key(bytes),
+        }
+    }
 }
 
 const LONG_ID_LEN: usize = 33;
@@ -491,7 +501,7 @@ unsafe fn click_line<'a>(
             .filter(|_| {
                 !cid.is_empty() && !person.is_empty() && ts >= w.start - WEEK_MS && ts < w.end
             })
-            .map(|camp| Ck::new(person.key(&lk.ids), cid.key(&lk.ids), ts, camp, w));
+            .map(|camp| Ck::new(person.key(&lk.ids), cid.order_key(), ts, camp, w));
         Some((next, row))
     }
 }
@@ -672,7 +682,15 @@ mod tests {
                 assert_eq!(next.min(buf.len()), pos + line.len());
                 row
             };
-            if actual != expected {
+            // A long click ID's fast-path key is its address, not its table slot:
+            // compare it by `Ids::cmp`, which is all `click_ord` uses.
+            let same = match (actual, expected) {
+                (Some(a), Some(e)) => {
+                    a.person == e.person && a.tc == e.tc && lk.ids.cmp(a.cid, e.cid) == std::cmp::Ordering::Equal
+                }
+                (a, e) => a.is_none() && e.is_none(),
+            };
+            if !same {
                 panic!(
                     "decoded mismatch at byte {pos}, {:?}: {actual:?} != {expected:?}",
                     String::from_utf8_lossy(line)
@@ -768,6 +786,47 @@ mod tests {
             let lk = lookups(catalog);
             compare_clicks(&padded, &lk, &w);
             compare_clicks(line, &lk, &w);
+        }
+    }
+
+    #[test]
+    fn raw_click_keys_order_by_bytes() {
+        let ids = Ids::new(0);
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        let mut next = || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        let hex = b"0123456789abcdef";
+        // shared prefixes make most pairs differ late in the digits
+        let mut longs: Vec<[u8; 33]> = (0..400)
+            .map(|i| {
+                let mut b = [b'k'; 33];
+                for d in b[1..].iter_mut() {
+                    *d = hex[(next() >> 60) as usize];
+                }
+                if i % 3 == 0 {
+                    b[1..20].copy_from_slice(b"0123456789abcdef012");
+                }
+                b
+            })
+            .collect();
+        longs.push(longs[0]);
+        let shorts: [&[u8]; 5] = [b"k", b"k0", b"k01234567", b"kffffffff", b"l"];
+        let mut keys: Vec<(Vec<u8>, u64)> = Vec::new();
+        for b in &longs {
+            keys.push((b.to_vec(), crate::raw33_key(b)));
+            keys.push((b.to_vec(), ids.key(&b[..])));
+        }
+        for s in shorts {
+            keys.push((s.to_vec(), ids.key(s)));
+        }
+        for (a, ka) in &keys {
+            for (b, kb) in &keys {
+                assert_eq!(ids.cmp(*ka, *kb), a.cmp(b), "{:?} vs {:?}", String::from_utf8_lossy(a), String::from_utf8_lossy(b));
+            }
         }
     }
 

@@ -387,6 +387,16 @@ fn pack_simd_self_test() -> bool {
     true
 }
 
+/// Tie-break key of a 33-byte click ID: its address in the input map, tag 3. A click
+/// ID only orders clicks that share a timestamp (`click_ord`), and that goes through
+/// `Ids::cmp` -> `Ids::bytes`, so it needn't be entered in the long-ID table.
+#[inline(always)]
+fn raw33_key(b: &[u8; 33]) -> u64 {
+    let p = b.as_ptr() as u64;
+    debug_assert!(p >> 60 == 0);
+    p << 4 | 3
+}
+
 #[inline]
 fn is_packed(k: u64) -> bool {
     k & 15 == 0
@@ -626,6 +636,9 @@ impl<'a> Ids<'a> {
                 buf[17 + i] = DIGITS[(lo >> (60 - 4 * i)) as usize & 15];
             }
             &buf[..33]
+        } else if k & 15 == 3 {
+            // SAFETY: a `raw33_key` points at 33 bytes of an input map, which outlive 'a.
+            unsafe { std::slice::from_raw_parts((k >> 4) as *const u8, 33) }
         } else {
             let i = k >> 4;
             let sh = self.shards[(i % 64) as usize].lock().unwrap();
