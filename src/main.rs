@@ -2260,31 +2260,41 @@ fn pipeline<'a, L: Layout>(
     lap(&format!("events deduped ({ndrops} dropped rows)"));
 
 
-    (0..nb)
+    let mut weights = vec![0usize; nb];
+    for task in &ev_out {
+        for (weight, rows) in weights.iter_mut().zip(&task.r) {
+            *weight += rows.len();
+        }
+    }
+    for task in &ck_out {
+        for (weight, rows) in weights.iter_mut().zip(task) {
+            *weight += rows.len();
+        }
+    }
+    let mut order: Vec<_> = (0..nb).collect();
+    order.sort_unstable_by_key(|&p| std::cmp::Reverse(weights[p]));
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    (0..rayon::current_num_threads().min(nb))
         .into_par_iter()
-        .fold(
-            || {
-                let acc = Acc { users: Vec::new(), camp: vec![[0i64; 4]; (ncamp + 1) * ndays] };
-                let sc = Scratch {
-                    persons: Interner::default(),
-                    dropped: Vec::new(),
-                    off: Vec::new(),
-                    locs: Vec::new(),
-                    starts: Vec::new(),
-                    evs: Vec::new(),
-                    spare: Vec::new(),
-                    cks: Vec::new(),
-                    active: ActiveSet::new(ncamp),
-                    cat_sum: vec![0i64; ncat],
-                };
-                (acc, sc)
-            },
-            |(mut acc, mut sc), p| {
+        .map(|_| {
+            let mut acc = Acc { users: Vec::new(), camp: vec![[0i64; 4]; (ncamp + 1) * ndays] };
+            let mut sc = Scratch {
+                persons: Interner::default(),
+                dropped: Vec::new(),
+                off: Vec::new(),
+                locs: Vec::new(),
+                starts: Vec::new(),
+                evs: Vec::new(),
+                spare: Vec::new(),
+                cks: Vec::new(),
+                active: ActiveSet::new(ncamp),
+                cat_sum: vec![0i64; ncat],
+            };
+            while let Some(&p) = order.get(next.fetch_add(1, Relaxed)) {
                 process_part(ctx, &mut acc, &mut sc, &ev_out, &ck_out, &drops_by[p], p);
-                (acc, sc)
-            },
-        )
-        .map(|(acc, _)| acc)
+            }
+            acc
+        })
         .collect()
 }
 
