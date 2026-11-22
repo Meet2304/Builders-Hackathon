@@ -27,7 +27,10 @@ def main():
     parser.add_argument("--pairs", type=int, choices=range(1,7), default=3)
     parser.add_argument("--binary", default="/app/sessions")
     parser.add_argument("--env", action="append", default=[])
+    parser.add_argument("--trace-dir", type=Path, help="Write gVisor syscall logs for diagnostic runs")
     args = parser.parse_args()
+    if args.trace_dir:
+        args.trace_dir.mkdir(parents=True, exist_ok=True)
     token = "critpath-" + uuid.uuid4().hex[:12]
     lock = Path("/tmp/builders-bench.lock")
     while True:
@@ -49,6 +52,8 @@ def main():
                  "--network","none","--memory","22g","--memory-swap","22g","--cpus","8",
                  "--pids-limit","4096","-v",f"{token}:/data:ro","--tmpfs","/output:mode=1777",
                  "-v",f"{args.gvisor.resolve()}:/gv:ro"]
+        if args.trace_dir:
+            flags += ["-v",f"{args.trace_dir.resolve()}:/trace"]
         sha = docker("run","--rm",args.image,"sha256sum",args.binary).split()[0]
         start = time.monotonic()
         for i in range(args.pairs):
@@ -57,9 +62,12 @@ def main():
                     raise RuntimeError("ending lock window before next run")
                 command = ["env","NCPU=8",*args.env,"/usr/bin/time","-f",
                            "sample %e %U %S %R %F %x",args.binary]
+                trace = []
+                if args.trace_dir and mode == "runsc":
+                    trace = ["--strace","--strace-log-size=96",f"--debug-log=/trace/{token}-{i}.log"]
                 if mode == "runsc":
                     command = ["/gv/runsc","--ignore-cgroups","--rootless","--network=none",
-                               "do","-volume","/data:/data","-volume","/output:/output",*command]
+                               *trace,"do","-volume","/data:/data","-volume","/output:/output",*command]
                 # The outer Linux clock includes runsc create and destroy, excluding Docker launch.
                 script = """
                     counters() {

@@ -24,3 +24,10 @@ Each stdout line is JSON. GNU time inside the chosen environment reports binary 
 A successful run checks the process exit status. Use the repository's exact table comparison separately for candidate correctness.
 
 For phase fault counters and input policy experiments, apply `v5-input-probe.patch` on top of `5b7bcc2` in a disposable Linux build, and copy its executable into the timing image. The patch emits cumulative `getrusage(RUSAGE_SELF)` counters before each phase mark. All instrumented modes open files through the same parallel iterator. Set `--env CRIT_INPUT=populate` to request file-backed MAP_POPULATE, `--env CRIT_INPUT=read` to read each file into a private anonymous buffer, or `--env CRIT_INPUT=read-huge` to additionally request MADV_HUGEPAGE before that read. Keep the backing bytes alive through output because fallback string keys borrow them. These are diagnostic builds. The read modes retain one buffer per file.
+
+The one-command wrapper accepts either a local Linux/arm64 ELF or an existing arm64 timing image. It verifies and caches the pinned official gVisor bundle on first use. Supply `GVISOR_DIR` to use an existing bundle. Set `RUNSC_PAIRS=1` for a smoke check, or `RUNSC_JSONL=/path/to/results.jsonl` to retain each sample and phase log.
+
+```sh
+evals/explore/runsc/run.sh ./sessions-linux-arm64 data/seed-42
+evals/explore/runsc/run.sh sessions-eval:5b7bcc239556-arm64-faults data/seed-42
+```
