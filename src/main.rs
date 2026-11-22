@@ -69,8 +69,9 @@ use arrow_array::{ArrayRef, Date32Array, Int64Array, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use memmap2::Mmap;
 use parquet::arrow::ArrowWriter;
-use parquet::basic::Compression;
-use parquet::file::properties::WriterProperties;
+use parquet::basic::{Compression, Encoding};
+use parquet::file::properties::{EnabledStatistics, WriterProperties};
+use parquet::schema::types::ColumnPath;
 use rayon::prelude::*;
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -2654,9 +2655,19 @@ impl ActiveSet {
 
 /// Encode the whole file in memory, then create it with one `write`: an unbuffered
 /// `File` sink costs ~13 writes per file (Thrift headers, footer pieces), and every
-/// syscall is a sentry round trip under gVisor. Same writer properties, same bytes.
+/// syscall is a sentry round trip under gVisor.
 fn write_parquet(path: &Path, batch: RecordBatch) {
-    let props = WriterProperties::builder().set_compression(Compression::UNCOMPRESSED).build();
+    let mut props = WriterProperties::builder()
+        .set_compression(Compression::UNCOMPRESSED)
+        .set_statistics_enabled(EnabledStatistics::None);
+    // Keep the string and date dictionaries. Counts use the integer delta
+    // encoder, which avoids a hash probe per row and still packs small deltas.
+    for name in ["sessions", "events", "purchasing_sessions", "assisted_sessions", "revenue_cents"] {
+        let column = ColumnPath::from(name);
+        props = props.set_column_dictionary_enabled(column.clone(), false)
+            .set_column_encoding(column, Encoding::DELTA_BINARY_PACKED);
+    }
+    let props = props.build();
     let cap = batch.get_array_memory_size() + (64 << 10);
     let mut w = ArrowWriter::try_new(Vec::with_capacity(cap), batch.schema(), Some(props)).expect("parquet writer");
     w.write(&batch).expect("write batch");
