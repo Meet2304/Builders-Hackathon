@@ -316,3 +316,14 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **v8 verification:** Analyst 2 (spec check of move 8), Analyst 3 (x86 MATCH and instructions), Red Team (adversarial, by 04:30), Explorer 5 (3-arm gVisor ABBA at 20M + 60M), Eval (full v8 after v7b, then v7b vs v8 under gVisor at 60M).
   - **v9 (freeze 08:00):** Explorer 3 (write path), Explorer Sol (`LongTable` at 60M), Explorer 4 (links), Neon Detective (start, exit and lookups traces), Method (v8, then start/exit, then integration).
   - **Analyst:** the release schedule plus the final-pick rule (`release-final.md`).
+- **Quota wall at 02:35:** claudeAgent and claude_master are capped until about 05:00, and Codex until 05:47. Cursor no longer includes Opus 5.5 or Gemini 4 Neon ("weekly usage"). **Working lanes:** claude_andrew, Antigravity, Kiro, and Cursor Composer/Auto.
+  - Re-routed:
+    - Explorer 3 (write path) → Antigravity Opus 4.6 Thinking
+    - Analyst 3 (x86) → Kiro Sonnet 4.5
+    - Explorer Sol (`LongTable`) → Kiro Sonnet 4.5
+    - Explorer 5 (gVisor ABBA) → Cursor Composer 2.5
+    - Neon Detective (traces) → Cursor Composer 2.5
+    - Explorer 4 (links) → Cursor Auto
+  - Explorer Sol and Explorer 4 go back to Codex Sol after 05:47 (user request).
+  - Method and Analyst couldn't switch providers (background commands still held in their sessions); they resume at 05:00 on claudeAgent.
+  - **The Orchestrator fast-forwarded `method/v8` → `2bfb034`** (v8 release candidate; Eval's full run re-gates everything).
