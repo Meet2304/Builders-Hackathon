@@ -255,6 +255,16 @@ invariants.
   as `or (instructions route): …`.
 - **Verdict:** REJECT (A or B fails) / HOLD (C fails, or something wasn't run: provisional) / SUBMIT-READY.
 
+**Comparison with the reference (v3).** `suite.json` `reference_version` is `v3`, the submitted version and the
+current board best. Every new eval ends with two steps, both under the bench lock:
+1. **Reference refresh.** If the framework has gained untimed stages since the reference was evaluated (review
+   suites, the `windows` fuzz, phase counters, growth, amd64 knobs), they run on the reference's own binary via
+   `--amend`, so both sides carry the same metric set. Timed metrics aren't re-used across sessions. The
+   candidate's eval re-times v3 interleaved, natively and on Linux, because v3 is the Gate C baseline.
+2. **Comparison.** `results/<version>-vs-v3.md` holds the full `compare.py` table. The report also gets a
+   "Compared with v3" section, right after the headline: predicted board (both models), instructions, cycles and
+   IPC per row, same-session native and Linux A/B, and per-phase instructions and cycles plus fast-path share.
+
 **Headline.** Every report starts with a headline table: the predicted board time (instruction model first, then
 the wall ratio), 20M instructions per row, the target and how far there is to go, Linux arm64 20M (the primary
 local timing, because it has no macOS exit tail), and native 20M with and without the exit tail.

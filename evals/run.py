@@ -810,6 +810,9 @@ class Eval:
 
     @benchmark_lock()
     def amend(self, stages):
+        self._amend(stages)
+
+    def _amend(self, stages):
         """Add stages to an existing result for the same commit, then recompute gates, verdict, report, ledger."""
         path = EVALS / "results" / f"{self.a.version}.json"
         old = read_json(path)
@@ -851,6 +854,46 @@ class Eval:
             + "; ".join(r["verdict"]["reasons"][:6]))
         log(f"amended evals/results/{r['version']}.json and .md")
 
+    def reference(self) -> dict | None:
+        """The version every new eval is compared with (suite.json "reference_version", else the best submitted)."""
+        name = read_json(EVALS / "suite.json").get("reference_version")
+        if not name:
+            base = gates.best_baseline(self.a.version)
+            name = base["version"] if base and base.get("kind") == "submitted" else None
+        if not name or name == self.a.version:
+            return None
+        return read_json(EVALS / "results" / f"{name}.json")
+
+    def refresh_reference(self):
+        """Bring the reference result up to the current framework's untimed metrics, so comparisons are like for like.
+        Timed metrics are compared through this eval's interleaved A/B, which re-times the baseline."""
+        ref = self.reference()
+        if not ref:
+            return
+        stages = missing_stages(ref, self.suite)
+        if not self.prof["docker"] or self.a.no_docker:
+            stages = [x for x in stages if x != "amd64-knobs"]
+        if not stages:
+            return
+        log(f"reference {ref['version']}: adding current-framework stages {stages}")
+        args = argparse.Namespace(version=ref["version"], rev=ref["sha"], profile=ref["profile"], fuzz_seeds=None,
+                                  no_docker=self.a.no_docker, ab_runs=None, no_ledger=self.a.no_ledger, rebuild=False)
+        Eval(args)._amend(stages)
+
+    def comparison(self):
+        """results/<version>-vs-<reference>.md plus a summary embedded in this result."""
+        ref = self.reference()
+        if not ref:
+            return
+        import compare as cmp
+        sections = cmp.compare(ref, self.r)
+        name = f"{self.r['version']}-vs-{ref['version']}"
+        (EVALS / "results" / f"{name}.md").write_text(cmp.render(ref, self.r, sections, md=True))
+        keep = {"Headline", "Per-phase counters, 20M (untimed probes)"}
+        self.r["comparison"] = {"reference": ref["version"], "reference_sha": ref["sha"], "file": f"results/{name}.md",
+                                "sections": [(t, rows) for t, rows in sections
+                                             if t in keep or t.startswith("Same-session")]}
+
     @benchmark_lock()
     def main(self):
         log(f"eval {self.a.version}: rev {self.a.rev} = {self.sha[:12]}, profile {self.a.profile}")
@@ -882,6 +925,8 @@ class Eval:
             self.step("cold cache", self.cold_cache)
         self.step("constraints", self.constraints)
         self.step("calibration", self.calibration)
+        self.step("reference refresh", self.refresh_reference)
+        self.step("comparison", self.comparison)
         self.finish()
 
 
@@ -897,6 +942,25 @@ def fmt_ipr(x):
 
 def fmt_number(x):
     return "n/a" if x is None else f"{x:,.2f}"
+
+
+def missing_stages(ref: dict, suite: dict) -> list[str]:
+    """Untimed stages the current framework runs that `ref`'s result lacks (or ran with an older generator)."""
+    c, p = ref.get("correctness", {}), ref.get("perf", {})
+    prof = PROFILES.get(ref.get("profile"), {})
+    out = []
+    names = {x["name"] for x in suite.get("review_suites", [])}
+    if names and not names <= set(c.get("review_suites", {})):
+        out.append("review")
+    if prof.get("windows_seeds") and (c.get("fuzz_windows") or {}).get("gen_sha") != fuzz_gen_sha():
+        out.append("windows")
+    if prof.get("counters") and not set(prof["counters"]) <= set(p.get("phase_counters", {})):
+        out += ["counters", "growth"]
+    elif prof.get("counters") and "perf-60M" in prof["counters"] and not (p.get("size_scaling") or {}).get("phase_growth"):
+        out.append("growth")
+    if prof.get("docker") and "amd64_knobs" not in c:
+        out.append("amd64-knobs")
+    return out
 
 
 STATS_LINE = re.compile(r"^stats: (\S+)(?: lines)? (.*)$")
@@ -947,6 +1011,20 @@ def phase_growth(r: dict) -> dict:
         row["superlinear"] = row["wall_ratio_per_event"] > 1.15
         rows[k] = row
     return {"events_ratio": round(ev, 3), "phases": rows}
+
+
+def render_comparison(r: dict) -> list[str]:
+    cmpd = r.get("comparison")
+    if not cmpd:
+        return []
+    L = ["", f"## Compared with {cmpd['reference']} ({cmpd['reference_sha'][:10]}, the submitted reference)", "",
+         f"Full table: [{cmpd['file']}]({cmpd['file'].removeprefix('results/')}). "
+         "Δ is this version minus the reference. Significance needs > 2× pooled stdev, Welch |t| > 3 and ≥ 1%."]
+    for title, rows in cmpd["sections"]:
+        L += ["", f"**{title}**", "", f"| Metric | {cmpd['reference']} | {r['version']} | Δ | Δ% | significance |",
+              "| --- | ---: | ---: | ---: | ---: | --- |"]
+        L += ["| " + " | ".join(map(str, x)) + " |" for x in rows]
+    return L
 
 
 def render_headline(r: dict) -> list[str]:
@@ -1059,6 +1137,7 @@ def render_md(r: dict) -> str:
     L += [f"- {x}" for x in r["verdict"]["reasons"]]
     L += [f"- WARNING: {x}" for x in r["verdict"].get("warnings", [])]
     L += render_headline(r)
+    L += render_comparison(r)
     L += render_prediction(r.get("calibration") or {})
     L += ["", f"Run {r['started']} → {r.get('finished')}, {r.get('duration_s')} s. Host: {r['host']['machine']}, "
                f"{r['host']['ncpu']} CPUs. Evaluator {r['evaluator']['eval_sha']}.", "", "## Gates", "",
