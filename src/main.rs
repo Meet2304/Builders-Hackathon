@@ -3499,6 +3499,14 @@ fn pin_order() -> Vec<usize> {
         cpus.push((rank, c));
     }
     cpus.sort();
+    // only CPUs this process may run on (a cpuset-restricted container sees them all)
+    #[cfg(target_os = "linux")]
+    {
+        let mut allowed: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+        if unsafe { libc::sched_getaffinity(0, size_of::<libc::cpu_set_t>(), &mut allowed) } == 0 {
+            cpus.retain(|&(_, c)| c < libc::CPU_SETSIZE as usize && unsafe { libc::CPU_ISSET(c, &allowed) });
+        }
+    }
     let order: Vec<usize> = cpus.into_iter().map(|(_, c)| c).collect();
     eprintln!("pin: worker order {order:?}");
     order
