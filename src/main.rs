@@ -2412,14 +2412,17 @@ fn sort_click_keys(src: &[PCk], dst: &mut [PCk], keys: &mut Vec<u64>, base: i64,
     for (d, &k) in dst.iter_mut().zip(keys.iter()) {
         *d = src[k as u32 as usize];
     }
+    // Equal ts <=> equal key high halves (key >> 32 == ts - base, and dst follows keys).
+    let ks = &keys[..n];
     let mut i = 0;
     while i + 1 < n {
-        if dst[i].ts != dst[i + 1].ts {
+        let t = ks[i] >> 32;
+        if ks[i + 1] >> 32 != t {
             i += 1;
             continue;
         }
         let mut j = i + 1;
-        while j + 1 < n && dst[j + 1].ts == dst[i].ts {
+        while j + 1 < n && ks[j + 1] >> 32 == t {
             j += 1;
         }
         insertion_clicks(&mut dst[i..=j], ids);
@@ -2787,9 +2790,7 @@ fn walk_person<L: Layout, const HAS_CLICKS: bool>(
             credit[0] += 1;
             credit[1] += purchased;
             credit[2] += revenue;
-            for &campaign in &active.list {
-                day_camp[campaign as usize][3] += 1;
-            }
+            active.assist(day_camp);
         } else {
             daily.purchasing += purchased;
         }
@@ -2880,9 +2881,7 @@ fn close_session<const HAS_CLICKS: bool>(
         credit[0] += 1;
         credit[1] += purchased;
         credit[2] += revenue;
-        for &campaign in &active.list {
-            day_camp[campaign as usize][3] += 1;
-        }
+        active.assist(day_camp);
     } else {
         daily.purchasing += purchased;
     }
@@ -3053,6 +3052,18 @@ struct ActiveSet {
 impl ActiveSet {
     fn new(n: usize) -> Self {
         ActiveSet { cnt: vec![0; n], pos: vec![0; n], list: Vec::new() }
+    }
+    /// One assisted session for every active campaign. Campaign indexes come from
+    /// `Lookups::campaign`, so each is < ncamp == cnt.len() < day_camp.len().
+    #[inline(always)]
+    fn assist(&self, day_camp: &mut [[i64; 4]]) {
+        assert!(self.cnt.len() < day_camp.len());
+        let dc = day_camp.as_mut_ptr();
+        for &campaign in &self.list {
+            debug_assert!((campaign as usize) < self.cnt.len());
+            // campaign < cnt.len() (add indexes cnt with it), checked < day_camp.len() above.
+            unsafe { (*dc.add(campaign as usize))[3] += 1 };
+        }
     }
     #[inline]
     fn add(&mut self, c: u32) {
