@@ -408,3 +408,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
     - Clicks fault (`41f7c0e`): 24 B click rows plus exact-size allocation per task, about 19% fewer fresh pages in the clicks phase.
     - **Explorer 5, 60M gVisor: v9a is about 6% slower than v8** (event parse +160–450 ms, faults 7.32M → 7.81M). Cause: sol-longtable or neon-detective, not isolated. v9b still contains neon-detective, so **v9b needs a 60M gVisor vs v8 before release.**
   - **v10 = `integ/v10` @ `def3d26`** = v9b `ee5aad8` + write-syscalls (`958bad1`) + clicks-fault (`def3d26`), both clean cherry-picks. Gates: fixtures 36/36, new dev MATCH under `SESSIONS_DEBUG_NO_FAST` 0–3, seed-42 MATCH, long-ID 120/120 (20 seeds).
+- **05:38, providers (user: don't use claude_andrew; use anything else).**
+  - Cursor Opus is not in the plan, and Cursor weekly usage is exhausted (resets in 2 days).
+  - The Grok instance has no balance left (402). claude_master is out until 07:20. Kiro is out for the month.
+  - **Working: claudeAgent (Orchestrator + Eval) and Codex from 05:47.**
+  - Plan: **Eval → claudeAgent** (v9b verdict, then v10 full eval vs v8 with a paired gVisor A/B, then 60M). **Red Team, Explorer 5 and Sol → Codex Sol at 05:47**: Red Team on v10, Explorer 5 on 60M gVisor v8/v9b/v10, Sol on rebasing dedup-mem onto v10.
