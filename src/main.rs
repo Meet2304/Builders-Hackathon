@@ -761,6 +761,28 @@ impl<'a> Ids<'a> {
         }
     }
 
+    /// Byte-wise order of packed key `a` (at most 10 bytes) and long-table key `b`
+    /// (33 bytes): only `b`'s first 10 bytes can differ before `a` ends.
+    fn cmp_packed_long(&self, a: u64, b: u64) -> Ordering {
+        const DIGITS: &[u8; 16] = b"0123456789abcdef";
+        let hi = self.long.value((b >> 10) as usize).0;
+        let mut n = 0;
+        while n < 10 {
+            let c = (a >> (58 - 6 * n)) & 63;
+            if c == 0 {
+                break;
+            }
+            let x = DESYM[c as usize];
+            let y = if n == 0 { DESYM[((b >> 4) & 63) as usize] } else { DIGITS[(hi >> (64 - 4 * n)) as usize & 15] };
+            if x != y {
+                return x.cmp(&y);
+            }
+            n += 1;
+        }
+        // `a` is a proper prefix of `b`'s 33 bytes
+        Ordering::Less
+    }
+
     /// Byte-wise order of two keys.
     #[inline]
     fn cmp(&self, a: u64, b: u64) -> Ordering {
@@ -771,6 +793,12 @@ impl<'a> Ids<'a> {
             // same length: prefix byte, then the 32 digits
             let (pa, pb) = ((a >> 4) & 63, (b >> 4) & 63);
             return pa.cmp(&pb).then_with(|| self.long.value((a >> 10) as usize).cmp(&self.long.value((b >> 10) as usize)));
+        }
+        if is_packed(a) && b & 15 == 2 {
+            return self.cmp_packed_long(a, b);
+        }
+        if a & 15 == 2 && is_packed(b) {
+            return self.cmp_packed_long(b, a).reverse();
         }
         let (mut x, mut y) = ([0u8; 33], [0u8; 33]);
         self.bytes(a, &mut x).cmp(self.bytes(b, &mut y))
@@ -1691,14 +1719,30 @@ impl<'a> IdIndex<'a> {
         self.map.get(b).copied()
     }
 
+    /// `set`, with the direct slot already decoded by the caller when `direct` is Some.
+    #[inline(always)]
+    fn set_with(&mut self, b: &'a [u8], direct: Option<usize>, val: u32) {
+        debug_assert!(direct.is_none() || direct == self.direct_slot(b));
+        match direct {
+            Some(v) => self.set_slot(v, val),
+            None => self.set(b, val),
+        }
+    }
+
+    #[inline(always)]
+    fn set_slot(&mut self, v: usize, val: u32) {
+        if v >= self.direct.len() {
+            // Amortized growth: absent slots are u32::MAX, and every reader
+            // filters them, so a longer table answers the same.
+            let len = (v + 1).max(2 * self.direct.len()).min(1 << 22);
+            self.direct.resize(len, u32::MAX);
+        }
+        self.direct[v] = val;
+    }
+
     fn set(&mut self, b: &'a [u8], val: u32) {
         match self.direct_slot(b) {
-            Some(v) => {
-                if v >= self.direct.len() {
-                    self.direct.resize(v + 1, u32::MAX);
-                }
-                self.direct[v] = val;
-            }
+            Some(v) => self.set_slot(v, val),
             None => {
                 self.map.insert(b, val);
             }
@@ -3063,23 +3107,115 @@ fn flush_day<const HAS_CLICKS: bool>(
     });
 }
 
+/// First index >= i of a `,`, `"` or `\n` in buf, or buf.len(): eight bytes at a time.
+#[inline(always)]
+fn find_csv_delim(buf: &[u8], mut i: usize) -> usize {
+    const LO7: u64 = 0x7f7f_7f7f_7f7f_7f7f;
+    // high bit of each byte set iff that byte of w equals c (exact)
+    let eq = |w: u64, c: u8| {
+        let x = w ^ (c as u64 * 0x0101_0101_0101_0101);
+        !(((x & LO7) + LO7) | x | LO7)
+    };
+    let n = buf.len();
+    while i + 8 <= n {
+        let w = u64::from_le_bytes(buf[i..i + 8].try_into().unwrap());
+        let m = eq(w, b',') | eq(w, b'"') | eq(w, b'\n');
+        if m != 0 {
+            return i + (m.trailing_zeros() / 8) as usize;
+        }
+        i += 8;
+    }
+    while i < n && !matches!(buf[i], b',' | b'"' | b'\n') {
+        i += 1;
+    }
+    i
+}
+
 fn load_products<'a>(buf: &'a [u8], direct_on: bool) -> (IdIndex<'a>, Vec<Vec<u8>>) {
     let mut cats: HashMap<&'a [u8], u32> = new_map(64);
     let mut cat_names: Vec<Vec<u8>> = Vec::new();
     let mut products = IdIndex::new(b"p", direct_on);
     let Some(h) = memchr::memchr(b'\n', buf) else { return (products, cat_names) };
-    for_each_line(buf, h + 1, buf.len(), |line| {
-        let mut f = [&[][..]; 2];
-        if !split_fields(line, &mut f) || f[0].is_empty() {
+    // A cache in front of `cats` for names of 1..=16 bytes, keyed by their zero-padded
+    // bytes and length. It only ever holds (name, index) pairs `cats` assigned.
+    const CN: usize = 64;
+    let mut cache = [(0u128, 0usize, u32::MAX); CN];
+    let mut ncached = 0;
+    let n = buf.len();
+    // `direct`: the id's IdIndex slot when the caller decoded it (Some only if
+    // direct_slot would give the same)
+    let mut handle = |id: &'a [u8], cat: &'a [u8], cat_at: usize, direct: Option<usize>| {
+        if id.is_empty() {
             return;
         }
+        let len = cat.len();
+        let key = if (1..=16).contains(&len) && cat_at + 16 <= n {
+            // SAFETY: cat_at + 16 <= buf.len()
+            let w = unsafe { buf.as_ptr().add(cat_at).cast::<u128>().read_unaligned() };
+            let w = u128::from_le(w);
+            Some(if len == 16 { w } else { w & ((1u128 << (8 * len)) - 1) })
+        } else {
+            None
+        };
+        let mut at = usize::MAX;
+        if let Some(k) = key {
+            let mut s = ((k as u64 ^ (k >> 64) as u64 ^ len as u64).wrapping_mul(PART_MULTIPLIER) >> 58) as usize;
+            loop {
+                let e = cache[s];
+                if e.2 == u32::MAX {
+                    at = s;
+                    break;
+                }
+                if e.0 == k && e.1 == len {
+                    products.set_with(id, direct, e.2); // the last row wins
+                    return;
+                }
+                s = (s + 1) & (CN - 1);
+            }
+        }
         let next = cat_names.len() as u32;
-        let ci = *cats.entry(f[1]).or_insert_with(|| {
-            cat_names.push(f[1].to_vec());
+        let ci = *cats.entry(cat).or_insert_with(|| {
+            cat_names.push(cat.to_vec());
             next
         });
-        products.set(f[0], ci); // the last row wins
-    });
+        if let (Some(k), true) = (key, at != usize::MAX && ncached < CN / 2) {
+            cache[at] = (k, len, ci);
+            ncached += 1;
+        }
+        products.set_with(id, direct, ci); // the last row wins
+    };
+    let mut p = h + 1;
+    while p < n {
+        // Fast path: a line with exactly one comma and no quote is `id,category`,
+        // exactly as split_fields reads it. Anything else takes split_fields.
+        let i = find_csv_delim(buf, p);
+        if i < n && buf[i] == b',' {
+            let j = find_csv_delim(buf, i + 1);
+            if j >= n || buf[j] == b'\n' {
+                // canonical `p` + 1..=7 digits, decoded from one word as IdIndex::direct_slot would
+                let len = i - p;
+                let direct = if direct_on && (2..=8).contains(&len) && p + 8 <= n {
+                    let w = u64::from_le_bytes(buf[p..p + 8].try_into().unwrap());
+                    let k = len - 1;
+                    let d = ((w >> 8) ^ 0x3030_3030_3030_3030) << ((8 - k) * 8);
+                    let ok = w as u8 == b'p' && eight_digits(d) && (k == 1 || (w >> 8) as u8 != b'0');
+                    ok.then(|| decimal_eight(d) as usize).filter(|&v| v < 1 << 22)
+                } else {
+                    None
+                };
+                handle(&buf[p..i], &buf[i + 1..j], i + 1, direct);
+                p = j + 1;
+                continue;
+            }
+        }
+        let nl = memchr::memchr(b'\n', &buf[p..n]).map_or(n, |k| p + k);
+        let mut f = [&[][..]; 2];
+        if split_fields(&buf[p..nl], &mut f) {
+            // a quoted category's bytes are not at a known offset: no cache key
+            handle(f[0], f[1], usize::MAX - 16, None);
+        }
+        p = nl + 1;
+    }
     (products, cat_names)
 }
 
@@ -3576,28 +3712,38 @@ fn main() {
     let events_in = Input::open(&data.join("events"));
     let clicks_in = Input::open(&data.join("clicks"));
 
-    let (products, mut cat_names) = load_products(&products_buf, knobs.no_fast != 1);
-    let unknown_cat = cat_names.len() as u32;
-    cat_names.push(b"unknown".to_vec());
-    let mut order: Vec<u32> = (0..cat_names.len() as u32).collect();
-    order.sort_by(|&a, &b| cat_names[a as usize].cmp(&cat_names[b as usize]));
-    let mut cat_rank = vec![0u32; cat_names.len()];
-    for (r, &c) in order.iter().enumerate() {
-        cat_rank[c as usize] = r as u32;
-    }
-    let (campaigns, camp_ids, channels) = load_campaigns(&campaigns_buf, knobs.no_fast != 1);
     // Long IDs (33 B) are 1 in 8 distinct values: one table slot per 256 input bytes
     // keeps the load near 0.4 (an ID field costs >= 34 B, so a full window falls back
     // to the interner long before it could matter).
     let in_bytes: usize = [&links_in, &events_in, &clicks_in].iter().flat_map(|i| i.maps.iter()).map(|m| m.len()).sum();
-    let ids = Ids::with_long(knobs.no_fast, in_bytes / 256, hmask);
     let scan = match knobs.no_fast {
         1 => Scan::Scalar,
         3 => Scan::Swar,
         _ => Scan::Simd,
     };
     lap("link parsing start");
-    let (links, nlinked) = load_links(&links_in, knobs.chunk, scan, &ids, hmask);
+    // The products and campaigns catalogs are serial work that nothing needs until
+    // events: load them on one worker while the others parse links.
+    let ((products, cat_names, cat_rank, unknown_cat, campaigns, camp_ids, channels), (ids, links, nlinked)) = rayon::join(
+        || {
+            let (products, mut cat_names) = load_products(&products_buf, knobs.no_fast != 1);
+            let unknown_cat = cat_names.len() as u32;
+            cat_names.push(b"unknown".to_vec());
+            let mut order: Vec<u32> = (0..cat_names.len() as u32).collect();
+            order.sort_by(|&a, &b| cat_names[a as usize].cmp(&cat_names[b as usize]));
+            let mut cat_rank = vec![0u32; cat_names.len()];
+            for (r, &c) in order.iter().enumerate() {
+                cat_rank[c as usize] = r as u32;
+            }
+            let (campaigns, camp_ids, channels) = load_campaigns(&campaigns_buf, knobs.no_fast != 1);
+            (products, cat_names, cat_rank, unknown_cat, campaigns, camp_ids, channels)
+        },
+        || {
+            let ids = Ids::with_long(knobs.no_fast, in_bytes / 256, hmask);
+            let (links, nlinked) = load_links(&links_in, knobs.chunk, scan, &ids, hmask);
+            (ids, links, nlinked)
+        },
+    );
     let lk = Lookups { products, cat_names, cat_rank, unknown_cat, campaigns, camp_ids, channels, ids, links, hmask };
     lap(&format!("lookups ({nlinked} linked ids)"));
 
@@ -3713,6 +3859,136 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+
+    /// v16's load_products: split_fields per line, a HashMap per category.
+    fn load_products_v16<'a>(buf: &'a [u8], direct_on: bool) -> (IdIndex<'a>, Vec<Vec<u8>>) {
+        let mut cats: HashMap<&'a [u8], u32> = new_map(64);
+        let mut cat_names: Vec<Vec<u8>> = Vec::new();
+        let mut products = IdIndex::new(b"p", direct_on);
+        let Some(h) = memchr::memchr(b'\n', buf) else { return (products, cat_names) };
+        for_each_line(buf, h + 1, buf.len(), |line| {
+            let mut f = [&[][..]; 2];
+            if !split_fields(line, &mut f) || f[0].is_empty() {
+                return;
+            }
+            let next = cat_names.len() as u32;
+            let ci = *cats.entry(f[1]).or_insert_with(|| {
+                cat_names.push(f[1].to_vec());
+                next
+            });
+            products.set(f[0], ci);
+        });
+        (products, cat_names)
+    }
+
+    #[test]
+    fn cmp_packed_long_is_byte_order() {
+        let mut rng = 0x9e37_79b9_7f4a_7c15u64;
+        let mut next = move |m: u64| {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng % m
+        };
+        const HEXD: &[u8] = b"0123456789abcdef";
+        const B36: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz_";
+        let mut names: Vec<Vec<u8>> = Vec::new();
+        for _ in 0..300 {
+            let pre = [b'u', b'k', b'e', b'v'][next(4) as usize];
+            let long: Vec<u8> = std::iter::once(pre).chain((0..32).map(|_| HEXD[next(16) as usize])).collect();
+            for k in [1, 2, 5, 9, 10] {
+                let mut s = long[..k].to_vec();
+                if next(3) == 0 {
+                    let last = s.len() - 1;
+                    s[last] = B36[next(B36.len() as u64) as usize];
+                }
+                names.push(s);
+            }
+            names.push((0..1 + next(10)).map(|i| if i == 0 { pre } else { B36[next(36) as usize] }).collect());
+            names.push(long);
+        }
+        let ids = Ids::new(0);
+        let keys: Vec<u64> = names.iter().map(|n| ids.key(n)).collect();
+        assert!(keys.iter().any(|&k| k & 15 == 2) && keys.iter().any(|&k| is_packed(k)));
+        for (i, a) in names.iter().enumerate() {
+            for (j, b) in names.iter().enumerate() {
+                assert_eq!(ids.cmp(keys[i], keys[j]), a.cmp(b), "{:?} vs {:?}", String::from_utf8_lossy(a), String::from_utf8_lossy(b));
+            }
+        }
+    }
+
+    #[test]
+    fn load_products_matches_v16() {
+        let mut rng = 0x1234_5678_9abc_def0u64;
+        let mut next = move |m: u64| {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng % m
+        };
+        let cats: Vec<Vec<u8>> = (0..50)
+            .map(|i| format!("cat{i}").into_bytes())
+            .chain([&b"x"[..], b"", b"abcdefghijklmnop", b"abcdefghijklmno", b"abcdefghijklmnopq", b"a\"b", b"g\r", b"\"q\""].iter().map(|c| c.to_vec()))
+            .collect();
+        for round in 0..200 {
+            let mut buf = b"product_id,category\n".to_vec();
+            let lines = 1 + next(400);
+            for _ in 0..lines {
+                let id: Vec<u8> = match next(10) {
+                    0 => format!("p0{}", next(1000)).into_bytes(),
+                    1 => format!("P{}", next(1000)).into_bytes(),
+                    2 => format!("p{}", next(20_000_000)).into_bytes(),
+                    3 => format!("\"p{}\"", next(1000)).into_bytes(),
+                    4 => Vec::new(),
+                    5 => format!("q{}", next(100)).into_bytes(),
+                    6 => b"p".to_vec(),
+                    7 => format!("p{}x", next(100)).into_bytes(),
+                    _ => format!("p{}", next(3000)).into_bytes(),
+                };
+                let c = &cats[next(cats.len() as u64) as usize];
+                buf.extend_from_slice(&id);
+                match next(12) {
+                    0 => {}
+                    1 => {
+                        buf.extend_from_slice(b",");
+                        buf.extend_from_slice(c);
+                        buf.extend_from_slice(b",x");
+                    }
+                    2 => {
+                        buf.extend_from_slice(b",\"");
+                        buf.extend_from_slice(c);
+                        buf.extend_from_slice(b"\"");
+                    }
+                    _ => {
+                        buf.extend_from_slice(b",");
+                        buf.extend_from_slice(c);
+                    }
+                }
+                if next(30) != 0 {
+                    buf.push(b'\n');
+                }
+            }
+            if round % 3 == 0 {
+                buf.pop();
+            }
+            for direct_on in [true, false] {
+                let (a, an) = load_products(&buf, direct_on);
+                let (b, bn) = load_products_v16(&buf, direct_on);
+                assert_eq!(an, bn, "round {round}");
+                assert_eq!(a.map, b.map, "round {round}");
+                for v in 0..(1usize << 22) {
+                    let x = a.direct.get(v).copied().filter(|&x| x != u32::MAX);
+                    let y = b.direct.get(v).copied().filter(|&x| x != u32::MAX);
+                    if x != y {
+                        panic!("round {round} slot {v}: {x:?} vs {y:?}");
+                    }
+                    if v >= a.direct.len().max(b.direct.len()) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
     use super::*;
 
     #[test]
