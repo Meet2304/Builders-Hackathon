@@ -3,15 +3,20 @@
 # with network for up to 10 min. No FROM pins a platform, so it also builds natively
 # on Apple silicon for fast local loops (make build-native).
 
-FROM rust:1-slim-bookworm AS build
+# Pinned: pgo/x86.profdata must match this toolchain's LLVM (1.100.0 = LLVM 23.1.5).
+FROM rust:1.100.0-slim-bookworm AS build
 ARG TARGETARCH
 # Scorer default. Local amd64 emulation has no AVX-512: `make build` passes X86_CPU=x86-64-v2.
 ARG X86_CPU=cascadelake
-ENV TARGETARCH=$TARGETARCH X86_CPU=$X86_CPU
+# amd64 builds use the committed PGO profile; --build-arg PGO=off for an A/B baseline.
+ARG PGO=on
+ENV TARGETARCH=$TARGETARCH X86_CPU=$X86_CPU PGO=$PGO
 WORKDIR /src
 COPY docker/cargo-build.sh /usr/local/bin/cargo-build.sh
 
 # 1) Dependency cache: build deps against a stub main so edits to src/ don't rebuild arrow/parquet.
+#    The profile comes first: dependencies (parquet, arrow, rayon) are optimized with it too.
+COPY pgo ./pgo
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo 'fn main() {}' > src/main.rs \
  && cargo-build.sh --deps-only \
