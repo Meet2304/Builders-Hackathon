@@ -204,3 +204,10 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **Eval:** v5 @ `5b7bcc2` is **SUBMIT-READY**. 1,383 instructions per row, against v4's 1,572. Predicted board 20M: **1.034 s** (instructions model) or 1.555 s (wall × 3.10). Interleaved A/B: native 0.455 s vs 0.505 s, about 10% faster. Gates A, B and C all pass.
 - **Orchestrator:** merged `5b7bcc2` into main (src identical), re-checked fixtures 36/36 and dev MATCH, tagged `v5` and pushed. Asked the user to submit.
   - Interference: Explorer 3 ran a Linux container during Eval's lock, and Method's count runs at nice 0 tripped the guard (reniced). All builders were told to use nice 19 and no Docker without the lock.
+- **User request: more parallel threads.** **Orchestrator** launched five new ones. Each is bench-lock-free, or uses the lock in short holds; all use nice 19.
+  - **Explorer 4** (Codex Sol, `explore/clickdec`): per-column SIMD decoder for **click and link lines** (move 3). It reuses Sol's event decoder helpers. The scan target is 254 → ≤ 80 per click line.
+  - **Red Team** (Opus, `claude_andrew`, `redteam`): adversarial correctness review of every fast path since v4 (packer, emit ring, paired timestamps, `IdIndex` click lookup, Parquet writer, dedup rules). It writes only `evals/redteam/`.
+  - **Explorer 5** (Codex Astra, `explore/critpath`): critical-path and parallel-efficiency map (CPU util ≈ 0.87 at 60M), then fixes serial stretches (writer, barriers, skew, exit/unmap).
+  - **Analyst 3** (Cursor Grok, `analysis3`): **x86 instruction counts** for v4, v5 and v6, via callgrind in an amd64 `x86-64-v2` container. It checks whether the ARM-based rankings hold on the scorer's x86.
+  - **Scout** (Opus, `claude_master`, `scout`, user request): finds the top teams' public repos and writes clean-room notes on their techniques, with **no code copying**. Licenses are noted. It stops if the rules forbid looking. Due 05:00.
+- **Eval:** the v6 full eval (`1f02cb2`) started at 00:37. The writer A/B on Linux is queued after it.
