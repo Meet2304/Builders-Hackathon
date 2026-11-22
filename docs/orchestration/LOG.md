@@ -413,3 +413,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - The Grok instance has no balance left (402). claude_master is out until 07:20. Kiro is out for the month.
   - **Working: claudeAgent (Orchestrator + Eval) and Codex from 05:47.**
   - Plan: **Eval → claudeAgent** (v9b verdict, then v10 full eval vs v8 with a paired gVisor A/B, then 60M). **Red Team, Explorer 5 and Sol → Codex Sol at 05:47**: Red Team on v10, Explorer 5 on 60M gVisor v8/v9b/v10, Sol on rebasing dedup-mem onto v10.
+- **Eval: v9b `ee5aad8` = HOLD.** Every gate passes except C.
+  - gVisor 20M paired: vs v7b 0.959 ± 0.027 (+4.1%); **vs v8 0.999 ± 0.036 (+0.1%)**, 1.140 vs 1.160 s. No gain.
+  - **Calibration caveat:** v8 measures 1.12–1.16 s on local gVisor 20M, not the 0.965 s implied by its board. v8's board beat the 1.123× model by about 15%, so local gVisor only gives relative signal now.
+  - Next: a standalone v10-vs-v8 gVisor A/B at 20M (7 pairs) and 60M by about 06:05, then the v10 full eval (about 1.5 h, ends about 07:40). Explorer 5 stays parked (no duplicate timing).
