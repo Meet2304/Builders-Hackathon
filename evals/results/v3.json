@@ -28,7 +28,7 @@
       "binary_bytes": 3980016,
       "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
       "rustflags": "",
-      "cached": false,
+      "cached": true,
       "src": "/Users/meet/.cache/sessions-eval.noindex/src/29b64bfce142"
     },
     "docker": {
@@ -1118,6 +1118,75 @@
         "campaign_daily": 27400
       },
       "match": true
+    },
+    "review_suites": {
+      "v3-review": {
+        "runner": "evals/insights/v3_review/run.py",
+        "scripts": {
+          "cases.py": {
+            "wall_s": 4.8,
+            "returncode": 0,
+            "total": 70,
+            "passed": 70,
+            "failed": []
+          },
+          "cases_ts.py": {
+            "wall_s": 8.0,
+            "returncode": 0,
+            "total": 50,
+            "passed": 50,
+            "failed": []
+          }
+        },
+        "total": 120,
+        "passed": 120,
+        "failed": [],
+        "status": "pass"
+      }
+    },
+    "fuzz_windows": {
+      "gen_sha": "140eb0a87a45",
+      "cases_dir": "/Users/meet/Meet/Projects_Ad Astra/Project_3_Builders Hackathon/Builders-Hackathon/data/fuzz/gen-140eb0a87a45-ref-83c8ac2d",
+      "seeds": [
+        100000,
+        100300
+      ],
+      "focus": null,
+      "strict": {
+        "total": 227,
+        "passed": 227,
+        "skipped": 0,
+        "failed": []
+      },
+      "robust": {
+        "total": 73,
+        "passed": 73,
+        "skipped": 0,
+        "failed": []
+      },
+      "by_focus": {
+        "windows": {
+          "total": 300,
+          "failed": 0
+        }
+      },
+      "failing_tags": {}
+    },
+    "amd64_knobs": {
+      "SESSIONS_DEBUG_NO_FAST=3": {
+        "fixtures": {
+          "passed": 36,
+          "total": 36,
+          "failed": []
+        },
+        "dev": {
+          "rows": {
+            "user_daily": 117038,
+            "campaign_daily": 27400
+          },
+          "match": true
+        }
+      }
     }
   },
   "perf": {
@@ -5537,21 +5606,1333 @@
       "dev_ratio": 3.09
     },
     "linux_timing": {
-      "status": "unavailable",
+      "status": "ok",
       "mem_gib": 24,
-      "attempts": [
-        {
-          "dataset": "seed-42",
-          "error": "postponed sample for 60.0s: /Users/meet/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc pid=98676 at 100% CPU"
-        }
-      ],
+      "attempts": [],
       "input_storage": "Docker named volume",
       "thp_policy": "madvise",
       "thp_previous": "always",
+      "dataset": "seed-42",
+      "warmup": {
+        "process_wall_s": 0.667139084,
+        "load_before": {
+          "load1": 6.78,
+          "load5": 6.18,
+          "load15": 6.05,
+          "contamination_wait_s": 2.077
+        },
+        "user_s": 4.42,
+        "sys_s": 0.28,
+        "container_wall_s": 0.8405,
+        "minor_faults": 16441,
+        "major_faults": 0,
+        "max_rss_bytes": 4024815616,
+        "thp_mode": "madvise",
+        "cgroup_peak_bytes": 2141044736,
+        "peak_anon_bytes": 2051862528,
+        "peak_anon_huge_bytes": 2051014656,
+        "oom_kills": 0,
+        "exit_tail_s": 0.011139083999999966,
+        "thp_fault_alloc": 1004,
+        "thp_fault_fallback": 0,
+        "page_bytes": 4096,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.071,
+            "dur_s": 0.071,
+            "cpu_s": 0.204,
+            "parallelism": 2.873
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.43,
+            "dur_s": 0.359,
+            "cpu_s": 2.813,
+            "parallelism": 7.836
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.484,
+            "dur_s": 0.054,
+            "cpu_s": 0.402,
+            "parallelism": 7.444
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped (1472624 dropped rows)",
+            "at_s": 0.515,
+            "dur_s": 0.031,
+            "cpu_s": 0.228,
+            "parallelism": 7.355
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 0.629,
+            "dur_s": 0.114,
+            "cpu_s": 0.887,
+            "parallelism": 7.781
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 0.656,
+            "dur_s": 0.027,
+            "cpu_s": 0.164,
+            "parallelism": 6.074
+          }
+        ]
+      },
+      "load_before": {
+        "load1": 7.19,
+        "load5": 6.25,
+        "load15": 6.08,
+        "cpu_busy_pct": 11.7,
+        "top": [
+          {
+            "pcpu": 29.7,
+            "comm": "WindowServer"
+          },
+          {
+            "pcpu": 24.3,
+            "comm": "Browser Helper (Aperitif Renderer)"
+          },
+          {
+            "pcpu": 10.9,
+            "comm": "Browser Helper (Aperitif)"
+          },
+          {
+            "pcpu": 9.0,
+            "comm": "Dia"
+          },
+          {
+            "pcpu": 8.0,
+            "comm": "Codenotch"
+          }
+        ],
+        "waited_s": 14.7
+      },
+      "event_lines": 21507843,
+      "baseline_warmup": {
+        "process_wall_s": 3.055508419,
+        "load_before": {
+          "load1": 6.78,
+          "load5": 6.18,
+          "load15": 6.05,
+          "contamination_wait_s": 2.166
+        },
+        "user_s": 16.8,
+        "sys_s": 2.56,
+        "container_wall_s": 3.1909,
+        "minor_faults": 962531,
+        "major_faults": 0,
+        "max_rss_bytes": 5666320384,
+        "thp_mode": "madvise",
+        "cgroup_peak_bytes": 3786395648,
+        "peak_anon_bytes": 3747106816,
+        "peak_anon_huge_bytes": 0,
+        "oom_kills": 0,
+        "exit_tail_s": 0.17350841900000002,
+        "thp_fault_alloc": 0,
+        "thp_fault_fallback": 0,
+        "page_bytes": 4096,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (1199028 linked ids)",
+            "at_s": 0.223,
+            "dur_s": 0.223
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 1.838,
+            "dur_s": 1.615
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 2.122,
+            "dur_s": 0.284
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped",
+            "at_s": 2.478,
+            "dur_s": 0.356
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 2.844,
+            "dur_s": 0.366
+          },
+          {
+            "key": "written",
+            "label": "written (2246306 user_daily rows)",
+            "at_s": 2.882,
+            "dur_s": 0.038
+          }
+        ]
+      },
+      "runs": [
+        {
+          "process_wall_s": 0.565463875,
+          "load_before": {
+            "load1": 8.53,
+            "load5": 6.59,
+            "load15": 6.2,
+            "contamination_wait_s": 4.123
+          },
+          "user_s": 3.88,
+          "sys_s": 0.13,
+          "container_wall_s": 0.783,
+          "minor_faults": 16312,
+          "major_faults": 0,
+          "max_rss_bytes": 3999694848,
+          "thp_mode": "madvise",
+          "cgroup_peak_bytes": 2115743744,
+          "peak_anon_bytes": 2081251328,
+          "peak_anon_huge_bytes": 2080374784,
+          "oom_kills": 0,
+          "exit_tail_s": 0.012463874999999902,
+          "thp_fault_alloc": 992,
+          "thp_fault_fallback": 0,
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.056,
+              "dur_s": 0.056,
+              "cpu_s": 0.168,
+              "parallelism": 3.0
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.331,
+              "dur_s": 0.275,
+              "cpu_s": 2.177,
+              "parallelism": 7.916
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.38,
+              "dur_s": 0.049,
+              "cpu_s": 0.361,
+              "parallelism": 7.367
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped (1472624 dropped rows)",
+              "at_s": 0.41,
+              "dur_s": 0.03,
+              "cpu_s": 0.221,
+              "parallelism": 7.367
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 0.526,
+              "dur_s": 0.116,
+              "cpu_s": 0.921,
+              "parallelism": 7.94
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 0.553,
+              "dur_s": 0.027,
+              "cpu_s": 0.164,
+              "parallelism": 6.074
+            }
+          ],
+          "minor_faults_per_row": 0.0007584210094894221,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 0.550311167,
+          "load_before": {
+            "load1": 7.34,
+            "load5": 6.45,
+            "load15": 6.16,
+            "contamination_wait_s": 4.136
+          },
+          "user_s": 3.79,
+          "sys_s": 0.12,
+          "container_wall_s": 0.6718,
+          "minor_faults": 16338,
+          "major_faults": 0,
+          "max_rss_bytes": 4018470912,
+          "thp_mode": "madvise",
+          "cgroup_peak_bytes": 2133880832,
+          "peak_anon_bytes": 2072838144,
+          "peak_anon_huge_bytes": 2071986176,
+          "oom_kills": 0,
+          "exit_tail_s": 0.01031116700000001,
+          "thp_fault_alloc": 1001,
+          "thp_fault_fallback": 0,
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.055,
+              "dur_s": 0.055,
+              "cpu_s": 0.167,
+              "parallelism": 3.036
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.328,
+              "dur_s": 0.273,
+              "cpu_s": 2.149,
+              "parallelism": 7.872
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.37,
+              "dur_s": 0.042,
+              "cpu_s": 0.317,
+              "parallelism": 7.548
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped (1472624 dropped rows)",
+              "at_s": 0.398,
+              "dur_s": 0.028,
+              "cpu_s": 0.209,
+              "parallelism": 7.464
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 0.514,
+              "dur_s": 0.116,
+              "cpu_s": 0.915,
+              "parallelism": 7.888
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 0.54,
+              "dur_s": 0.026,
+              "cpu_s": 0.153,
+              "parallelism": 5.885
+            }
+          ],
+          "minor_faults_per_row": 0.0007596298708336303,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 0.563690833,
+          "load_before": {
+            "load1": 7.34,
+            "load5": 6.45,
+            "load15": 6.16,
+            "contamination_wait_s": 2.103
+          },
+          "user_s": 3.9,
+          "sys_s": 0.12,
+          "container_wall_s": 0.7869,
+          "minor_faults": 16294,
+          "major_faults": 0,
+          "max_rss_bytes": 4012343296,
+          "thp_mode": "madvise",
+          "cgroup_peak_bytes": 2127904768,
+          "peak_anon_bytes": 2093846528,
+          "peak_anon_huge_bytes": 2092957696,
+          "oom_kills": 0,
+          "exit_tail_s": 0.010690832999999955,
+          "thp_fault_alloc": 998,
+          "thp_fault_fallback": 0,
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.056,
+              "dur_s": 0.056,
+              "cpu_s": 0.17,
+              "parallelism": 3.036
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.345,
+              "dur_s": 0.289,
+              "cpu_s": 2.285,
+              "parallelism": 7.907
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.387,
+              "dur_s": 0.042,
+              "cpu_s": 0.319,
+              "parallelism": 7.595
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped (1472624 dropped rows)",
+              "at_s": 0.415,
+              "dur_s": 0.028,
+              "cpu_s": 0.211,
+              "parallelism": 7.536
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 0.526,
+              "dur_s": 0.111,
+              "cpu_s": 0.878,
+              "parallelism": 7.91
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 0.553,
+              "dur_s": 0.027,
+              "cpu_s": 0.159,
+              "parallelism": 5.889
+            }
+          ],
+          "minor_faults_per_row": 0.0007575841054818932,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 0.550052459,
+          "load_before": {
+            "load1": 7.41,
+            "load5": 6.51,
+            "load15": 6.19,
+            "contamination_wait_s": 4.124
+          },
+          "user_s": 3.8,
+          "sys_s": 0.09,
+          "container_wall_s": 0.6714,
+          "minor_faults": 16271,
+          "major_faults": 0,
+          "max_rss_bytes": 4024750080,
+          "thp_mode": "madvise",
+          "cgroup_peak_bytes": 2140475392,
+          "peak_anon_bytes": 2047643648,
+          "peak_anon_huge_bytes": 2046820352,
+          "oom_kills": 0,
+          "exit_tail_s": 0.010052458999999958,
+          "thp_fault_alloc": 1004,
+          "thp_fault_fallback": 0,
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.057,
+              "dur_s": 0.057,
+              "cpu_s": 0.168,
+              "parallelism": 2.947
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.33,
+              "dur_s": 0.273,
+              "cpu_s": 2.151,
+              "parallelism": 7.879
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.372,
+              "dur_s": 0.042,
+              "cpu_s": 0.315,
+              "parallelism": 7.5
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped (1472624 dropped rows)",
+              "at_s": 0.401,
+              "dur_s": 0.029,
+              "cpu_s": 0.208,
+              "parallelism": 7.172
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 0.514,
+              "dur_s": 0.113,
+              "cpu_s": 0.899,
+              "parallelism": 7.956
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 0.54,
+              "dur_s": 0.026,
+              "cpu_s": 0.154,
+              "parallelism": 5.923
+            }
+          ],
+          "minor_faults_per_row": 0.0007565147281389398,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 0.550222542,
+          "load_before": {
+            "load1": 6.81,
+            "load5": 6.4,
+            "load15": 6.15,
+            "contamination_wait_s": 2.106
+          },
+          "user_s": 3.77,
+          "sys_s": 0.07,
+          "container_wall_s": 0.6774,
+          "minor_faults": 16323,
+          "major_faults": 0,
+          "max_rss_bytes": 4029161472,
+          "thp_mode": "madvise",
+          "cgroup_peak_bytes": 2145034240,
+          "peak_anon_bytes": 2085408768,
+          "peak_anon_huge_bytes": 2084569088,
+          "oom_kills": 0,
+          "exit_tail_s": 0.011222541999999947,
+          "thp_fault_alloc": 1006,
+          "thp_fault_fallback": 0,
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.059,
+              "dur_s": 0.059,
+              "cpu_s": 0.176,
+              "parallelism": 2.983
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 0.331,
+              "dur_s": 0.272,
+              "cpu_s": 2.12,
+              "parallelism": 7.794
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 0.373,
+              "dur_s": 0.042,
+              "cpu_s": 0.316,
+              "parallelism": 7.524
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped (1472624 dropped rows)",
+              "at_s": 0.402,
+              "dur_s": 0.029,
+              "cpu_s": 0.208,
+              "parallelism": 7.172
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 0.512,
+              "dur_s": 0.11,
+              "cpu_s": 0.866,
+              "parallelism": 7.873
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 0.539,
+              "dur_s": 0.027,
+              "cpu_s": 0.161,
+              "parallelism": 5.963
+            }
+          ],
+          "minor_faults_per_row": 0.0007589324508273564,
+          "major_faults_per_row": 0.0
+        }
+      ],
+      "summary": {
+        "process_wall_s": {
+          "n": 5,
+          "median": 0.550311,
+          "mean": 0.555948,
+          "min": 0.550052,
+          "max": 0.565464,
+          "p90": 0.565464,
+          "stdev": 0.007903,
+          "cv": 0.0144,
+          "samples": [
+            0.565464,
+            0.550311,
+            0.563691,
+            0.550052,
+            0.550223
+          ]
+        },
+        "container_wall_s": {
+          "n": 5,
+          "median": 0.6774,
+          "mean": 0.7181,
+          "min": 0.6714,
+          "max": 0.7869,
+          "p90": 0.7869,
+          "stdev": 0.061087,
+          "cv": 0.0902,
+          "samples": [
+            0.783,
+            0.6718,
+            0.7869,
+            0.6714,
+            0.6774
+          ]
+        },
+        "minor_faults": {
+          "n": 5,
+          "median": 16312,
+          "mean": 16307.6,
+          "min": 16271,
+          "max": 16338,
+          "p90": 16338,
+          "stdev": 26.005769,
+          "cv": 0.0016,
+          "samples": [
+            16312,
+            16338,
+            16294,
+            16271,
+            16323
+          ]
+        },
+        "major_faults": {
+          "n": 5,
+          "median": 0,
+          "mean": 0.0,
+          "min": 0,
+          "max": 0,
+          "p90": 0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "sys_s": {
+          "n": 5,
+          "median": 0.12,
+          "mean": 0.106,
+          "min": 0.07,
+          "max": 0.13,
+          "p90": 0.13,
+          "stdev": 0.0251,
+          "cv": 0.2092,
+          "samples": [
+            0.13,
+            0.12,
+            0.12,
+            0.09,
+            0.07
+          ]
+        },
+        "exit_tail_s": {
+          "n": 5,
+          "median": 0.010691,
+          "mean": 0.010948,
+          "min": 0.010052,
+          "max": 0.012464,
+          "p90": 0.012464,
+          "stdev": 0.000955,
+          "cv": 0.0893,
+          "samples": [
+            0.012464,
+            0.010311,
+            0.010691,
+            0.010052,
+            0.011223
+          ]
+        },
+        "minor_faults_per_row": {
+          "n": 5,
+          "median": 0.000758,
+          "mean": 0.000758,
+          "min": 0.000757,
+          "max": 0.00076,
+          "p90": 0.00076,
+          "stdev": 1e-06,
+          "cv": 0.0016,
+          "samples": [
+            0.000758,
+            0.00076,
+            0.000758,
+            0.000757,
+            0.000759
+          ]
+        },
+        "major_faults_per_row": {
+          "n": 5,
+          "median": 0.0,
+          "mean": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "p90": 0.0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "thp_fault_alloc": {
+          "n": 5,
+          "median": 1001,
+          "mean": 1000.2,
+          "min": 992,
+          "max": 1006,
+          "p90": 1006,
+          "stdev": 5.495453,
+          "cv": 0.0055,
+          "samples": [
+            992,
+            1001,
+            998,
+            1004,
+            1006
+          ]
+        },
+        "thp_fault_fallback": {
+          "n": 5,
+          "median": 0,
+          "mean": 0.0,
+          "min": 0,
+          "max": 0,
+          "p90": 0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "peak_anon_bytes": {
+          "n": 5,
+          "median": 2081251328,
+          "mean": 2076197683.2,
+          "min": 2047643648,
+          "max": 2093846528,
+          "p90": 2093846528,
+          "stdev": 17666950.51198,
+          "cv": 0.0085,
+          "samples": [
+            2081251328,
+            2072838144,
+            2093846528,
+            2047643648,
+            2085408768
+          ]
+        },
+        "peak_anon_huge_bytes": {
+          "n": 5,
+          "median": 2080374784,
+          "mean": 2075341619.2,
+          "min": 2046820352,
+          "max": 2092957696,
+          "p90": 2092957696,
+          "stdev": 17646010.681912,
+          "cv": 0.0085,
+          "samples": [
+            2080374784,
+            2071986176,
+            2092957696,
+            2046820352,
+            2084569088
+          ]
+        },
+        "cgroup_peak_bytes": {
+          "n": 5,
+          "median": 2133880832,
+          "mean": 2132607795.2,
+          "min": 2115743744,
+          "max": 2145034240,
+          "p90": 2145034240,
+          "stdev": 11450446.718241,
+          "cv": 0.0054,
+          "samples": [
+            2115743744,
+            2133880832,
+            2127904768,
+            2140475392,
+            2145034240
+          ]
+        }
+      },
+      "baseline_runs": [
+        {
+          "process_wall_s": 2.372786709,
+          "load_before": {
+            "load1": 8.01,
+            "load5": 6.52,
+            "load15": 6.18,
+            "contamination_wait_s": 6.195
+          },
+          "user_s": 13.55,
+          "sys_s": 1.21,
+          "container_wall_s": 2.4961,
+          "minor_faults": 973171,
+          "major_faults": 0,
+          "max_rss_bytes": 5676474368,
+          "thp_mode": "madvise",
+          "cgroup_peak_bytes": 3797176320,
+          "peak_anon_bytes": 3758391296,
+          "peak_anon_huge_bytes": 0,
+          "oom_kills": 0,
+          "exit_tail_s": 0.18978670900000028,
+          "thp_fault_alloc": 0,
+          "thp_fault_fallback": 0,
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.156,
+              "dur_s": 0.156
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 1.218,
+              "dur_s": 1.062
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.498,
+              "dur_s": 0.28
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.781,
+              "dur_s": 0.283
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 2.132,
+              "dur_s": 0.351
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 2.183,
+              "dur_s": 0.051
+            }
+          ],
+          "minor_faults_per_row": 0.04524726166171103,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 2.079268293,
+          "load_before": {
+            "load1": 7.9,
+            "load5": 6.55,
+            "load15": 6.19,
+            "contamination_wait_s": 4.14
+          },
+          "user_s": 11.84,
+          "sys_s": 1.17,
+          "container_wall_s": 2.1932,
+          "minor_faults": 963372,
+          "major_faults": 0,
+          "max_rss_bytes": 5676834816,
+          "thp_mode": "madvise",
+          "cgroup_peak_bytes": 3797028864,
+          "peak_anon_bytes": 3756969984,
+          "peak_anon_huge_bytes": 0,
+          "oom_kills": 0,
+          "exit_tail_s": 0.16126829300000023,
+          "thp_fault_alloc": 0,
+          "thp_fault_fallback": 0,
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.13,
+              "dur_s": 0.13
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 1.083,
+              "dur_s": 0.953
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.283,
+              "dur_s": 0.2
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.545,
+              "dur_s": 0.262
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.886,
+              "dur_s": 0.341
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.918,
+              "dur_s": 0.032
+            }
+          ],
+          "minor_faults_per_row": 0.04479166041894578,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 2.244799543,
+          "load_before": {
+            "load1": 7.24,
+            "load5": 6.45,
+            "load15": 6.16,
+            "contamination_wait_s": 2.104
+          },
+          "user_s": 12.8,
+          "sys_s": 1.3,
+          "container_wall_s": 2.3782,
+          "minor_faults": 971454,
+          "major_faults": 0,
+          "max_rss_bytes": 5689737216,
+          "thp_mode": "madvise",
+          "cgroup_peak_bytes": 3810156544,
+          "peak_anon_bytes": 3770941440,
+          "peak_anon_huge_bytes": 0,
+          "oom_kills": 0,
+          "exit_tail_s": 0.1637995430000001,
+          "thp_fault_alloc": 0,
+          "thp_fault_fallback": 0,
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.152,
+              "dur_s": 0.152
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 1.18,
+              "dur_s": 1.028
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.421,
+              "dur_s": 0.241
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.705,
+              "dur_s": 0.284
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 2.049,
+              "dur_s": 0.344
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 2.081,
+              "dur_s": 0.032
+            }
+          ],
+          "minor_faults_per_row": 0.0451674303183262,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 2.086218376,
+          "load_before": {
+            "load1": 7.62,
+            "load5": 6.54,
+            "load15": 6.19,
+            "contamination_wait_s": 2.08
+          },
+          "user_s": 11.86,
+          "sys_s": 1.15,
+          "container_wall_s": 2.2079,
+          "minor_faults": 965601,
+          "major_faults": 0,
+          "max_rss_bytes": 5679468544,
+          "thp_mode": "madvise",
+          "cgroup_peak_bytes": 3799805952,
+          "peak_anon_bytes": 3759820800,
+          "peak_anon_huge_bytes": 0,
+          "oom_kills": 0,
+          "exit_tail_s": 0.16921837600000011,
+          "thp_fault_alloc": 0,
+          "thp_fault_fallback": 0,
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.136,
+              "dur_s": 0.136
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 1.08,
+              "dur_s": 0.944
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.286,
+              "dur_s": 0.206
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.549,
+              "dur_s": 0.263
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.884,
+              "dur_s": 0.335
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.917,
+              "dur_s": 0.033
+            }
+          ],
+          "minor_faults_per_row": 0.04489529703187809,
+          "major_faults_per_row": 0.0
+        },
+        {
+          "process_wall_s": 2.118169793,
+          "load_before": {
+            "load1": 5.92,
+            "load5": 6.23,
+            "load15": 6.09,
+            "contamination_wait_s": 10.283
+          },
+          "user_s": 12.02,
+          "sys_s": 1.15,
+          "container_wall_s": 2.2853,
+          "minor_faults": 965352,
+          "major_faults": 0,
+          "max_rss_bytes": 5671227392,
+          "thp_mode": "madvise",
+          "cgroup_peak_bytes": 3791228928,
+          "peak_anon_bytes": 3753070592,
+          "peak_anon_huge_bytes": 0,
+          "oom_kills": 0,
+          "exit_tail_s": 0.1581697929999999,
+          "thp_fault_alloc": 0,
+          "thp_fault_fallback": 0,
+          "page_bytes": 4096,
+          "phases": [
+            {
+              "key": "lookups",
+              "label": "lookups (1199028 linked ids)",
+              "at_s": 0.138,
+              "dur_s": 0.138
+            },
+            {
+              "key": "events parsed",
+              "label": "events parsed",
+              "at_s": 1.118,
+              "dur_s": 0.98
+            },
+            {
+              "key": "clicks parsed",
+              "label": "clicks parsed",
+              "at_s": 1.311,
+              "dur_s": 0.193
+            },
+            {
+              "key": "events deduped",
+              "label": "events deduped",
+              "at_s": 1.595,
+              "dur_s": 0.284
+            },
+            {
+              "key": "sessions + attribution",
+              "label": "sessions + attribution",
+              "at_s": 1.927,
+              "dur_s": 0.332
+            },
+            {
+              "key": "written",
+              "label": "written (2246306 user_daily rows)",
+              "at_s": 1.96,
+              "dur_s": 0.033
+            }
+          ],
+          "minor_faults_per_row": 0.04488371985977394,
+          "major_faults_per_row": 0.0
+        }
+      ],
+      "baseline_summary": {
+        "process_wall_s": {
+          "n": 5,
+          "median": 2.11817,
+          "mean": 2.180249,
+          "min": 2.079268,
+          "max": 2.372787,
+          "p90": 2.372787,
+          "stdev": 0.12662,
+          "cv": 0.0598,
+          "samples": [
+            2.372787,
+            2.079268,
+            2.2448,
+            2.086218,
+            2.11817
+          ]
+        },
+        "container_wall_s": {
+          "n": 5,
+          "median": 2.2853,
+          "mean": 2.31214,
+          "min": 2.1932,
+          "max": 2.4961,
+          "p90": 2.4961,
+          "stdev": 0.12643,
+          "cv": 0.0553,
+          "samples": [
+            2.4961,
+            2.1932,
+            2.3782,
+            2.2079,
+            2.2853
+          ]
+        },
+        "minor_faults": {
+          "n": 5,
+          "median": 965601,
+          "mean": 967790.0,
+          "min": 963372,
+          "max": 973171,
+          "p90": 973171,
+          "stdev": 4261.2893,
+          "cv": 0.0044,
+          "samples": [
+            973171,
+            963372,
+            971454,
+            965601,
+            965352
+          ]
+        },
+        "major_faults": {
+          "n": 5,
+          "median": 0,
+          "mean": 0.0,
+          "min": 0,
+          "max": 0,
+          "p90": 0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "sys_s": {
+          "n": 5,
+          "median": 1.17,
+          "mean": 1.196,
+          "min": 1.15,
+          "max": 1.3,
+          "p90": 1.3,
+          "stdev": 0.063087,
+          "cv": 0.0539,
+          "samples": [
+            1.21,
+            1.17,
+            1.3,
+            1.15,
+            1.15
+          ]
+        },
+        "exit_tail_s": {
+          "n": 5,
+          "median": 0.1638,
+          "mean": 0.168449,
+          "min": 0.15817,
+          "max": 0.189787,
+          "p90": 0.189787,
+          "stdev": 0.012597,
+          "cv": 0.0769,
+          "samples": [
+            0.189787,
+            0.161268,
+            0.1638,
+            0.169218,
+            0.15817
+          ]
+        },
+        "minor_faults_per_row": {
+          "n": 5,
+          "median": 0.044895,
+          "mean": 0.044997,
+          "min": 0.044792,
+          "max": 0.045247,
+          "p90": 0.045247,
+          "stdev": 0.000198,
+          "cv": 0.0044,
+          "samples": [
+            0.045247,
+            0.044792,
+            0.045167,
+            0.044895,
+            0.044884
+          ]
+        },
+        "major_faults_per_row": {
+          "n": 5,
+          "median": 0.0,
+          "mean": 0.0,
+          "min": 0.0,
+          "max": 0.0,
+          "p90": 0.0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        },
+        "thp_fault_alloc": {
+          "n": 5,
+          "median": 0,
+          "mean": 0.0,
+          "min": 0,
+          "max": 0,
+          "p90": 0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "thp_fault_fallback": {
+          "n": 5,
+          "median": 0,
+          "mean": 0.0,
+          "min": 0,
+          "max": 0,
+          "p90": 0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "peak_anon_bytes": {
+          "n": 5,
+          "median": 3758391296,
+          "mean": 3759838822.4,
+          "min": 3753070592,
+          "max": 3770941440,
+          "p90": 3770941440,
+          "stdev": 6697069.351034,
+          "cv": 0.0018,
+          "samples": [
+            3758391296,
+            3756969984,
+            3770941440,
+            3759820800,
+            3753070592
+          ]
+        },
+        "peak_anon_huge_bytes": {
+          "n": 5,
+          "median": 0,
+          "mean": 0.0,
+          "min": 0,
+          "max": 0,
+          "p90": 0,
+          "stdev": 0.0,
+          "cv": null,
+          "samples": [
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "cgroup_peak_bytes": {
+          "n": 5,
+          "median": 3797176320,
+          "mean": 3799079321.6,
+          "min": 3791228928,
+          "max": 3810156544,
+          "p90": 3810156544,
+          "stdev": 6940592.895625,
+          "cv": 0.0018,
+          "samples": [
+            3797176320,
+            3797028864,
+            3810156544,
+            3799805952,
+            3791228928
+          ]
+        }
+      },
       "thp_restored": "always",
       "baseline_version": "v1",
       "baseline_sha": "3e4866243a5aeea488703ef14ea01e21ebd4d434",
-      "noisy": false
+      "noisy": true
     },
     "linux_proxy": {
       "status": "ok",
@@ -6100,6 +7481,21 @@
           "detail": "854/854 (seeds 0..999)"
         },
         {
+          "name": "fuzz windows focus strict MATCH",
+          "status": "pass",
+          "detail": "227/227 (seeds 100000..100299)"
+        },
+        {
+          "name": "review v3-review MATCH",
+          "status": "pass",
+          "detail": "120/120 MATCH"
+        },
+        {
+          "name": "amd64 container SESSIONS_DEBUG_NO_FAST=3: fixtures + dev",
+          "status": "pass",
+          "detail": "36/36, dev MATCH"
+        },
+        {
           "name": "SESSIONS_DEBUG_HASH_BITS=4",
           "status": "pass",
           "detail": ""
@@ -6396,24 +7792,208 @@
           ]
         }
       },
-      "gain": 0.611,
-      "pooled_sd_s": 0.10574,
-      "metric": "local",
+      "gain": 0.7402,
+      "pooled_sd_s": 0.089708,
+      "metric": "linux arm64",
       "checks": [
         {
-          "name": ">= 5% faster than v1 (submit-ready)",
+          "name": "Linux 20M gain >= 5% and > 2x pooled stdev",
           "status": "pass",
-          "detail": "0.626s vs 1.609s = +61.1% (local, interleaved A/B in this eval)"
-        },
-        {
-          "name": "> 2x pooled stdev",
-          "status": "pass",
-          "detail": "delta 0.9831s vs 2sd 0.2115s"
+          "detail": "0.5503s vs 2.1182s (+74.0%, 5 pairs)"
         }
       ],
       "linux_ab": {
+        "status": "supports",
+        "gain": 0.7402,
+        "pooled_sd_s": 0.089708,
+        "pairs": 5,
+        "detail": "0.5503s vs 2.1182s (+74.0%, 5 pairs)"
+      },
+      "native": {
+        "status": "pass",
+        "baseline": {
+          "kind": "submit-ready",
+          "version": "v1",
+          "sha": "3e4866243a5aeea488703ef14ea01e21ebd4d434",
+          "wall_s": {
+            "n": 5,
+            "median": 1.5499,
+            "mean": 1.57056,
+            "min": 1.5468,
+            "max": 1.6087,
+            "p90": 1.6087,
+            "stdev": 0.030315,
+            "cv": 0.0196,
+            "samples": [
+              1.6087,
+              1.5499,
+              1.5468,
+              1.5491,
+              1.5983
+            ]
+          },
+          "board_time_s": null,
+          "ab_load_before": {
+            "load1": 4.56,
+            "load5": 5.48,
+            "load15": 6.25,
+            "cpu_busy_pct": 10.2,
+            "top": [
+              {
+                "pcpu": 31.1,
+                "comm": "com.docker.backend"
+              },
+              {
+                "pcpu": 22.4,
+                "comm": "Browser Helper (Aperitif Renderer)"
+              },
+              {
+                "pcpu": 8.7,
+                "comm": "fseventsd"
+              },
+              {
+                "pcpu": 8.2,
+                "comm": "securityd"
+              },
+              {
+                "pcpu": 5.3,
+                "comm": "com.docker.backend"
+              }
+            ],
+            "waited_s": 2.3
+          },
+          "ab_sample_loads": [
+            {
+              "candidate": {
+                "load1": 4.27,
+                "load5": 5.4,
+                "load15": 6.22,
+                "contamination_wait_s": 0.036
+              },
+              "baseline": {
+                "load1": 4.27,
+                "load5": 5.4,
+                "load15": 6.22,
+                "contamination_wait_s": 0.035
+              }
+            },
+            {
+              "candidate": {
+                "load1": 4.57,
+                "load5": 5.45,
+                "load15": 6.23,
+                "contamination_wait_s": 2.09
+              },
+              "baseline": {
+                "load1": 4.27,
+                "load5": 5.4,
+                "load15": 6.22,
+                "contamination_wait_s": 0.035
+              }
+            },
+            {
+              "candidate": {
+                "load1": 4.57,
+                "load5": 5.45,
+                "load15": 6.23,
+                "contamination_wait_s": 0.037
+              },
+              "baseline": {
+                "load1": 4.57,
+                "load5": 5.45,
+                "load15": 6.23,
+                "contamination_wait_s": 0.036
+              }
+            },
+            {
+              "candidate": {
+                "load1": 4.85,
+                "load5": 5.49,
+                "load15": 6.24,
+                "contamination_wait_s": 0.037
+              },
+              "baseline": {
+                "load1": 4.85,
+                "load5": 5.49,
+                "load15": 6.24,
+                "contamination_wait_s": 0.036
+              }
+            },
+            {
+              "candidate": {
+                "load1": 5.14,
+                "load5": 5.52,
+                "load15": 6.24,
+                "contamination_wait_s": 10.299
+              },
+              "baseline": {
+                "load1": 5.14,
+                "load5": 5.52,
+                "load15": 6.24,
+                "contamination_wait_s": 0.037
+              }
+            }
+          ],
+          "ab_wall_s": {
+            "n": 5,
+            "median": 1.6089,
+            "mean": 1.67846,
+            "min": 1.5951,
+            "max": 1.9393,
+            "p90": 1.9393,
+            "stdev": 0.147031,
+            "cv": 0.0914,
+            "samples": [
+              1.5951,
+              1.6448,
+              1.6089,
+              1.6042,
+              1.9393
+            ]
+          },
+          "ab_candidate_wall_s": {
+            "n": 5,
+            "median": 0.6258,
+            "mean": 0.64228,
+            "min": 0.6176,
+            "max": 0.6734,
+            "p90": 0.6734,
+            "stdev": 0.027276,
+            "cv": 0.0436,
+            "samples": [
+              0.6241,
+              0.6734,
+              0.6176,
+              0.6705,
+              0.6258
+            ]
+          }
+        },
+        "gain": 0.611,
+        "pooled_sd_s": 0.3281,
+        "metric": "estimated scorer",
+        "checks": [
+          {
+            "name": ">= 5% faster than v1 (submit-ready)",
+            "status": "pass",
+            "detail": "1.942s vs 4.992s = +61.1% (estimated scorer, interleaved A/B in this eval)"
+          },
+          {
+            "name": "> 2x pooled stdev",
+            "status": "pass",
+            "detail": "delta 3.0504s vs 2sd 0.6562s"
+          }
+        ]
+      },
+      "instructions": {
         "status": "unavailable",
-        "detail": "no comparable paired Linux samples"
+        "checks": [
+          {
+            "name": "instructions/row >= 5% below baseline",
+            "status": "not_run",
+            "detail": "no instruction counts for candidate or baseline"
+          }
+        ]
       }
     }
   },
@@ -6422,13 +8002,25 @@
     "final": true,
     "reasons": [
       "Gates A, B, C pass",
-      "0.626s vs 1.609s = +61.1% (local, interleaved A/B in this eval)",
-      "delta 0.9831s vs 2sd 0.2115s",
+      "0.5503s vs 2.1182s (+74.0%, 5 pairs)",
       "predicted board 20M: 1.942s from 2,598 instr/row (26.8 G/s + 0.000s fixed); 1.936s from local wall (\u00d73.10). Target: 0.28 s \u21d2 14 ns/row \u21d2 \u2264 308\u2013375 instructions/row (fixed 0.05\u20130.00 s, 26.8 G instr/s effective)"
     ],
     "warnings": [],
     "predictions": "predicted board 20M: 1.942s from 2,598 instr/row (26.8 G/s + 0.000s fixed); 1.936s from local wall (\u00d73.10). Target: 0.28 s \u21d2 14 ns/row \u21d2 \u2264 308\u2013375 instructions/row (fixed 0.05\u20130.00 s, 26.8 G instr/s effective)"
   },
   "finished": "2026-11-21T19:18:52-0500",
-  "duration_s": 2125.8
+  "duration_s": 2125.8,
+  "amendments": [
+    {
+      "at": "2026-11-21T19:34:26-0500",
+      "stages": [
+        "review",
+        "windows",
+        "amd64-knobs",
+        "linux-ab"
+      ],
+      "eval_sha": "467e2630ad9d",
+      "duration_s": 174.7
+    }
+  ]
 }
