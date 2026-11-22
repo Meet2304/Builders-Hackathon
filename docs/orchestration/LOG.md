@@ -493,3 +493,9 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Neon Architect → Codex 6.2 Sol high:** drives Gemini 4 Neon High in the browser, plan to `evals/neon/v14-plan.md` (summary by 07:20), then implements the top non-overlapping item on `explore/v14-neon` from `be41e2e`.
   - **User: Codex is about to run out; switch Codex threads to Codex-Andrew (6.1 Sol) when it does.**
   - Codex threads now: Sol (v13 events), Explorer 4 (v13 sessions/write), Neon Detective (Neon x86 ideas), Neon Architect (Neon v14 plan + build). Eval on claudeAgent.
+- **06:50: v13 candidates (x86 Ir per event line, callgrind NCPU=1, new dev):**
+  - **Explorer 4 `3138840`** (sessions + write, 9 commits): total **1,189.4 vs 1,316.2 (−9.63%)**; sessions 279 → 239, write 187 → 100. All gates pass (fixtures, dev `NO_FAST` 0–3, seed-42, long-ID 240/240, seed-535 ×10).
+  - **Sol `7e8b797`** (events: `d7d9ea8` SSSE3 dual-ID pack + cached UTC/13-digit timestamps): events 584 → 533, total −3.9%. Native gates all pass; x86 gates rerunning.
+  - **Codex ran out 06:38** → Sol, Explorer 4 and Neon Architect moved to Codex-Andrew 6.1 Sol (user). Neon Detective folded into Neon Architect.
+  - **v13 = `integ/v13` @ `ce45d97`** (clean merge of both). Orchestrator gates: fixtures 36/36, new dev MATCH under `NO_FAST` 0–3, seed-42 MATCH, seed-535 PARTS=4096 NCPU=8 ×10 MATCH vs v10.1 output; long-ID 40 running. Eval: screen + x86 correctness (the SSSE3 paths only run on x86) + Gate C. Red Team: v13 adversarial including x86 builds. Target verdict about 07:30.
+  - Neon Architect: Gemini Neon High working with the full brief; targeting dedup (107 Ir/line, about 56% of which is memset — watch the rep-stos correction).
