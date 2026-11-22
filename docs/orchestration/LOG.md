@@ -418,3 +418,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Calibration caveat:** v8 measures 1.12–1.16 s on local gVisor 20M, not the 0.965 s implied by its board. v8's board beat the 1.123× model by about 15%, so local gVisor only gives relative signal now.
   - Next: a standalone v10-vs-v8 gVisor A/B at 20M (7 pairs) and 60M by about 06:05, then the v10 full eval (about 1.5 h, ends about 07:40). Explorer 5 stays parked (no duplicate timing).
 - **Eval: v10 `def3d26` vs v8 `2bfb034`, gVisor 20M, 7 paired rounds: ratio 0.9465 ± 2SE 0.048 (+5.3%)**, medians 1.07 vs 1.12 s. Gate C (paired) passes narrowly. 60M (5 pairs) is staging; the full eval waits for the Orchestrator's go.
+- **Eval: v10 vs v8, gVisor 60M, 5 paired rounds: 0.9447 ± 2SE 0.020 (+5.5%, significant)**, medians 3.28 vs 3.51 s.
+  - Events parse flat (2.286 vs 2.282 s), so neon-detective is not behind v9a's loss.
+  - Lookups −56 ms (links-par), clicks −67 ms (clicks-fault), written −8 ms, sessions −10 ms, plus about −100 ms at exit/unmap (RSS 11.61 → 11.35 GiB).
+  - **v10 full eval started** (baseline v8, `suite.json` reference → v8); ETA about 07:20–07:40.
+- **05:48: Codex back.** Red Team → v10 adversarial (report by 07:15). Sol → v11 = dedup-mem rebased onto v10, no LongTable (gated by 07:15). Explorer 5 stays parked (Eval does the timing).
