@@ -29,12 +29,13 @@ Separate clean release targets for baseline `20b8e79` and paired decoder `75f999
 
 | Input | Event lines | Events-parse instructions/line | Events-parse cycles/line | Whole-process instructions/line |
 | --- | ---: | ---: | ---: | ---: |
+| Seed-42 (20M, warm) | 21,507,843 | 824.67 → 733.32 | 305.35 → 284.72 | 1,516.65 → 1,411.73 |
 | Seed-43 (60M) | 64,150,261 | 820.31 → 730.82 | 288.60 → 279.69 | 1,480.05 → 1,385.56 |
 
-The seed-43 parse phase saves 89.49 instructions per input line (10.9%). The full process saves 94.49 instructions and 8.71 cycles per line. Both candidates match the cached 20M oracle and 60M consistency hashes. The single seed-43 counter run took 1.435 s for the baseline and 1.439 s for the prototype. These wall times give sample context.
+Events parse saves 91.35 instructions per input line at 20M (11.1%) and 89.49 at 60M (10.9%). Both binaries match the cached 20M oracle and 60M consistency hashes. The native counter samples took 0.555 → 0.473 s at 20M and 1.435 → 1.439 s at 60M. An initial cold-baseline 20M probe overstated the savings. The warm comparison uses a fresh build, binary SHA-256 and a warmup for each revision.
 
 [Whole-process and phase counters](../results/timestamps-v4.json)
 
 ## Port into v5
 
-Cherry-pick `75f9993` onto `method/v5` after the SIMD packer. If the event loop has changed, carry over the decoder tables, `Win::parse_pair` and the timestamp review assertions. Compute `(ts, ingest)` once per eligible event and pass both to `validate`. Keep ingest on invalid-event dedup entries so the earliest copy can still suppress a later valid copy. Use the sentinel-aware single decoder for clicks and retain the scalar debug path. Re-run the timestamp review on the combined branch.
+Cherry-pick `75f9993` onto `method/v5` after the SIMD packer. Method applied the change at `2cbdb2b`. For changes to the event loop, carry over the decoder tables, `Win::parse_pair` and the timestamp review assertions. Compute `(ts, ingest)` once per eligible event and pass both to `validate`. Keep ingest on invalid-event dedup entries so the earliest copy can still suppress a later valid copy. Use the sentinel-aware single decoder for clicks and retain the scalar debug path. Re-run the timestamp review on the combined branch.

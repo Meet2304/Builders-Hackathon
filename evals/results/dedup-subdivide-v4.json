@@ -1,0 +1,1732 @@
+{
+  "revisions": {
+    "baseline": "20b8e79f7401e01efb134d63584f645a33c880ed",
+    "prototype": "6da0cd2cb11f695585efbe5a2f944ee3a77992fa"
+  },
+  "native": {
+    "seed-43": {
+      "baseline": {
+        "sample": {
+          "returncode": 0,
+          "wall_s": 1.7153,
+          "phases": [
+            {
+              "key": "lookups",
+              "instructions": 1512711655,
+              "cycles": 1932341113
+            },
+            {
+              "key": "events parsed",
+              "instructions": 52623235476,
+              "cycles": 18605889422
+            },
+            {
+              "key": "clicks parsed",
+              "instructions": 9787671738,
+              "cycles": 3534590336
+            },
+            {
+              "key": "events deduped",
+              "instructions": 2337755085,
+              "cycles": 4904151421
+            },
+            {
+              "key": "sessions + attribution",
+              "instructions": 20961535638,
+              "cycles": 9355344243
+            },
+            {
+              "key": "written",
+              "instructions": 7634224202,
+              "cycles": 2225608343
+            },
+            {
+              "key": "(after last mark: exit/unmap)",
+              "instructions": 330715568,
+              "cycles": 97963251
+            }
+          ],
+          "stats_lines": [],
+          "instructions": 95187849362,
+          "cycles": 40655888129,
+          "phys_footprint_bytes": 0,
+          "canonical_hash": "5121c6474473be5a073e6bc293b2966dcd09bd7d9646c0004bf259297b65c5bd"
+        },
+        "summary": {
+          "n": 1,
+          "event_lines": 64150261,
+          "phases": {
+            "lookups": {
+              "instructions": 1512711655,
+              "cycles": 1932341113,
+              "instr_per_row": 23.58,
+              "cycles_per_row": 30.12,
+              "ipc": 0.783,
+              "share": 0.0159
+            },
+            "events parsed": {
+              "instructions": 52623235476,
+              "cycles": 18605889422,
+              "instr_per_row": 820.31,
+              "cycles_per_row": 290.04,
+              "ipc": 2.828,
+              "share": 0.5528
+            },
+            "clicks parsed": {
+              "instructions": 9787671738,
+              "cycles": 3534590336,
+              "instr_per_row": 152.57,
+              "cycles_per_row": 55.1,
+              "ipc": 2.769,
+              "share": 0.1028
+            },
+            "events deduped": {
+              "instructions": 2337755085,
+              "cycles": 4904151421,
+              "instr_per_row": 36.44,
+              "cycles_per_row": 76.45,
+              "ipc": 0.477,
+              "share": 0.0246
+            },
+            "sessions + attribution": {
+              "instructions": 20961535638,
+              "cycles": 9355344243,
+              "instr_per_row": 326.76,
+              "cycles_per_row": 145.83,
+              "ipc": 2.241,
+              "share": 0.2202
+            },
+            "written": {
+              "instructions": 7634224202,
+              "cycles": 2225608343,
+              "instr_per_row": 119.01,
+              "cycles_per_row": 34.69,
+              "ipc": 3.43,
+              "share": 0.0802
+            },
+            "(after last mark: exit/unmap)": {
+              "instructions": 330715568,
+              "cycles": 97963251,
+              "instr_per_row": 5.16,
+              "cycles_per_row": 1.53,
+              "ipc": 3.376,
+              "share": 0.0035
+            }
+          },
+          "instructions": 95187849362,
+          "instr_per_row": 1483.83,
+          "cycles_per_row": 633.76,
+          "ipc": 2.341
+        },
+        "clean_target": true
+      },
+      "prototype": {
+        "sample": {
+          "returncode": 0,
+          "wall_s": 1.5342,
+          "phases": [
+            {
+              "key": "lookups",
+              "instructions": 1496871952,
+              "cycles": 1816673479
+            },
+            {
+              "key": "events parsed",
+              "instructions": 52610696189,
+              "cycles": 18910360363
+            },
+            {
+              "key": "clicks parsed",
+              "instructions": 9796951317,
+              "cycles": 3696149915
+            },
+            {
+              "key": "events deduped",
+              "instructions": 3676115433,
+              "cycles": 4086995426
+            },
+            {
+              "key": "sessions + attribution",
+              "instructions": 21133395220,
+              "cycles": 9883693794
+            },
+            {
+              "key": "written",
+              "instructions": 7613667885,
+              "cycles": 2233717672
+            },
+            {
+              "key": "(after last mark: exit/unmap)",
+              "instructions": 296981105,
+              "cycles": 91191386
+            }
+          ],
+          "stats_lines": [],
+          "instructions": 96624679101,
+          "cycles": 40718782035,
+          "phys_footprint_bytes": 0,
+          "canonical_hash": "5121c6474473be5a073e6bc293b2966dcd09bd7d9646c0004bf259297b65c5bd"
+        },
+        "summary": {
+          "n": 1,
+          "event_lines": 64150261,
+          "phases": {
+            "lookups": {
+              "instructions": 1496871952,
+              "cycles": 1816673479,
+              "instr_per_row": 23.33,
+              "cycles_per_row": 28.32,
+              "ipc": 0.824,
+              "share": 0.0155
+            },
+            "events parsed": {
+              "instructions": 52610696189,
+              "cycles": 18910360363,
+              "instr_per_row": 820.12,
+              "cycles_per_row": 294.78,
+              "ipc": 2.782,
+              "share": 0.5445
+            },
+            "clicks parsed": {
+              "instructions": 9796951317,
+              "cycles": 3696149915,
+              "instr_per_row": 152.72,
+              "cycles_per_row": 57.62,
+              "ipc": 2.651,
+              "share": 0.1014
+            },
+            "events deduped": {
+              "instructions": 3676115433,
+              "cycles": 4086995426,
+              "instr_per_row": 57.3,
+              "cycles_per_row": 63.71,
+              "ipc": 0.899,
+              "share": 0.038
+            },
+            "sessions + attribution": {
+              "instructions": 21133395220,
+              "cycles": 9883693794,
+              "instr_per_row": 329.44,
+              "cycles_per_row": 154.07,
+              "ipc": 2.138,
+              "share": 0.2187
+            },
+            "written": {
+              "instructions": 7613667885,
+              "cycles": 2233717672,
+              "instr_per_row": 118.68,
+              "cycles_per_row": 34.82,
+              "ipc": 3.409,
+              "share": 0.0788
+            },
+            "(after last mark: exit/unmap)": {
+              "instructions": 296981105,
+              "cycles": 91191386,
+              "instr_per_row": 4.63,
+              "cycles_per_row": 1.42,
+              "ipc": 3.257,
+              "share": 0.0031
+            }
+          },
+          "instructions": 96624679101,
+          "instr_per_row": 1506.22,
+          "cycles_per_row": 634.74,
+          "ipc": 2.373
+        },
+        "clean_target": true
+      }
+    }
+  },
+  "correctness": {
+    "fixtures": 36,
+    "dev_match": true,
+    "fuzz": {
+      "gen_sha": "140eb0a87a45",
+      "cases_dir": "/Users/meet/.cache/sessions-eval.noindex/explorer/cache-skew.7tsvKx/data/fuzz/gen-140eb0a87a45-ref-83c8ac2d",
+      "seeds": [
+        0,
+        150
+      ],
+      "focus": null,
+      "strict": {
+        "total": 129,
+        "passed": 129,
+        "skipped": 0,
+        "failed": []
+      },
+      "robust": {
+        "total": 21,
+        "passed": 21,
+        "skipped": 0,
+        "failed": []
+      },
+      "by_focus": {
+        "dialect": {
+          "total": 9,
+          "failed": 0
+        },
+        "timestamps": {
+          "total": 19,
+          "failed": 0
+        },
+        "sessions": {
+          "total": 14,
+          "failed": 0
+        },
+        "clicks": {
+          "total": 15,
+          "failed": 0
+        },
+        "links": {
+          "total": 18,
+          "failed": 0
+        },
+        "dedup": {
+          "total": 12,
+          "failed": 0
+        },
+        "files": {
+          "total": 14,
+          "failed": 0
+        },
+        "overflow": {
+          "total": 15,
+          "failed": 0
+        },
+        "window": {
+          "total": 12,
+          "failed": 0
+        },
+        "mixed": {
+          "total": 15,
+          "failed": 0
+        },
+        "id-shapes": {
+          "total": 7,
+          "failed": 0
+        }
+      },
+      "failing_tags": {}
+    },
+    "timestamp_review_matches": null,
+    "linux_seed_43": {
+      "1": {
+        "hash": "5121c6474473be5a073e6bc293b2966dcd09bd7d9646c0004bf259297b65c5bd",
+        "rows": {
+          "user_daily": 6671410,
+          "campaign_daily": 28014
+        }
+      },
+      "8": {
+        "hash": "5121c6474473be5a073e6bc293b2966dcd09bd7d9646c0004bf259297b65c5bd",
+        "rows": {
+          "user_daily": 6671410,
+          "campaign_daily": 28014
+        }
+      }
+    },
+    "split_dedup_tests": {
+      "revision": "4c686818e1ce53077664bee366f0f087a63c7013",
+      "subdivided_dedup_matches_flat_drops": "PASS",
+      "subdivided_dedup_matches_across_people_before_validation": "PASS"
+    }
+  },
+  "images": {
+    "baseline": {
+      "tag": "sessions-eval:20b8e79f7401-arm64",
+      "platform": "linux/arm64",
+      "no_cache": true,
+      "build_s": 54.1,
+      "ok": true,
+      "x86_cpu": null,
+      "image_bytes": 142364008
+    },
+    "prototype": {
+      "tag": "sessions-eval:6da0cd2cb11f-arm64",
+      "platform": "linux/arm64",
+      "no_cache": true,
+      "build_s": 48.2,
+      "ok": true,
+      "x86_cpu": null,
+      "image_bytes": 142372597
+    }
+  },
+  "linux": {
+    "status": "ok",
+    "mem_gib": 24,
+    "attempts": [],
+    "input_storage": "Docker named volume",
+    "thp_policy": "madvise",
+    "thp_previous": "always",
+    "dataset": "seed-43",
+    "warmup": {
+      "process_wall_s": 1.830865834,
+      "load_before": {
+        "load1": 5.12,
+        "load5": 5.9,
+        "load15": 4.15,
+        "contamination_wait_s": 63.468
+      },
+      "user_s": 11.95,
+      "sys_s": 1.58,
+      "container_wall_s": 2.2012,
+      "minor_faults": 57184,
+      "major_faults": 1,
+      "max_rss_bytes": 10932330496,
+      "thp_mode": "madvise",
+      "cgroup_peak_bytes": 5571969024,
+      "peak_anon_bytes": 5223489536,
+      "peak_anon_huge_bytes": 5221908480,
+      "oom_kills": 0,
+      "exit_tail_s": 0.03186583399999998,
+      "thp_fault_alloc": 2632,
+      "thp_fault_fallback": 0,
+      "page_bytes": 4096,
+      "phases": [
+        {
+          "key": "lookups",
+          "label": "lookups (3592098 linked ids)",
+          "at_s": 0.078,
+          "dur_s": 0.078,
+          "cpu_s": 0.482,
+          "parallelism": 6.179
+        },
+        {
+          "key": "events parsed",
+          "label": "events parsed",
+          "at_s": 0.938,
+          "dur_s": 0.86,
+          "cpu_s": 6.673,
+          "parallelism": 7.759
+        },
+        {
+          "key": "clicks parsed",
+          "label": "clicks parsed",
+          "at_s": 1.104,
+          "dur_s": 0.166,
+          "cpu_s": 1.281,
+          "parallelism": 7.717
+        },
+        {
+          "key": "events deduped",
+          "label": "events deduped (4033896 dropped rows)",
+          "at_s": 1.294,
+          "dur_s": 0.19,
+          "cpu_s": 1.391,
+          "parallelism": 7.321
+        },
+        {
+          "key": "sessions + attribution",
+          "label": "sessions + attribution",
+          "at_s": 1.722,
+          "dur_s": 0.428,
+          "cpu_s": 3.15,
+          "parallelism": 7.36
+        },
+        {
+          "key": "written",
+          "label": "written (6671410 user_daily rows)",
+          "at_s": 1.799,
+          "dur_s": 0.077,
+          "cpu_s": 0.543,
+          "parallelism": 7.052
+        }
+      ]
+    },
+    "load_before": null,
+    "event_lines": 64150261,
+    "baseline_warmup": {
+      "process_wall_s": 1.579901959,
+      "load_before": {
+        "load1": 5.51,
+        "load5": 5.96,
+        "load15": 4.2,
+        "contamination_wait_s": 14.397
+      },
+      "user_s": 10.62,
+      "sys_s": 0.81,
+      "container_wall_s": 1.7656,
+      "minor_faults": 70734,
+      "major_faults": 0,
+      "max_rss_bytes": 10814717952,
+      "thp_mode": "madvise",
+      "cgroup_peak_bytes": 5650657280,
+      "peak_anon_bytes": 5097644032,
+      "peak_anon_huge_bytes": 5096079360,
+      "oom_kills": 0,
+      "exit_tail_s": 0.03490195900000015,
+      "thp_fault_alloc": 2606,
+      "thp_fault_fallback": 0,
+      "page_bytes": 4096,
+      "phases": [
+        {
+          "key": "lookups",
+          "label": "lookups (3592098 linked ids)",
+          "at_s": 0.071,
+          "dur_s": 0.071,
+          "cpu_s": 0.437,
+          "parallelism": 6.155
+        },
+        {
+          "key": "events parsed",
+          "label": "events parsed",
+          "at_s": 0.822,
+          "dur_s": 0.751,
+          "cpu_s": 5.776,
+          "parallelism": 7.691
+        },
+        {
+          "key": "clicks parsed",
+          "label": "clicks parsed",
+          "at_s": 0.971,
+          "dur_s": 0.149,
+          "cpu_s": 1.152,
+          "parallelism": 7.732
+        },
+        {
+          "key": "events deduped",
+          "label": "events deduped (4033896 dropped rows)",
+          "at_s": 1.135,
+          "dur_s": 0.164,
+          "cpu_s": 1.136,
+          "parallelism": 6.927
+        },
+        {
+          "key": "sessions + attribution",
+          "label": "sessions + attribution",
+          "at_s": 1.472,
+          "dur_s": 0.337,
+          "cpu_s": 2.392,
+          "parallelism": 7.098
+        },
+        {
+          "key": "written",
+          "label": "written (6671410 user_daily rows)",
+          "at_s": 1.545,
+          "dur_s": 0.073,
+          "cpu_s": 0.516,
+          "parallelism": 7.068
+        }
+      ]
+    },
+    "runs": [
+      {
+        "process_wall_s": 1.388628501,
+        "load_before": {
+          "load1": 4.66,
+          "load5": 5.75,
+          "load15": 4.15,
+          "contamination_wait_s": 10.263
+        },
+        "user_s": 9.91,
+        "sys_s": 0.41,
+        "container_wall_s": 1.6148,
+        "minor_faults": 75719,
+        "major_faults": 0,
+        "max_rss_bytes": 10719219712,
+        "thp_mode": "madvise",
+        "cgroup_peak_bytes": 5623779328,
+        "peak_anon_bytes": 4991758336,
+        "peak_anon_huge_bytes": 4779409408,
+        "oom_kills": 0,
+        "exit_tail_s": 0.030628500999999808,
+        "thp_fault_alloc": 2584,
+        "thp_fault_fallback": 0,
+        "page_bytes": 4096,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (3592098 linked ids)",
+            "at_s": 0.062,
+            "dur_s": 0.062,
+            "cpu_s": 0.392,
+            "parallelism": 6.323
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.737,
+            "dur_s": 0.675,
+            "cpu_s": 5.313,
+            "parallelism": 7.871
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.865,
+            "dur_s": 0.128,
+            "cpu_s": 0.983,
+            "parallelism": 7.68
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped (4033896 dropped rows)",
+            "at_s": 0.987,
+            "dur_s": 0.122,
+            "cpu_s": 0.868,
+            "parallelism": 7.115
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.284,
+            "dur_s": 0.297,
+            "cpu_s": 2.25,
+            "parallelism": 7.576
+          },
+          {
+            "key": "written",
+            "label": "written (6671410 user_daily rows)",
+            "at_s": 1.358,
+            "dur_s": 0.074,
+            "cpu_s": 0.495,
+            "parallelism": 6.689
+          }
+        ],
+        "minor_faults_per_row": 0.0011803381439087208,
+        "major_faults_per_row": 0.0
+      },
+      {
+        "process_wall_s": 1.334179418,
+        "load_before": {
+          "load1": 3.94,
+          "load5": 5.48,
+          "load15": 4.1,
+          "contamination_wait_s": 2.085
+        },
+        "user_s": 9.13,
+        "sys_s": 0.71,
+        "container_wall_s": 1.484,
+        "minor_faults": 65742,
+        "major_faults": 0,
+        "max_rss_bytes": 10916626432,
+        "thp_mode": "madvise",
+        "cgroup_peak_bytes": 5743394816,
+        "peak_anon_bytes": 5038944256,
+        "peak_anon_huge_bytes": 5037359104,
+        "oom_kills": 0,
+        "exit_tail_s": 0.029179418000000013,
+        "thp_fault_alloc": 2660,
+        "thp_fault_fallback": 0,
+        "page_bytes": 4096,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (3592098 linked ids)",
+            "at_s": 0.063,
+            "dur_s": 0.063,
+            "cpu_s": 0.402,
+            "parallelism": 6.381
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.656,
+            "dur_s": 0.593,
+            "cpu_s": 4.653,
+            "parallelism": 7.847
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.783,
+            "dur_s": 0.127,
+            "cpu_s": 0.992,
+            "parallelism": 7.811
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped (4033896 dropped rows)",
+            "at_s": 0.915,
+            "dur_s": 0.132,
+            "cpu_s": 0.925,
+            "parallelism": 7.008
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.236,
+            "dur_s": 0.321,
+            "cpu_s": 2.37,
+            "parallelism": 7.383
+          },
+          {
+            "key": "written",
+            "label": "written (6671410 user_daily rows)",
+            "at_s": 1.305,
+            "dur_s": 0.069,
+            "cpu_s": 0.487,
+            "parallelism": 7.058
+          }
+        ],
+        "minor_faults_per_row": 0.0010248126659999092,
+        "major_faults_per_row": 0.0
+      },
+      {
+        "process_wall_s": 1.164147376,
+        "load_before": {
+          "load1": 3.94,
+          "load5": 5.48,
+          "load15": 4.1,
+          "contamination_wait_s": 2.097
+        },
+        "user_s": 8.31,
+        "sys_s": 0.2,
+        "container_wall_s": 1.3663,
+        "minor_faults": 55417,
+        "major_faults": 0,
+        "max_rss_bytes": 11156512768,
+        "thp_mode": "madvise",
+        "cgroup_peak_bytes": 5659435008,
+        "peak_anon_bytes": 5378740224,
+        "peak_anon_huge_bytes": 5377097728,
+        "oom_kills": 0,
+        "exit_tail_s": 0.028147376000000168,
+        "thp_fault_alloc": 2639,
+        "thp_fault_fallback": 0,
+        "page_bytes": 4096,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (3592098 linked ids)",
+            "at_s": 0.059,
+            "dur_s": 0.059,
+            "cpu_s": 0.379,
+            "parallelism": 6.424
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.552,
+            "dur_s": 0.493,
+            "cpu_s": 3.845,
+            "parallelism": 7.799
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.653,
+            "dur_s": 0.101,
+            "cpu_s": 0.765,
+            "parallelism": 7.574
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped (4033896 dropped rows)",
+            "at_s": 0.775,
+            "dur_s": 0.122,
+            "cpu_s": 0.876,
+            "parallelism": 7.18
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.069,
+            "dur_s": 0.294,
+            "cpu_s": 2.147,
+            "parallelism": 7.303
+          },
+          {
+            "key": "written",
+            "label": "written (6671410 user_daily rows)",
+            "at_s": 1.136,
+            "dur_s": 0.067,
+            "cpu_s": 0.481,
+            "parallelism": 7.179
+          }
+        ],
+        "minor_faults_per_row": 0.0008638624245036197,
+        "major_faults_per_row": 0.0
+      },
+      {
+        "process_wall_s": 1.715902167,
+        "load_before": {
+          "load1": 4.8,
+          "load5": 5.49,
+          "load15": 4.15,
+          "contamination_wait_s": 16.68
+        },
+        "user_s": 10.71,
+        "sys_s": 1.92,
+        "container_wall_s": 1.9333,
+        "minor_faults": 76698,
+        "major_faults": 0,
+        "max_rss_bytes": 10676355072,
+        "thp_mode": "madvise",
+        "cgroup_peak_bytes": 5693865984,
+        "peak_anon_bytes": 4909617152,
+        "peak_anon_huge_bytes": 4762632192,
+        "oom_kills": 0,
+        "exit_tail_s": 0.03490216700000004,
+        "thp_fault_alloc": 2617,
+        "thp_fault_fallback": 0,
+        "page_bytes": 4096,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (3592098 linked ids)",
+            "at_s": 0.086,
+            "dur_s": 0.086,
+            "cpu_s": 0.494,
+            "parallelism": 5.744
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.958,
+            "dur_s": 0.872,
+            "cpu_s": 6.759,
+            "parallelism": 7.751
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 1.121,
+            "dur_s": 0.163,
+            "cpu_s": 1.255,
+            "parallelism": 7.699
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped (4033896 dropped rows)",
+            "at_s": 1.253,
+            "dur_s": 0.132,
+            "cpu_s": 0.928,
+            "parallelism": 7.03
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.606,
+            "dur_s": 0.353,
+            "cpu_s": 2.633,
+            "parallelism": 7.459
+          },
+          {
+            "key": "written",
+            "label": "written (6671410 user_daily rows)",
+            "at_s": 1.681,
+            "dur_s": 0.075,
+            "cpu_s": 0.537,
+            "parallelism": 7.16
+          }
+        ],
+        "minor_faults_per_row": 0.0011955991885987806,
+        "major_faults_per_row": 0.0
+      },
+      {
+        "process_wall_s": 1.382072293,
+        "load_before": {
+          "load1": 4.49,
+          "load5": 5.42,
+          "load15": 4.13,
+          "contamination_wait_s": 2.073,
+          "niced_background_pcpu": 87.4,
+          "niced_background": [
+            "rustc pid=97940 87.4%"
+          ]
+        },
+        "user_s": 9.79,
+        "sys_s": 0.49,
+        "container_wall_s": 1.6048,
+        "minor_faults": 75737,
+        "major_faults": 0,
+        "max_rss_bytes": 10674073600,
+        "thp_mode": "madvise",
+        "cgroup_peak_bytes": 5684187136,
+        "peak_anon_bytes": 4971851776,
+        "peak_anon_huge_bytes": 4766826496,
+        "oom_kills": 0,
+        "exit_tail_s": 0.03407229299999992,
+        "thp_fault_alloc": 2612,
+        "thp_fault_fallback": 0,
+        "page_bytes": 4096,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (3592098 linked ids)",
+            "at_s": 0.061,
+            "dur_s": 0.061,
+            "cpu_s": 0.412,
+            "parallelism": 6.754
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.707,
+            "dur_s": 0.646,
+            "cpu_s": 5.047,
+            "parallelism": 7.813
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.843,
+            "dur_s": 0.136,
+            "cpu_s": 1.056,
+            "parallelism": 7.765
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped (4033896 dropped rows)",
+            "at_s": 0.971,
+            "dur_s": 0.128,
+            "cpu_s": 0.912,
+            "parallelism": 7.125
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.275,
+            "dur_s": 0.304,
+            "cpu_s": 2.326,
+            "parallelism": 7.651
+          },
+          {
+            "key": "written",
+            "label": "written (6671410 user_daily rows)",
+            "at_s": 1.348,
+            "dur_s": 0.073,
+            "cpu_s": 0.506,
+            "parallelism": 6.932
+          }
+        ],
+        "minor_faults_per_row": 0.0011806187351287628,
+        "major_faults_per_row": 0.0
+      }
+    ],
+    "summary": {
+      "process_wall_s": {
+        "n": 5,
+        "median": 1.382072,
+        "mean": 1.396986,
+        "min": 1.164147,
+        "max": 1.715902,
+        "p90": 1.715902,
+        "stdev": 0.200099,
+        "cv": 0.1448,
+        "samples": [
+          1.388629,
+          1.334179,
+          1.164147,
+          1.715902,
+          1.382072
+        ]
+      },
+      "container_wall_s": {
+        "n": 5,
+        "median": 1.6048,
+        "mean": 1.60064,
+        "min": 1.3663,
+        "max": 1.9333,
+        "p90": 1.9333,
+        "stdev": 0.211779,
+        "cv": 0.132,
+        "samples": [
+          1.6148,
+          1.484,
+          1.3663,
+          1.9333,
+          1.6048
+        ]
+      },
+      "minor_faults": {
+        "n": 5,
+        "median": 75719,
+        "mean": 69862.6,
+        "min": 55417,
+        "max": 76698,
+        "p90": 76698,
+        "stdev": 9235.575147,
+        "cv": 0.122,
+        "samples": [
+          75719,
+          65742,
+          55417,
+          76698,
+          75737
+        ]
+      },
+      "major_faults": {
+        "n": 5,
+        "median": 0,
+        "mean": 0.0,
+        "min": 0,
+        "max": 0,
+        "p90": 0,
+        "stdev": 0.0,
+        "cv": null,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "sys_s": {
+        "n": 5,
+        "median": 0.49,
+        "mean": 0.746,
+        "min": 0.2,
+        "max": 1.92,
+        "p90": 1.92,
+        "stdev": 0.681197,
+        "cv": 1.3902,
+        "samples": [
+          0.41,
+          0.71,
+          0.2,
+          1.92,
+          0.49
+        ]
+      },
+      "exit_tail_s": {
+        "n": 5,
+        "median": 0.030629,
+        "mean": 0.031386,
+        "min": 0.028147,
+        "max": 0.034902,
+        "p90": 0.034902,
+        "stdev": 0.00298,
+        "cv": 0.0973,
+        "samples": [
+          0.030629,
+          0.029179,
+          0.028147,
+          0.034902,
+          0.034072
+        ]
+      },
+      "minor_faults_per_row": {
+        "n": 5,
+        "median": 0.00118,
+        "mean": 0.001089,
+        "min": 0.000864,
+        "max": 0.001196,
+        "p90": 0.001196,
+        "stdev": 0.000144,
+        "cv": 0.122,
+        "samples": [
+          0.00118,
+          0.001025,
+          0.000864,
+          0.001196,
+          0.001181
+        ]
+      },
+      "major_faults_per_row": {
+        "n": 5,
+        "median": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "p90": 0.0,
+        "stdev": 0.0,
+        "cv": null,
+        "samples": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "thp_fault_alloc": {
+        "n": 5,
+        "median": 2617,
+        "mean": 2622.4,
+        "min": 2584,
+        "max": 2660,
+        "p90": 2660,
+        "stdev": 28.728035,
+        "cv": 0.011,
+        "samples": [
+          2584,
+          2660,
+          2639,
+          2617,
+          2612
+        ]
+      },
+      "thp_fault_fallback": {
+        "n": 5,
+        "median": 0,
+        "mean": 0.0,
+        "min": 0,
+        "max": 0,
+        "p90": 0,
+        "stdev": 0.0,
+        "cv": null,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "peak_anon_bytes": {
+        "n": 5,
+        "median": 4991758336,
+        "mean": 5058182348.8,
+        "min": 4909617152,
+        "max": 5378740224,
+        "p90": 5378740224,
+        "stdev": 185110906.312927,
+        "cv": 0.0371,
+        "samples": [
+          4991758336,
+          5038944256,
+          5378740224,
+          4909617152,
+          4971851776
+        ]
+      },
+      "peak_anon_huge_bytes": {
+        "n": 5,
+        "median": 4779409408,
+        "mean": 4944664985.6,
+        "min": 4762632192,
+        "max": 5377097728,
+        "p90": 5377097728,
+        "stdev": 268170723.860043,
+        "cv": 0.0561,
+        "samples": [
+          4779409408,
+          5037359104,
+          5377097728,
+          4762632192,
+          4766826496
+        ]
+      },
+      "cgroup_peak_bytes": {
+        "n": 5,
+        "median": 5684187136,
+        "mean": 5680932454.4,
+        "min": 5623779328,
+        "max": 5743394816,
+        "p90": 5743394816,
+        "stdev": 44181545.400472,
+        "cv": 0.0078,
+        "samples": [
+          5623779328,
+          5743394816,
+          5659435008,
+          5693865984,
+          5684187136
+        ]
+      }
+    },
+    "baseline_runs": [
+      {
+        "process_wall_s": 1.460781875,
+        "load_before": {
+          "load1": 3.93,
+          "load5": 5.53,
+          "load15": 4.1,
+          "contamination_wait_s": 14.393
+        },
+        "user_s": 9.84,
+        "sys_s": 1.01,
+        "container_wall_s": 1.6612,
+        "minor_faults": 56573,
+        "major_faults": 0,
+        "max_rss_bytes": 10967941120,
+        "thp_mode": "madvise",
+        "cgroup_peak_bytes": 5483827200,
+        "peak_anon_bytes": 5265477632,
+        "peak_anon_huge_bytes": 5263851520,
+        "oom_kills": 0,
+        "exit_tail_s": 0.03178187499999985,
+        "thp_fault_alloc": 2555,
+        "thp_fault_fallback": 0,
+        "page_bytes": 4096,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (3592098 linked ids)",
+            "at_s": 0.078,
+            "dur_s": 0.078,
+            "cpu_s": 0.473,
+            "parallelism": 6.064
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.752,
+            "dur_s": 0.674,
+            "cpu_s": 5.285,
+            "parallelism": 7.841
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.9,
+            "dur_s": 0.148,
+            "cpu_s": 1.134,
+            "parallelism": 7.662
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped (4033896 dropped rows)",
+            "at_s": 1.05,
+            "dur_s": 0.15,
+            "cpu_s": 1.096,
+            "parallelism": 7.307
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.351,
+            "dur_s": 0.301,
+            "cpu_s": 2.29,
+            "parallelism": 7.608
+          },
+          {
+            "key": "written",
+            "label": "written (6671410 user_daily rows)",
+            "at_s": 1.429,
+            "dur_s": 0.078,
+            "cpu_s": 0.55,
+            "parallelism": 7.051
+          }
+        ],
+        "minor_faults_per_row": 0.0008818826161907587,
+        "major_faults_per_row": 0.0
+      },
+      {
+        "process_wall_s": 1.235421209,
+        "load_before": {
+          "load1": 3.94,
+          "load5": 5.5,
+          "load15": 4.1,
+          "contamination_wait_s": 2.093
+        },
+        "user_s": 8.81,
+        "sys_s": 0.27,
+        "container_wall_s": 1.4659,
+        "minor_faults": 59795,
+        "major_faults": 0,
+        "max_rss_bytes": 10911494144,
+        "thp_mode": "madvise",
+        "cgroup_peak_bytes": 5504843776,
+        "peak_anon_bytes": 5083054080,
+        "peak_anon_huge_bytes": 5081399296,
+        "oom_kills": 0,
+        "exit_tail_s": 0.02542120900000011,
+        "thp_fault_alloc": 2582,
+        "thp_fault_fallback": 0,
+        "page_bytes": 4096,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (3592098 linked ids)",
+            "at_s": 0.056,
+            "dur_s": 0.056,
+            "cpu_s": 0.381,
+            "parallelism": 6.804
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.578,
+            "dur_s": 0.522,
+            "cpu_s": 4.098,
+            "parallelism": 7.851
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.687,
+            "dur_s": 0.109,
+            "cpu_s": 0.843,
+            "parallelism": 7.734
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped (4033896 dropped rows)",
+            "at_s": 0.831,
+            "dur_s": 0.144,
+            "cpu_s": 1.043,
+            "parallelism": 7.243
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.141,
+            "dur_s": 0.31,
+            "cpu_s": 2.221,
+            "parallelism": 7.165
+          },
+          {
+            "key": "written",
+            "label": "written (6671410 user_daily rows)",
+            "at_s": 1.21,
+            "dur_s": 0.069,
+            "cpu_s": 0.487,
+            "parallelism": 7.058
+          }
+        ],
+        "minor_faults_per_row": 0.0009321084445782691,
+        "major_faults_per_row": 0.0
+      },
+      {
+        "process_wall_s": 1.25780507,
+        "load_before": {
+          "load1": 3.49,
+          "load5": 5.33,
+          "load15": 4.06,
+          "contamination_wait_s": 6.173
+        },
+        "user_s": 8.93,
+        "sys_s": 0.42,
+        "container_wall_s": 1.4772,
+        "minor_faults": 61284,
+        "major_faults": 0,
+        "max_rss_bytes": 10871373824,
+        "thp_mode": "madvise",
+        "cgroup_peak_bytes": 5561933824,
+        "peak_anon_bytes": 5099724800,
+        "peak_anon_huge_bytes": 5098176512,
+        "oom_kills": 0,
+        "exit_tail_s": 0.0278050700000001,
+        "thp_fault_alloc": 2622,
+        "thp_fault_fallback": 0,
+        "page_bytes": 4096,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (3592098 linked ids)",
+            "at_s": 0.053,
+            "dur_s": 0.053,
+            "cpu_s": 0.366,
+            "parallelism": 6.906
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.613,
+            "dur_s": 0.56,
+            "cpu_s": 4.369,
+            "parallelism": 7.802
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.72,
+            "dur_s": 0.107,
+            "cpu_s": 0.841,
+            "parallelism": 7.86
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped (4033896 dropped rows)",
+            "at_s": 0.866,
+            "dur_s": 0.146,
+            "cpu_s": 1.044,
+            "parallelism": 7.151
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.162,
+            "dur_s": 0.296,
+            "cpu_s": 2.244,
+            "parallelism": 7.581
+          },
+          {
+            "key": "written",
+            "label": "written (6671410 user_daily rows)",
+            "at_s": 1.23,
+            "dur_s": 0.068,
+            "cpu_s": 0.473,
+            "parallelism": 6.956
+          }
+        ],
+        "minor_faults_per_row": 0.0009553195738361843,
+        "major_faults_per_row": 0.0
+      },
+      {
+        "process_wall_s": 1.211749042,
+        "load_before": {
+          "load1": 3.49,
+          "load5": 5.33,
+          "load15": 4.06,
+          "contamination_wait_s": 2.104
+        },
+        "user_s": 8.68,
+        "sys_s": 0.22,
+        "container_wall_s": 1.3419,
+        "minor_faults": 57537,
+        "major_faults": 0,
+        "max_rss_bytes": 10932350976,
+        "thp_mode": "madvise",
+        "cgroup_peak_bytes": 5670739968,
+        "peak_anon_bytes": 5214494720,
+        "peak_anon_huge_bytes": 5158993920,
+        "oom_kills": 0,
+        "exit_tail_s": 0.024749042000000054,
+        "thp_fault_alloc": 2652,
+        "thp_fault_fallback": 0,
+        "page_bytes": 4096,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (3592098 linked ids)",
+            "at_s": 0.052,
+            "dur_s": 0.052,
+            "cpu_s": 0.364,
+            "parallelism": 7.0
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.558,
+            "dur_s": 0.506,
+            "cpu_s": 3.958,
+            "parallelism": 7.822
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.657,
+            "dur_s": 0.099,
+            "cpu_s": 0.777,
+            "parallelism": 7.848
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped (4033896 dropped rows)",
+            "at_s": 0.813,
+            "dur_s": 0.156,
+            "cpu_s": 1.122,
+            "parallelism": 7.192
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.119,
+            "dur_s": 0.306,
+            "cpu_s": 2.181,
+            "parallelism": 7.127
+          },
+          {
+            "key": "written",
+            "label": "written (6671410 user_daily rows)",
+            "at_s": 1.187,
+            "dur_s": 0.068,
+            "cpu_s": 0.482,
+            "parallelism": 7.088
+          }
+        ],
+        "minor_faults_per_row": 0.000896909834864117,
+        "major_faults_per_row": 0.0
+      },
+      {
+        "process_wall_s": 1.202321043,
+        "load_before": {
+          "load1": 4.29,
+          "load5": 5.36,
+          "load15": 4.12,
+          "contamination_wait_s": 2.068,
+          "niced_background_pcpu": 97.5,
+          "niced_background": [
+            "rustc pid=97940 97.5%"
+          ]
+        },
+        "user_s": 8.85,
+        "sys_s": 0.2,
+        "container_wall_s": 1.4604,
+        "minor_faults": 57593,
+        "major_faults": 0,
+        "max_rss_bytes": 10913435648,
+        "thp_mode": "madvise",
+        "cgroup_peak_bytes": 5622255616,
+        "peak_anon_bytes": 5145804800,
+        "peak_anon_huge_bytes": 5119148032,
+        "oom_kills": 0,
+        "exit_tail_s": 0.014321043000000033,
+        "thp_fault_alloc": 2627,
+        "thp_fault_fallback": 0,
+        "page_bytes": 4096,
+        "phases": [
+          {
+            "key": "lookups",
+            "label": "lookups (3592098 linked ids)",
+            "at_s": 0.053,
+            "dur_s": 0.053,
+            "cpu_s": 0.37,
+            "parallelism": 6.981
+          },
+          {
+            "key": "events parsed",
+            "label": "events parsed",
+            "at_s": 0.577,
+            "dur_s": 0.524,
+            "cpu_s": 4.097,
+            "parallelism": 7.819
+          },
+          {
+            "key": "clicks parsed",
+            "label": "clicks parsed",
+            "at_s": 0.68,
+            "dur_s": 0.103,
+            "cpu_s": 0.794,
+            "parallelism": 7.709
+          },
+          {
+            "key": "events deduped",
+            "label": "events deduped (4033896 dropped rows)",
+            "at_s": 0.828,
+            "dur_s": 0.148,
+            "cpu_s": 1.072,
+            "parallelism": 7.243
+          },
+          {
+            "key": "sessions + attribution",
+            "label": "sessions + attribution",
+            "at_s": 1.119,
+            "dur_s": 0.291,
+            "cpu_s": 2.224,
+            "parallelism": 7.643
+          },
+          {
+            "key": "written",
+            "label": "written (6671410 user_daily rows)",
+            "at_s": 1.188,
+            "dur_s": 0.069,
+            "cpu_s": 0.492,
+            "parallelism": 7.13
+          }
+        ],
+        "minor_faults_per_row": 0.0008977827853264697,
+        "major_faults_per_row": 0.0
+      }
+    ],
+    "baseline_summary": {
+      "process_wall_s": {
+        "n": 5,
+        "median": 1.235421,
+        "mean": 1.273616,
+        "min": 1.202321,
+        "max": 1.460782,
+        "p90": 1.460782,
+        "stdev": 0.10683,
+        "cv": 0.0865,
+        "samples": [
+          1.460782,
+          1.235421,
+          1.257805,
+          1.211749,
+          1.202321
+        ]
+      },
+      "container_wall_s": {
+        "n": 5,
+        "median": 1.4659,
+        "mean": 1.48132,
+        "min": 1.3419,
+        "max": 1.6612,
+        "p90": 1.6612,
+        "stdev": 0.11455,
+        "cv": 0.0781,
+        "samples": [
+          1.6612,
+          1.4659,
+          1.4772,
+          1.3419,
+          1.4604
+        ]
+      },
+      "minor_faults": {
+        "n": 5,
+        "median": 57593,
+        "mean": 58556.4,
+        "min": 56573,
+        "max": 61284,
+        "p90": 61284,
+        "stdev": 1928.414063,
+        "cv": 0.0335,
+        "samples": [
+          56573,
+          59795,
+          61284,
+          57537,
+          57593
+        ]
+      },
+      "major_faults": {
+        "n": 5,
+        "median": 0,
+        "mean": 0.0,
+        "min": 0,
+        "max": 0,
+        "p90": 0,
+        "stdev": 0.0,
+        "cv": null,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "sys_s": {
+        "n": 5,
+        "median": 0.27,
+        "mean": 0.424,
+        "min": 0.2,
+        "max": 1.01,
+        "p90": 1.01,
+        "stdev": 0.338718,
+        "cv": 1.2545,
+        "samples": [
+          1.01,
+          0.27,
+          0.42,
+          0.22,
+          0.2
+        ]
+      },
+      "exit_tail_s": {
+        "n": 5,
+        "median": 0.025421,
+        "mean": 0.024816,
+        "min": 0.014321,
+        "max": 0.031782,
+        "p90": 0.031782,
+        "stdev": 0.00648,
+        "cv": 0.2549,
+        "samples": [
+          0.031782,
+          0.025421,
+          0.027805,
+          0.024749,
+          0.014321
+        ]
+      },
+      "minor_faults_per_row": {
+        "n": 5,
+        "median": 0.000898,
+        "mean": 0.000913,
+        "min": 0.000882,
+        "max": 0.000955,
+        "p90": 0.000955,
+        "stdev": 3e-05,
+        "cv": 0.0335,
+        "samples": [
+          0.000882,
+          0.000932,
+          0.000955,
+          0.000897,
+          0.000898
+        ]
+      },
+      "major_faults_per_row": {
+        "n": 5,
+        "median": 0.0,
+        "mean": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "p90": 0.0,
+        "stdev": 0.0,
+        "cv": null,
+        "samples": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      "thp_fault_alloc": {
+        "n": 5,
+        "median": 2622,
+        "mean": 2607.6,
+        "min": 2555,
+        "max": 2652,
+        "p90": 2652,
+        "stdev": 38.656177,
+        "cv": 0.0147,
+        "samples": [
+          2555,
+          2582,
+          2622,
+          2652,
+          2627
+        ]
+      },
+      "thp_fault_fallback": {
+        "n": 5,
+        "median": 0,
+        "mean": 0.0,
+        "min": 0,
+        "max": 0,
+        "p90": 0,
+        "stdev": 0.0,
+        "cv": null,
+        "samples": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "peak_anon_bytes": {
+        "n": 5,
+        "median": 5145804800,
+        "mean": 5161711206.4,
+        "min": 5083054080,
+        "max": 5265477632,
+        "p90": 5265477632,
+        "stdev": 77194303.977391,
+        "cv": 0.015,
+        "samples": [
+          5265477632,
+          5083054080,
+          5099724800,
+          5214494720,
+          5145804800
+        ]
+      },
+      "peak_anon_huge_bytes": {
+        "n": 5,
+        "median": 5119148032,
+        "mean": 5144313856.0,
+        "min": 5081399296,
+        "max": 5263851520,
+        "p90": 5263851520,
+        "stdev": 72843964.167575,
+        "cv": 0.0142,
+        "samples": [
+          5263851520,
+          5081399296,
+          5098176512,
+          5158993920,
+          5119148032
+        ]
+      },
+      "cgroup_peak_bytes": {
+        "n": 5,
+        "median": 5561933824,
+        "mean": 5568720076.8,
+        "min": 5483827200,
+        "max": 5670739968,
+        "p90": 5670739968,
+        "stdev": 78433327.929255,
+        "cv": 0.0141,
+        "samples": [
+          5483827200,
+          5504843776,
+          5561933824,
+          5670739968,
+          5622255616
+        ]
+      }
+    },
+    "thp_restored": "always"
+  }
+}
