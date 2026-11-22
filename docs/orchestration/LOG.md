@@ -274,3 +274,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Gates: unit tests (6,000 long IDs and near-misses, plus an overflow test), fixtures 36/36, new dev MATCH under `NO_FAST` 0–3, new seeds 7–11 vs reference 50/50, new seed-42 MATCH.
   - Indicative, niced, 4 threads, no lock: 20M 3.65 → 1.82 s; 60M 16.4 → 7.1 s (events parse 11.1 → 2.8 s).
 - **Orchestrator:** v7 verification in parallel: Explorer 5 (gVisor timing first), the Red Team (long-ID adversarial cases), Analyst 2 (spec check) and Eval (full eval as v7). Method builds v8 moves on top: Explorer 4's click and link decoder, Sol's event decoder (06:00 go/no-go), Explorer 2's hex32 kernel.
+- **Analyst 2: v7 `e693e18` correctness PASS.**
+  - Every ID comparison goes through `Ids::cmp`, which is byte-exact. Overflow consistency holds (slots fill and never move; CAS with Release/Acquire is correct). The 33-byte decode is exact.
+  - Adversarial suite `evals/insights2/v7_longid`: 54/150 seeds × 6 knobs, 0 mismatches. It catches 4 deliberately broken builds. Seed-42 MATCHes Eval's regenerated oracle.
+  - Perf: NCPU=1 events-parse CPU 3.72 → 2.73 s. The scalar hex32 costs about 190 instructions per long ID, so Explorer 2's SIMD kernel is the follow-up.
+- Machine load is 30–60. **v7's board prediction will come from interleaved v5/v7 gVisor pairs** (Explorer 5): 2.146 s × the ratio.
