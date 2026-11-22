@@ -263,3 +263,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Release plan: **v7** = v5 + long-ID path + click sort + sessions moves, writer held back; Method commits by 02:30, submit about 03:15. **v8** by 07:00. Freeze at 08:00.
   - Key ordering must be byte-exact across short-packed, 33-byte and interned forms.
 - **Explorer 4:** click and link decoder gated on the new data. Seed-42 clicks 632.5 → 493.0 and links 696.8 → 624.1 per line, 0.48% fallback, with a `pack_long` hook (`53604e7`, `af19cf5`). Now staging `stage/v7-pre` = `3671aeb` − writer + click decoder, gated and gVisor-timed, to rebase onto Method's move 6.
+- **The Codex limit hit Explorer 5 (Astra), Explorer 4 (Sol) and Sol.**
+  - At the user's request, **Explorer 5 → Opus on `claude_master`**.
+  - **Explorer 4 and Sol → Opus on `claude_andrew`**, to spread the load: `claude_master` now carries 9 threads.
+  - Tasks were re-sent. **Switch Explorer 4, Explorer 5 and Sol back to Codex Sol once the Codex limits reset** (user request).
+- **Sol (before the limit):** the per-column event decoder recognises 33-byte IDs. The seed-42 fallback went 24.53% → 0.35%, and decoded values match on the new dev and seed-42 data.
