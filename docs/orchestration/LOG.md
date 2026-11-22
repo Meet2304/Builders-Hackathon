@@ -245,3 +245,17 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **The v6 writer (no dictionaries or statistics) is dropped from the trains**, since 4× output costs more under gVisor.
   - v7 = `3671aeb` + revert move 4 + move 6 (lock-free long IDs).
   - Explorer 3 re-tasked from pread to **write-path syscalls** (one write per file, tables in parallel) on `explore/gemini3-write`.
+- **User: Grok is out of quota.** The 7 Grok threads (Eval, Analyst 2, Explorer 2, Explorer 3, Analyst 3, Neon Detective, Neon Architect) were **moved to Opus on `claude_master`**. All had died on the Grok limit, so their tasks were re-sent.
+- Released a stale bench lock (analysis2, pid 83563 dead). **The gVisor harness was cherry-picked to main** (`evals/explore/runsc/run.sh`).
+- **Explorer 5, syscall trace of v5 under gVisor:**
+  - Event parse: **13,351 futex calls out of 14,946 syscalls (89%)**. Clicks: 2,368 of 2,671. Dedup and sessions: 5 each.
+  - Output: 2,241 writes and 203 opens.
+  - **12,217 `madvise` calls after the written mark**, despite `std::process::exit`, likely mimalloc purging. Testing `_exit` and disabling mimalloc purge.
+- Re-tasks:
+  - Analyst 2 → verifier for v7 (long IDs).
+  - Explorer 2 → hex-32 kernel.
+  - Explorer 3 → write-path syscalls.
+  - Analyst 3 → x86 counts on new data.
+  - Neon Detective → hunt syscall and lock sources other than intern.
+  - Neon Architect → ID-key widening design.
+  - Eval → regenerate the suite on new data and make gVisor time the primary predictor.
