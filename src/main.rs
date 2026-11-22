@@ -46,6 +46,8 @@
 //!   SESSIONS_EXIT=normal        exit through std::process::exit (default: _exit after
 //!                               every output file is closed)
 
+#[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
+mod columns;
 mod links;
 
 use links::load_links;
@@ -1693,6 +1695,7 @@ fn radix_u64<T: Copy, F: Fn(&T) -> u64>(data: &mut [T], scratch: &mut [T], key: 
 
 /// A valid click, in its person's partition.
 #[derive(Clone, Copy)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 struct Ck {
     person: u64,
     ts: i64,
@@ -1881,16 +1884,16 @@ impl CkOut {
 
 /// A valid click; `person` holds the user key until the batched lookup resolves it.
 #[inline]
-fn parse_click<'a>(f: &[&'a [u8]; 4], lk: &Lookups<'a>, w: &Win, o: &mut CkOut) {
+fn decode_click<'a>(f: &[&'a [u8]; 4], lk: &Lookups<'a>, w: &Win) -> Option<Ck> {
     if f[0].is_empty() || f[1].is_empty() {
-        return;
+        return None;
     }
-    let Some(camp) = lk.campaign(f[2]) else { return };
+    let camp = lk.campaign(f[2])?;
     let ts = w.parse_ts(f[3]);
     if ts < w.start - WEEK_MS || ts >= w.end {
-        return;
+        return None;
     }
-    o.queue(Ck { person: lk.ids.key(f[1]), ts, cid: lk.ids.key(f[0]), camp }, lk);
+    Some(Ck { person: lk.ids.key(f[1]), ts, cid: lk.ids.key(f[0]), camp })
 }
 
 /// Group consecutive chunks into rayon tasks: one chunk per task by default; a tiny debug
@@ -2639,7 +2642,16 @@ fn pipeline<'a, L: Layout>(
             let mut o = CkOut::new(nb, bytes);
             for &(fi, s, e) in task {
                 let buf: &[u8] = &clicks_in.maps[fi];
-                for_each_record(buf, s, e, scan, |f| parse_click(f, lk, win, &mut o));
+                #[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
+                if scan == Scan::Simd && lk.ids.simd_pack && let Some(dec) = &win.decoder {
+                    columns::clicks(buf, s, e, lk, win, dec, &mut o);
+                    continue;
+                }
+                for_each_record(buf, s, e, scan, |f| {
+                    if let Some(c) = decode_click(f, lk, win) {
+                        o.queue(c, lk);
+                    }
+                });
             }
             o.flush(lk);
             o.b
@@ -2752,6 +2764,7 @@ fn main() {
         3 => Scan::Swar,
         _ => Scan::Simd,
     };
+    lap("link parsing start");
     let (links, nlinked) = load_links(&links_in, knobs.chunk, scan, &ids, hmask);
     let lk = Lookups { products, cat_names, cat_rank, unknown_cat, campaigns, camp_ids, channels, ids, links, hmask };
     lap(&format!("lookups ({nlinked} linked ids)"));
