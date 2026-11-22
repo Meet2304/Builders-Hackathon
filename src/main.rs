@@ -2075,7 +2075,10 @@ fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, scratch: &mut DedupScrat
     let m = cap - 1;
     for (t, o) in ev.iter().enumerate() {
         for (i, en) in o.e[q].iter().enumerate() {
-            let mut s = (mix(en.eid) & hmask) as usize & m;
+            // Partition routing consumes the top hash bits; use middle bits
+            // of a multiplicative hash for this partition-local table. Full
+            // eid equality still resolves every collision exactly.
+            let mut s = (en.eid.wrapping_mul(PART_MULTIPLIER).rotate_left(32) & hmask) as usize & m;
             loop {
                 // SAFETY: s is masked by cap - 1, and both arrays have cap
                 // elements. An occupied byte implies that this partition has
