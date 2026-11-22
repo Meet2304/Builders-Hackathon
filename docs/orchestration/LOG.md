@@ -470,3 +470,10 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - RSS −0.9 GiB (11.37 → 10.46), but the dedup re-scan cost outweighs it.
   - **Lesson: 5-pair 60M A/Bs are noisy under load; use ≥ 9 pairs on a quiet machine for ship decisions.**
 - **v10.1 remains the final candidate.** Sol's v13 (events phase) is the only open line.
+- **USER SUBMITTED v10.1** (`3c3c653`): board **1.0852 s** (BB-AFE58EB5, wait 424 ms), the same as v8's 1.0844 s. v8 stays our best (entered in the final).
+  - **The local gVisor proxy failed:** it predicted +5.3% (20M) and +5.5% (60M), but the board moved +0.1%. The board repeats to 0.8 ms on near-identical code, so this isn't noise.
+  - **Pattern across board points:** v7b → v8 (per-column decoders, x86 instructions per event line 1,481 → 1,316) was −29% on the board vs −5% in local gVisor. v8 → v10.1 (fault and syscall cuts; x86 instructions flat) was 0% on the board vs −5% in local gVisor. **The scorer rewards CPU work on x86, not fault and syscall cuts.**
+  - **New eval policy (user: prioritize by early, intermediate signals):**
+    - **Tier 1 screen** (< 10 min): build, fixtures, dev, x86 instructions per row (callgrind, `x86-64-v2`, NCPU=1, new dev) vs best, and a 3-pair 20M gVisor run.
+    - **Promote** to tier 2 (full gate plus ≥ 9-pair 60M gVisor) only if x86 instructions per row are ≥ 5% lower, or gVisor shows a large clear gain.
+    - **Primary predictor:** x86 instructions per row, fitted to board points.
