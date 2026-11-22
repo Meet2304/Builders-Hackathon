@@ -211,3 +211,15 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Analyst 3** (Cursor Grok, `analysis3`): **x86 instruction counts** for v4, v5 and v6, via callgrind in an amd64 `x86-64-v2` container. It checks whether the ARM-based rankings hold on the scorer's x86.
   - **Scout** (Opus, `claude_master`, `scout`, user request): finds the top teams' public repos and writes clean-room notes on their techniques, with **no code copying**. Licenses are noted. It stops if the rules forbid looking. Due 05:00.
 - **Eval:** the v6 full eval (`1f02cb2`) started at 00:37. The writer A/B on Linux is queued after it.
+- **BOARD RESULTS (from the user, 00:5x ET). They overturn the model.**
+  - Submissions: v3 `29b64bf` **2.529 s** (rescored from 1.9424); v4 `a019739` **2.198 s** (BB-E752B096); v5 `5b7bcc2` **2.146 s** (BB-41B5864A, the current best, entered in the final).
+  - The leaders were rescored too: **0.4508 s** (NoMoreLite), with the top 14 at 0.45–0.67 s. We're around 159th.
+  - The instruction model predicted 1.18 s for v4 and 1.03 s for v5, so it's **wrong**. Fit: about 0.0003 s per (instruction per row) plus **about 1.7 s of fixed scorer-only overhead**. The 47% instruction cut from v3 to v5 bought only 15%.
+  - Leading hypothesis: a sandboxed runner (gVisor-style), where page faults and mmap'd file reads are about 10× costlier. We `Mmap::map` 1.8 GB of input and first-touch about 1.8 GiB of anonymous memory at 20M (on Linux, THP hides this: only about 16k minor faults).
+- **Orchestrator pivot: the fixed overhead is now the #1 target.**
+  - Explorer 5: local gVisor (`runsc`) reproduction plus a breakdown.
+  - Explorer 3: pread input instead of mmap.
+  - Method (move 6): fault counters in the phase marks, buffer reuse, no zero-fill, huge or reserved mimalloc arenas.
+  - Analyst: refit on the 3 board points and recommend the next probe submission.
+  - **New, at the user's request (Gemini Neon in the browser):** **Neon Detective** (scorer-environment hypotheses, the track's infra docs, startup and exit paths) and **Neon Architect** (structural low-footprint design, from 1.8 GiB to ≤ 400 MiB, on `explore/neon-lowmem` off `3671aeb`).
+- **Method:** move 5 = `3671aeb` (Sol's 3 sessions prototypes + Explorer 3's click sort). Sessions + attribution 297 → 236 per line; all gates pass. v7 base.
