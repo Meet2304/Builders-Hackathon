@@ -42,8 +42,6 @@
 //!                               instead of NEON/SSE2 and NEON/SSSE3 (knobs 1 and 2
 //!                               also use the scalar packer)
 //!   SESSIONS_DEBUG_STATS=1      print fast-path / split_fields line counts per input kind
-//!   SESSIONS_PARQUET=v4         v4's Parquet writer (dictionaries + statistics); the
-//!                               default writes PLAIN columns without statistics
 
 mod links;
 
@@ -62,8 +60,8 @@ use arrow_array::{ArrayRef, Date32Array, Int64Array, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use memmap2::Mmap;
 use parquet::arrow::ArrowWriter;
-use parquet::basic::{Compression, Encoding};
-use parquet::file::properties::{EnabledStatistics, WriterProperties};
+use parquet::basic::Compression;
+use parquet::file::properties::WriterProperties;
 use rayon::prelude::*;
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -2336,23 +2334,9 @@ impl ActiveSet {
 
 // ------------------------------------------------------------------ output
 
-fn writer_props() -> WriterProperties {
-    // Uncompressed, no dictionary, no statistics. v4 already left compression off.
-    // Dictionary encoding and page statistics do not change column values, and on
-    // seed-42 they were most of the write. SESSIONS_PARQUET=v4 restores that writer.
-    let mut b = WriterProperties::builder().set_compression(Compression::UNCOMPRESSED);
-    if env::var("SESSIONS_PARQUET").ok().as_deref() != Some("v4") {
-        b = b
-            .set_dictionary_enabled(false)
-            .set_encoding(Encoding::PLAIN)
-            .set_statistics_enabled(EnabledStatistics::None);
-    }
-    b.build()
-}
-
 fn write_parquet(path: &Path, batch: RecordBatch) {
     let file = File::create(path).expect("create parquet file");
-    let props = writer_props();
+    let props = WriterProperties::builder().set_compression(Compression::UNCOMPRESSED).build();
     let mut w = ArrowWriter::try_new(file, batch.schema(), Some(props)).expect("parquet writer");
     w.write(&batch).expect("write batch");
     w.close().expect("close parquet");
