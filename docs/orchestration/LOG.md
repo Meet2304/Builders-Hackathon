@@ -124,3 +124,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - an x86 Cascade Lake scorer cost model, with per-phase board predictions and what AVX-512 is worth (`evals/insights2/scorer-model.md`)
   - a 60M final projection and the superlinear phases
 - **Orchestrator:** Explorer 2 skipped the ID packer (`explore/gemini-pack` has no commits) and went straight to the scan loop on `explore/gemini-scan`. **Method now owns the ID packer** (196 → 35 instructions per line).
+- **Outage (≈20:00–21:50 ET):** the Claude 5-hour limit and a DNS failure stopped the Claude threads (Method, Analyst, Orchestrator). Eval's full eval of v4 `c9e1a0c` died with its Cursor turn: correctness was all clean, timing had only reached 1M, and no `v4.json` was written.
+- **Orchestrator restart (21:50 ET):**
+  - Re-tasked **Eval** to run the full eval on the v4 head **`a019739`**, which adds purchase-only category lookup and parallel links. It runs detached and the turn waits for the result.
+  - Resumed **Method** on its uncommitted SIMD ID packer. The first cut was small (events 914 → 891 instructions per line), so it is profiling `pack` against `Ids::key` before committing. Link lookup + row path and click parsing follow.
+- **Sol:** cache-bound ablations (`1856183`, merged) are **negative**. Adaptive L2-sized partitions cut 60M dedup cycles by 22% (−38 ms), but the whole process adds about 22 instructions and 26 cycles per line, the native footprint grows by 0.5 GB, and Linux wall regresses (+4.7% at 20M, +8.2% at 60M). **Keep 256 partitions.** The next thing to try is subdividing dedup independently of the person partitions. Item (5) is off Method's list.
