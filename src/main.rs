@@ -504,30 +504,56 @@ struct Interner {
     mask: usize,
     shift: u32,
     probe_mask: usize,
+    partition_bits: u32,
+    hash_mask: u64,
 }
 
 impl Interner {
     fn reset(&mut self, n: usize, partitions: usize, hmask: u64) {
-        let cap = (2 * n).next_power_of_two().max(16);
+        self.partition_bits = partitions.next_power_of_two().trailing_zeros();
+        self.hash_mask = hmask;
+        self.keys.clear();
+        // Estimate distinct people from row count. The table grows on demand
+        // for partitions with unusually few rows per person.
+        self.clear_table(n.div_ceil(8).next_power_of_two().max(16));
+    }
+
+    fn clear_table(&mut self, cap: usize) {
         self.tab.clear();
         self.tab.resize(cap, (0, 0));
         self.mask = cap - 1;
         // The outer partition consumes the high bits. Use the next bits of
         // the stored product for the local home slot.
-        self.shift = 64u32.saturating_sub(partitions.next_power_of_two().trailing_zeros() + cap.trailing_zeros());
-        self.probe_mask = (hmask >> self.shift) as usize & self.mask;
-        self.keys.clear();
+        self.shift = 64u32.saturating_sub(self.partition_bits + cap.trailing_zeros());
+        self.probe_mask = (self.hash_mask >> self.shift) as usize & self.mask;
+    }
+
+    #[cold]
+    fn grow_and_intern(&mut self, k: u64) -> u32 {
+        self.clear_table(self.tab.len() * 2);
+        for (id, &key) in self.keys.iter().enumerate() {
+            let mut slot = (key >> self.shift) as usize & self.probe_mask;
+            while self.tab[slot].0 != 0 {
+                slot = (slot + 1) & self.mask;
+            }
+            self.tab[slot] = (key, id as u32);
+        }
+        self.intern(k)
     }
 
     #[inline]
     fn intern(&mut self, k: u64) -> u32 {
         let mut s = (k >> self.shift) as usize & self.probe_mask;
+        let grow_at = self.tab.len() / 2;
         loop {
             let e = &mut self.tab[s];
             if e.0 == k {
                 return e.1;
             }
             if e.0 == 0 {
+                if self.keys.len() == grow_at {
+                    return self.grow_and_intern(k);
+                }
                 let id = self.keys.len() as u32;
                 *e = (k, id);
                 self.keys.push(k);
@@ -2443,6 +2469,26 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn person_interner_keeps_ordinals_through_growth() {
+        let mut people = Interner::default();
+        people.reset(1, DEFAULT_NB, 0);
+        for original in 1..=100u64 {
+            let key = original.wrapping_mul(PART_MULTIPLIER);
+            assert_eq!(key.wrapping_mul(PART_INVERSE), original);
+            assert_eq!(people.intern(key), original as u32 - 1);
+        }
+        assert!(people.tab.len() > 16);
+        for original in (1..=100u64).rev() {
+            let key = original.wrapping_mul(PART_MULTIPLIER);
+            assert_eq!(people.get(key), Some(original as u32 - 1));
+            assert_eq!(people.intern(key), original as u32 - 1);
+        }
+        people.reset(1, DEFAULT_NB, 0);
+        assert_eq!(people.get(PART_MULTIPLIER), None);
+        assert_eq!(people.intern(PART_MULTIPLIER), 0);
+    }
 
     /// Deterministic xorshift strings over packable chars plus a few that force fallback.
     fn strings() -> Vec<Vec<u8>> {
