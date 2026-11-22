@@ -65,12 +65,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use arrow_array::builder::StringBuilder;
-use arrow_array::{ArrayRef, Date32Array, Int64Array, RecordBatch, StringArray};
+use arrow_array::types::UInt32Type;
+use arrow_array::builder::ArrayBuilder;
+use arrow_array::{ArrayRef, Date32Array, DictionaryArray, Int64Array, RecordBatch, StringArray, UInt32Array};
 use arrow_schema::{DataType, Field, Schema};
 use memmap2::Mmap;
 use parquet::arrow::ArrowWriter;
-use parquet::basic::Compression;
-use parquet::file::properties::WriterProperties;
+use parquet::basic::{Compression, Encoding};
+use parquet::file::properties::{EnabledStatistics, WriterProperties};
+use parquet::schema::types::ColumnPath;
 use rayon::prelude::*;
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -693,11 +696,12 @@ impl LinkTable {
     }
 }
 
-/// Per-thread open-addressing map u64 key -> dense u32, reused across partitions.
+/// Per-thread open-addressing map u64 key -> dense u32 and event count.
 #[derive(Default)]
 struct Interner {
     tab: Vec<(u64, u32)>,
     keys: Vec<u64>,
+    counts: Vec<u32>, // event counts, then scatter cursors
     mask: usize,
     shift: u32,
     probe_mask: usize,
@@ -710,6 +714,7 @@ impl Interner {
         self.partition_bits = partitions.next_power_of_two().trailing_zeros();
         self.hash_mask = hmask;
         self.keys.clear();
+        self.counts.clear();
         // Estimate distinct people from row count. The table grows on demand
         // for partitions with unusually few rows per person.
         self.clear_table(n.div_ceil(8).next_power_of_two().max(16));
@@ -745,6 +750,7 @@ impl Interner {
         loop {
             let e = &mut self.tab[s];
             if e.0 == k {
+                self.counts[e.1 as usize] += 1;
                 return e.1;
             }
             if e.0 == 0 {
@@ -754,6 +760,7 @@ impl Interner {
                 let id = self.keys.len() as u32;
                 *e = (k, id);
                 self.keys.push(k);
+                self.counts.push(1);
                 return id;
             }
             s = (s + 1) & self.mask;
@@ -1267,6 +1274,8 @@ struct TimestampDecoder {
     hours: [CalendarHour; 1024],
     numeric: [(u64, i64); 32],
     ingest_days: [(u64, i64); 64],
+    #[cfg(all(target_arch = "x86_64", target_feature = "ssse3"))]
+    ingest_day_suffix: [u16; 64],
 }
 
 impl TimestampDecoder {
@@ -1276,6 +1285,8 @@ impl TimestampDecoder {
             hours: [CalendarHour { prefix: 0, suffix: u64::MAX, base: 0 }; 1024],
             numeric: [(u64::MAX, 0); 32],
             ingest_days: [(0, 0); 64],
+            #[cfg(all(target_arch = "x86_64", target_feature = "ssse3"))]
+            ingest_day_suffix: [0; 64],
         };
         let numeric_start = start.saturating_sub(7 * DAY_MS).div_euclid(100_000_000);
         let numeric_end = end.div_euclid(100_000_000);
@@ -1301,8 +1312,11 @@ impl TimestampDecoder {
             }
             let date = format!("{y:04}-{m:02}-{d:02}");
             let tag = u64::from_le_bytes(date.as_bytes()[..8].try_into().unwrap());
-            let day_key = Self::day_index(u16::from_le_bytes(date.as_bytes()[8..10].try_into().unwrap()));
+            let suffix = u16::from_le_bytes(date.as_bytes()[8..10].try_into().unwrap());
+            let day_key = Self::day_index(suffix);
             decoder.ingest_days[day_key] = (tag, day * DAY_MS);
+            #[cfg(all(target_arch = "x86_64", target_feature = "ssse3"))]
+            { decoder.ingest_day_suffix[day_key] = suffix; }
             for h in 0..24 {
                 let date = format!("{y:04}-{m:02}-{d:02}T{h:02}");
                 let bytes = date.as_bytes();
@@ -1630,7 +1644,7 @@ impl Layout for Row16 {
                 spare.resize(run.len(), 0);
             }
             let n = run.len();
-            radix_u64(run, &mut spare[..n], |&e| e >> 32);
+            radix_event_times(run, &mut spare[..n]);
         } else {
             run.sort_unstable();
         }
@@ -1687,15 +1701,15 @@ const RADIX_RUN_MIN: usize = 512;
 
 /// 8-bit LSD radix on `key`, ping-ponging with `scratch`; skips a byte that is the same
 /// on every row. From Explorer 2's explore/gemini-radix (c99960e).
-fn radix_u64<T: Copy, F: Fn(&T) -> u64>(data: &mut [T], scratch: &mut [T], key: F) {
+fn radix_event_times(data: &mut [u64], scratch: &mut [u64]) {
     let n = data.len();
     debug_assert!(n >= 2 && scratch.len() >= n && n <= u32::MAX as usize);
-    let mut hists = [[0u32; 256]; 8];
-    let sample = key(&data[0]);
-    for item in data.iter() {
-        let k = key(item);
-        for (b, h) in hists.iter_mut().enumerate() {
-            h[((k >> (8 * b)) & 0xff) as usize] += 1;
+    let mut hists = [[0u32; 256]; 4];
+    let sample = (data[0] >> 32) as u32;
+    for &item in data.iter() {
+        let bytes = ((item >> 32) as u32).to_le_bytes();
+        for (hist, byte) in hists.iter_mut().zip(bytes) {
+            hist[byte as usize] += 1;
         }
     }
     let mut in_scratch = false;
@@ -1713,14 +1727,14 @@ fn radix_u64<T: Copy, F: Fn(&T) -> u64>(data: &mut [T], scratch: &mut [T], key: 
         if !in_scratch {
             for i in 0..n {
                 let item = data[i];
-                let b = ((key(&item) >> shift) & 0xff) as usize;
+                let b = ((item >> (32 + shift)) & 0xff) as usize;
                 scratch[hist[b] as usize] = item;
                 hist[b] += 1;
             }
         } else {
             for i in 0..n {
                 let item = scratch[i];
-                let b = ((key(&item) >> shift) & 0xff) as usize;
+                let b = ((item >> (32 + shift)) & 0xff) as usize;
                 data[hist[b] as usize] = item;
                 hist[b] += 1;
             }
@@ -2094,7 +2108,7 @@ struct UserRow {
 /// Per-worker accumulator.
 struct Acc {
     users: Vec<UserRow>,
-    camp: Vec<[i64; 4]>, // (campaign or organic) x day: sessions, purchasing, revenue, assisted
+    camp: Vec<[i64; 4]>, // day x (campaign or organic): sessions, purchasing, revenue, assisted
 }
 
 struct Ctx<'a, 'l> {
@@ -2103,15 +2117,14 @@ struct Ctx<'a, 'l> {
     ndays: usize,
     ncamp: usize, // organic == ncamp
     base: i64,    // window_start - 7 days: the smallest ts of any kept row
-    wide: bool,   // ts - base may not fit 40 bits: sort on (person, ts) pairs
     ckb: u32,     // low bits of Ck::tc holding the campaign index
 }
 
 #[derive(Clone, Copy)]
 struct PCk {
-    k: u64,
     ts: i64,
     cid: u64,
+    loc: u32,
     camp: u32,
 }
 
@@ -2120,8 +2133,7 @@ struct Scratch<E> {
     persons: Interner,
     dropped: Vec<u64>,
     off: Vec<usize>,
-    locs: Vec<u32>,   // local person of each kept row, in input order
-    starts: Vec<u32>, // counting sort: per-person run start (then end)
+    locs: Vec<u32>,   // local person of each source row, or u32::MAX if dropped
     evs: Vec<E>,      // the partition's events, grouped by person, ts-sorted per run
     spare: Vec<E>,
     cks: Vec<PCk>,
@@ -2250,40 +2262,32 @@ fn tally_clicks(run: &[PCk], ids: &Ids) {
     CK_BUCKET[bucket].fetch_add(n as u64, Relaxed);
 }
 
-/// v5's sort: one `sort_unstable_by` over every click in the partition.
-fn sort_clicks_old<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[CkPart], p: usize, wide: bool) {
+/// Count clicks while resolving their dense person IDs. The counting-sort
+/// cursors become run ends, so attribution can reuse them directly.
+fn sort_clicks<L: Layout>(ctx: &Ctx, sc: &mut Scratch<L::Elem>, ck: &[CkPart], p: usize) {
+    let ids = &ctx.lk.ids;
     sc.cks.clear();
-    for part in ck {
-        for c in &part[p] {
-            if let Some(loc) = sc.persons.get(c.person) {
-                let ts = c.ts(ctx);
-                let k = if wide { loc as u64 } else { (loc as u64) << 40 | (ts - ctx.base) as u64 };
-                sc.cks.push(PCk { k, ts, cid: c.cid, camp: c.camp(ctx) });
-            }
-        }
-    }
-    sc.cks.sort_unstable_by(|a, b| a.k.cmp(&b.k).then(a.ts.cmp(&b.ts)).then_with(|| lk.ids.cmp(b.cid, a.cid)));
-}
-
-/// Counting sort by the dense person id, then a per-person sort by (ts, click_id desc).
-/// The person id is resolved once. The counting sort then runs on that flat list.
-fn sort_clicks_counted<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[CkPart], p: usize, wide: bool) {
-    let shift = if wide { 0 } else { 40 };
-    sc.cks.clear();
-    for part in ck {
-        for c in &part[p] {
-            if let Some(loc) = sc.persons.get(c.person) {
-                let k = if wide { loc as u64 } else { (loc as u64) << 40 };
-                sc.cks.push(PCk { k, ts: c.ts(ctx), cid: c.cid, camp: c.camp(ctx) });
-            }
-        }
-    }
-    let npeople = sc.persons.keys.len();
     sc.ck_at.clear();
-    sc.ck_at.resize(npeople, 0);
-    for c in &sc.cks {
-        sc.ck_at[(c.k >> shift) as usize] += 1;
+    sc.ck_at.resize(sc.persons.keys.len(), 0);
+    for part in ck {
+        for c in &part[p] {
+            if let Some(loc) = sc.persons.get(c.person) {
+                sc.ck_at[loc as usize] += 1;
+                sc.cks.push(PCk { loc, ts: c.ts(ctx), cid: c.cid, camp: c.camp(ctx) });
+            }
+        }
     }
+    assert!(u32::try_from(sc.cks.len()).is_ok(), "too many clicks in one partition");
+    if env_flags().2 {
+        sc.cks.sort_unstable_by(|a, b| a.loc.cmp(&b.loc).then_with(|| click_ord(a, b, ids)));
+        let mut end = 0;
+        for count in &mut sc.ck_at {
+            end += *count;
+            *count = end;
+        }
+        return;
+    }
+
     let mut sum = 0u32;
     for c in sc.ck_at.iter_mut() {
         let n = *c;
@@ -2291,13 +2295,18 @@ fn sort_clicks_counted<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::E
         sum += n;
     }
     sc.ck_spare.clear();
-    sc.ck_spare.resize(sc.cks.len(), PCk { k: 0, ts: 0, cid: 0, camp: 0 });
+    let nclicks = sc.cks.len();
+    sc.ck_spare.reserve(nclicks);
+    let sorted = &mut sc.ck_spare.spare_capacity_mut()[..nclicks];
     for c in &sc.cks {
-        let loc = (c.k >> shift) as usize;
+        let loc = c.loc as usize;
         let i = sc.ck_at[loc] as usize;
         sc.ck_at[loc] += 1;
-        sc.ck_spare[i] = *c;
+        sorted[i].write(*c);
     }
+    // Each person's count reserved a disjoint run, and the scatter just wrote
+    // one element for every row counted.
+    unsafe { sc.ck_spare.set_len(nclicks) };
     std::mem::swap(&mut sc.cks, &mut sc.ck_spare);
     let tally = sorted_probe();
     let mut s0 = 0usize;
@@ -2305,9 +2314,9 @@ fn sort_clicks_counted<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::E
         let e = e as usize;
         if e > s0 {
             if tally {
-                tally_clicks(&sc.cks[s0..e], &lk.ids);
+                tally_clicks(&sc.cks[s0..e], ids);
             }
-            sort_click_run(&mut sc.cks[s0..e], &lk.ids);
+            sort_click_run(&mut sc.cks[s0..e], ids);
         }
         s0 = e;
     }
@@ -2328,9 +2337,10 @@ fn process_part<L: Layout>(
     if n == 0 {
         return; // clicks of people with no events never matter
     }
+    assert!(u32::try_from(n).is_ok(), "too many events in one partition");
     sc.dropped.clear();
-    sc.dropped.resize(n.div_ceil(64), 0);
     if !drops.is_empty() {
+        sc.dropped.resize(n.div_ceil(64), 0);
         sc.off.clear();
         let mut o = 0;
         for x in ev {
@@ -2342,84 +2352,75 @@ fn process_part<L: Layout>(
             sc.dropped[b >> 6] |= 1 << (b & 63);
         }
     }
-    // pass 1: intern persons and count each one's rows
+    // Pass 1: count kept rows by person, with one locator per source row.
+    // Save the drop decision here so scatter can just zip rows and locators.
     sc.persons.reset(n, ev[0].r.len(), hmask);
     sc.locs.clear();
-    sc.starts.clear();
+    sc.locs.reserve(n);
     let mut b = 0usize;
+    let has_drops = !drops.is_empty();
     for x in ev {
         for r in &x.r[p] {
-            let gone = sc.dropped[b >> 6] >> (b & 63) & 1 != 0;
+            let gone = has_drops && sc.dropped[b >> 6] >> (b & 63) & 1 != 0;
             b += 1;
             if gone {
+                sc.locs.push(u32::MAX);
                 continue;
             }
             let loc = sc.persons.intern(r.person());
-            if loc as usize == sc.starts.len() {
-                sc.starts.push(0);
-            }
-            sc.starts[loc as usize] += 1;
             sc.locs.push(loc);
         }
     }
-    let kept = sc.locs.len();
     let mut sum = 0u32;
-    for c in sc.starts.iter_mut() {
+    for c in sc.persons.counts.iter_mut() {
         let cnt = *c;
         *c = sum;
         sum += cnt;
     }
-    // pass 2: scatter each kept row's element into its person's run (counting sort)
+    let kept = sum as usize;
+    // Pass 2: scatter each kept row into its person's run, in source order.
     sc.evs.clear();
-    sc.evs.resize(kept, L::Elem::default());
-    let (mut b, mut j) = (0usize, 0usize);
+    sc.evs.reserve(kept);
+    let sorted = &mut sc.evs.spare_capacity_mut()[..kept];
+    let mut locs = &sc.locs[..];
     for x in ev {
-        for r in &x.r[p] {
-            let gone = sc.dropped[b >> 6] >> (b & 63) & 1 != 0;
-            b += 1;
-            if gone {
-                continue;
+        let rows = &x.r[p];
+        let (current, rest) = locs.split_at(rows.len());
+        locs = rest;
+        for (r, &loc) in rows.iter().zip(current) {
+            if loc != u32::MAX {
+                let cursor = &mut sc.persons.counts[loc as usize];
+                sorted[*cursor as usize].write(r.elem());
+                *cursor += 1;
             }
-            let loc = sc.locs[j] as usize;
-            j += 1;
-            sc.evs[sc.starts[loc] as usize] = r.elem();
-            sc.starts[loc] += 1;
         }
     }
-    // starts[loc] is now the end of loc's run; sort each run by ts
+    // The counts cover exactly the kept rows, and the same rows are visited
+    // here in the same order. Every slot in the prefix-summed runs is written.
+    unsafe { sc.evs.set_len(kept) };
+    // Each scatter cursor now points past its person's run.
     let mut s0 = 0usize;
-    for &e in &sc.starts {
+    for &e in &sc.persons.counts {
         let e = e as usize;
         if e - s0 > 1 {
             L::sort_run(&mut sc.evs[s0..e], &mut sc.spare);
         }
         s0 = e;
     }
-    let wide = ctx.wide || sc.persons.keys.len() >= 1 << 24;
-    let shift = if wide { 0 } else { 40 };
     let click_t0 = insn_probe().then(hwi);
-    if env_flags().2 {
-        sort_clicks_old::<L>(ctx, lk, sc, ck, p, wide);
-    } else {
-        sort_clicks_counted::<L>(ctx, lk, sc, ck, p, wide);
-    }
+    sort_clicks::<L>(ctx, sc, ck, p);
     if let Some(t0) = click_t0 {
         CLICK_INSN.fetch_add(hwi().wrapping_sub(t0), Relaxed);
         CLICK_N.fetch_add(sc.cks.len() as u64, Relaxed);
     }
 
-    let Scratch { persons, evs, starts, cks, active, category_sales, .. } = sc;
+    let Scratch { persons, evs, cks, ck_at, active, category_sales, .. } = sc;
     let mut ci = 0usize;
     let mut i = 0usize;
-    for (loc, &j) in starts.iter().enumerate() {
+    for (loc, &j) in persons.counts.iter().enumerate() {
         let j = j as usize;
         let person = persons.keys[loc].wrapping_mul(PART_INVERSE);
-        // Every stored click has a person in starts, and the sort groups those
-        // people in the same order. The cursor advances once per click.
-        let mut cj = ci;
-        while cj < cks.len() && cks[cj].k >> shift == loc as u64 {
-            cj += 1;
-        }
+        let cj = ck_at[loc] as usize;
         let clicks = &cks[ci..cj];
         if clicks.is_empty() {
             walk_person::<L, false>(ctx, acc, person, &evs[i..j], clicks, active, category_sales);
@@ -2482,15 +2483,14 @@ fn walk_person<L: Layout, const HAS_CLICKS: bool>(
     sales: &mut CategorySales,
 ) {
     let base = ctx.base;
-    let mut k = 0;
-    let mut day = L::ts(events[0], base).div_euclid(DAY_MS);
+    let mut remaining = events;
+    let mut start = L::ts(events[0], base);
+    let mut day = start.div_euclid(DAY_MS);
     let mut next_day = (day + 1).saturating_mul(DAY_MS);
     let mut day_index = (day - ctx.first_day) as usize;
     let mut daily = DayTotals::default();
     let (mut lo, mut hi) = (0, 0);
-    while k < events.len() {
-        let first = k;
-        let start = L::ts(events[k], base);
+    while let Some((&first, rest)) = remaining.split_first() {
         if start >= next_day {
             flush_day::<HAS_CLICKS>(ctx, acc, person, day, day_index, daily, sales);
             day = start.div_euclid(DAY_MS);
@@ -2499,25 +2499,33 @@ fn walk_person<L: Layout, const HAS_CLICKS: bool>(
             daily = DayTotals::default();
         }
 
-        // Attribute all events in a session to its start day, even past midnight.
+        // Keep the lookahead timestamp for the next session. Purchases,
+        // including those after midnight, always belong to this start day.
         let mut last = start;
-        let mut revenue = 0;
-        while let Some(&event) = events.get(k) {
+        let mut next_start = start;
+        let mut revenue = L::price(first) as i64;
+        if revenue > 0 {
+            sales.add(L::cat(first), revenue);
+        }
+        let before = remaining.len();
+        remaining = rest;
+        while let Some((&event, tail)) = remaining.split_first() {
             let ts = L::ts(event, base);
             if ts - last > GAP_MS {
+                next_start = ts;
                 break;
             }
+            remaining = tail;
             last = ts;
             let price = L::price(event) as i64;
             if price > 0 {
                 sales.add(L::cat(event), price);
                 revenue += price;
             }
-            k += 1;
         }
         let purchased = i64::from(revenue > 0);
         daily.sessions += 1;
-        daily.events += (k - first) as i64;
+        daily.events += (before - remaining.len()) as i64;
         daily.revenue += revenue;
         if HAS_CLICKS {
             // The two cursors delimit the inclusive 7-day click window.
@@ -2530,16 +2538,20 @@ fn walk_person<L: Layout, const HAS_CLICKS: bool>(
                 lo += 1;
             }
             let credited = if lo < hi { clicks[hi - 1].camp as usize } else { ctx.ncamp };
-            let credit = &mut acc.camp[credited * ctx.ndays + day_index];
+            let stride = ctx.ncamp + 1;
+            let offset = day_index * stride;
+            let day_camp = &mut acc.camp[offset..offset + stride];
+            let credit = &mut day_camp[credited];
             credit[0] += 1;
             credit[1] += purchased;
             credit[2] += revenue;
             for &campaign in &active.list {
-                acc.camp[campaign as usize * ctx.ndays + day_index][3] += 1;
+                day_camp[campaign as usize][3] += 1;
             }
         } else {
             daily.purchasing += purchased;
         }
+        start = next_start;
     }
     flush_day::<HAS_CLICKS>(ctx, acc, person, day, day_index, daily, sales);
     if HAS_CLICKS {
@@ -2560,7 +2572,7 @@ fn flush_day<const HAS_CLICKS: bool>(
     sales: &mut CategorySales,
 ) {
     if !HAS_CLICKS {
-        let organic = &mut acc.camp[ctx.ncamp * ctx.ndays + day_index];
+        let organic = &mut acc.camp[day_index * (ctx.ncamp + 1) + ctx.ncamp];
         organic[0] += totals.sessions;
         organic[1] += totals.purchasing;
         organic[2] += totals.revenue;
@@ -2654,9 +2666,19 @@ impl ActiveSet {
 
 /// Encode the whole file in memory, then create it with one `write`: an unbuffered
 /// `File` sink costs ~13 writes per file (Thrift headers, footer pieces), and every
-/// syscall is a sentry round trip under gVisor. Same writer properties, same bytes.
+/// syscall is a sentry round trip under gVisor.
 fn write_parquet(path: &Path, batch: RecordBatch) {
-    let props = WriterProperties::builder().set_compression(Compression::UNCOMPRESSED).build();
+    let mut props = WriterProperties::builder()
+        .set_compression(Compression::UNCOMPRESSED)
+        .set_statistics_enabled(EnabledStatistics::None);
+    // Keep the string and date dictionaries. Counts use the integer delta
+    // encoder, which avoids a hash probe per row and still packs small deltas.
+    for name in ["sessions", "events", "purchasing_sessions", "assisted_sessions", "revenue_cents"] {
+        let column = ColumnPath::from(name);
+        props = props.set_column_dictionary_enabled(column.clone(), false)
+            .set_column_encoding(column, Encoding::DELTA_BINARY_PACKED);
+    }
+    let props = props.build();
     let cap = batch.get_array_memory_size() + (64 << 10);
     let mut w = ArrowWriter::try_new(Vec::with_capacity(cap), batch.schema(), Some(props)).expect("parquet writer");
     w.write(&batch).expect("write batch");
@@ -2683,7 +2705,7 @@ fn campaign_batch(camp: &[[i64; 4]], ctx: &Ctx) -> RecordBatch {
     let (mut s, mut p, mut r, mut a) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for c in 0..=ctx.ncamp {
         for d in 0..ctx.ndays {
-            let v = camp[c * ctx.ndays + d];
+            let v = camp[d * (ctx.ncamp + 1) + c];
             if v[0] == 0 && v[3] == 0 {
                 continue;
             }
@@ -2714,27 +2736,46 @@ fn campaign_batch(camp: &[[i64; 4]], ctx: &Ctx) -> RecordBatch {
 }
 
 fn user_batch(rows: &[UserRow], lk: &Lookups) -> RecordBatch {
+    let dict = || DataType::Dictionary(Box::new(DataType::UInt32), Box::new(DataType::Utf8));
     let schema = Arc::new(Schema::new(vec![
-        Field::new("user_id", DataType::Utf8, false),
+        Field::new("user_id", dict(), false),
         Field::new("day", DataType::Date32, false),
         Field::new("sessions", DataType::Int64, false),
         Field::new("events", DataType::Int64, false),
         Field::new("revenue_cents", DataType::Int64, false),
-        Field::new("top_category", DataType::Utf8, true),
+        Field::new("top_category", dict(), true),
     ]));
-    let cat_str: Vec<Cow<str>> = lk.cat_names.iter().map(|c| utf8(c)).collect();
+    // Each person's daily rows are emitted consecutively. Reuse their string
+    // across days so the Parquet writer only interns it once.
     let mut users = StringBuilder::with_capacity(rows.len(), rows.len() * 10);
+    let mut user_keys = Vec::with_capacity(rows.len());
     let mut buf: IdBuf = [0; 33];
+    let mut previous = None;
+    let mut index = 0;
     for r in rows {
-        users.append_value(utf8(lk.ids.bytes(r.person, &mut buf)));
+        if previous != Some(r.person) {
+            index = u32::try_from(users.len()).expect("too many users in output file");
+            let id = lk.ids.bytes(r.person, &mut buf);
+            if is_packed(r.person) || r.person & 15 == 2 {
+                // Both key formats decode exclusively to ASCII.
+                users.append_value(unsafe { std::str::from_utf8_unchecked(id) });
+            } else {
+                users.append_value(utf8(id));
+            }
+            previous = Some(r.person);
+        }
+        user_keys.push(index);
     }
+    let ids = DictionaryArray::<UInt32Type>::new(UInt32Array::from(user_keys), Arc::new(users.finish()));
+    let cat_values = Arc::new(StringArray::from_iter_values(lk.cat_names.iter().map(|c| utf8(c))));
+    let cats = DictionaryArray::<UInt32Type>::new(rows.iter().map(|r| r.top).collect(), cat_values);
     let cols: Vec<ArrayRef> = vec![
-        Arc::new(users.finish()),
+        Arc::new(ids),
         Arc::new(Date32Array::from_iter_values(rows.iter().map(|r| r.day))),
         Arc::new(Int64Array::from_iter_values(rows.iter().map(|r| r.sessions))),
         Arc::new(Int64Array::from_iter_values(rows.iter().map(|r| r.events))),
         Arc::new(Int64Array::from_iter_values(rows.iter().map(|r| r.revenue))),
-        Arc::new(StringArray::from_iter(rows.iter().map(|r| r.top.map(|c| cat_str[c as usize].as_ref())))),
+        Arc::new(cats),
     ];
     RecordBatch::try_new(schema, cols).unwrap()
 }
@@ -2831,7 +2872,6 @@ fn pipeline<'a, L: Layout>(
                     dropped: Vec::new(),
                     off: Vec::new(),
                     locs: Vec::new(),
-                    starts: Vec::new(),
                     evs: Vec::new(),
                     spare: Vec::new(),
                     cks: Vec::new(),
@@ -2930,13 +2970,12 @@ fn main() {
     let ndays = ((win.end - 1).div_euclid(DAY_MS) - first_day + 1).max(1) as usize;
     let ncamp = lk.camp_ids.len();
     let base = win.start.saturating_sub(WEEK_MS);
-    let wide = !(0..1i64 << 40).contains(&win.end.saturating_sub(base));
     // click rows pack (ts - base) above the campaign index's bits
     let ckb = (u64::BITS - (ncamp as u64).leading_zeros()).max(1);
     assert!((win.end.saturating_sub(base) as u64) >> (64 - ckb) == 0, "click window too wide to pack");
     win.ck_base = base;
     win.ckb = ckb;
-    let ctx = Ctx { lk: &lk, first_day, ndays, ncamp, base, wide, ckb };
+    let ctx = Ctx { lk: &lk, first_day, ndays, ncamp, base, ckb };
     let ncat = lk.cat_names.len();
     // 16 B rows unless a ts offset (ms) or a category index wouldn't fit them
     let compact = knobs.no_fast != 1 && win.end.saturating_sub(base) < 1i64 << 32 && ncat <= 256;
@@ -3038,9 +3077,11 @@ mod tests {
             assert_eq!(people.get(key), Some(original as u32 - 1));
             assert_eq!(people.intern(key), original as u32 - 1);
         }
+        assert_eq!(people.counts, vec![2; 100]);
         people.reset(1, DEFAULT_NB, 0);
         assert_eq!(people.get(PART_MULTIPLIER), None);
         assert_eq!(people.intern(PART_MULTIPLIER), 0);
+        assert_eq!(people.counts, [1]);
     }
 
     /// Deterministic xorshift strings over packable chars plus a few that force fallback.
