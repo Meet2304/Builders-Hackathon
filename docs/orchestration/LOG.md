@@ -445,3 +445,9 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **v11b (fewer output files) DROPPED** (`explore/v11-files` @ `2cb2ab8`, notes kept). 60M gVisor 5 pairs vs v10: median 3.32 → 3.28 s (−1.2%, below the 3% bar), and the output phase is slower (78 → 94 ms) despite 603 fewer syscalls. Gates pass.
 - **Red Team: v10.1 `be41e2e` PASS** (5,922 runs: v8col 300 seeds × 16 configs, seed535 × 500 at PARTS=4096 NCPU=8, priority click/writer suite).
 - **Eval: v10.1 untimed gate all MATCH** (long-ID 900/900 in 30 s). Timed gate (containers, native 20M/60M, 22 GiB cgroup memory check, now unguarded) running; Gate C carried from the `def3d26` A/B. v10's own cgroup check was `not_run` (Docker VM load tripped the guard; fixed in `lib/linux_proxy.py`).
+- **06:15, user: keep iterating; use Gemini Neon in the browser as much as possible to refine the development workflow.**
+  - **Candidate freeze moved 08:00 → 09:30.** The fast gate plus paired gVisor A/B is about 20 min per candidate; deadline 11:00.
+  - Explorer 4 (Codex-Andrew 6.1 Sol) → **v12: shrink the dedup entries** (≤ 1/3 of the bytes; exact dedup semantics) on `explore/v12-dedup` from `be41e2e`.
+  - Neon Detective (Opus medium, claudeAgent, + Gemini Neon) → split events-parse time under gVisor (input copy vs faults on rows/dedup/refs vs compute vs fault serialization), then rank fixes.
+  - Sol (Codex) → v11 per-thread dedup and sessions workers, rebased on `be41e2e`, 60M A/B by 07:15.
+  - **At 07:21 (claude_master reset), Neon Architect → Opus medium + Neon: a one-command candidate pipeline** (build → parallel gate → paired gVisor A/B vs best → verdict in about 10 min).
