@@ -14,18 +14,20 @@ The Rust differential test compares every ID in a synthetic graph with the seria
 
 The quick profile matched the published dev answer, all 10 oracles, all 150 fuzz cases under defaults and every quick debug setting, and the 60M v1 consistency answer. Direct comparators also matched both output tables against v3 at dev, 20M and 60M. The quick profile leaves the amd64 runtime and clean build gates open.
 
-## Timing
+## Instructions and timing
 
-Native M5 Pro with eight threads. Eight alternating pairs at 20M and four at 60M.
+Native M5 Pro hardware counters measure the whole process, divided by physical event input lines including dirty rows. With eight threads, the prototype reduced 20M from 2,600 to 2,564 instructions/line (−36.1, −1.39%) and 60M from 2,605 to 2,566 (−39.5, −1.51%). Both deltas satisfy the framework’s significance rule. Eight alternating pairs at 20M and four at 60M.
 
 | Size | Metric | v3 | Parallel links |
 | --- | --- | ---: | ---: |
+| 20M | Instructions/input event line | 2,599.6 | 2,563.5 |
 | 20M | Process wall (s) | 0.6740 | 0.6639 |
 | 20M | User CPU (s) | 3.895 | 3.895 |
 | 20M | System CPU (s) | 0.480 | 0.485 |
 | 20M | Footprint (GB) | 2.039 | 2.049 |
 | 20M | Lookup wall (ms) | 56.0 | 23.5 |
 | 20M | Lookup CPU (ms) | 163.0 | 146.5 |
+| 60M | Instructions/input event line | 2,605.3 | 2,565.9 |
 | 60M | Process wall (s) | 2.0179 | 1.8544 |
 | 60M | User CPU (s) | 12.480 | 12.085 |
 | 60M | System CPU (s) | 1.225 | 1.250 |
@@ -50,7 +52,7 @@ The 5.1% Linux wall improvement falls short of the framework's dispersion thresh
 
 ## Recommendation
 
-Port the module to v4 and run the full amd64 correctness and build gates before submission. It cuts the lookup phase by 30–35 ms on all 20M comparisons and about 153 ms at 60M while the public loader signature and runtime link table stay the same. The temporary construction index uses full key hashes, and the final table still honors v3's collision knob. The process-wall measurements support an incremental gain with limited timing confidence.
+Port the module to v4 and run the full amd64 correctness and build gates before submission. It removes 36–39 retired instructions per input event line and cuts the lookup phase by 30–35 ms on all 20M comparisons and about 153 ms at 60M while the public loader signature and runtime link table stay the same. The temporary construction index uses full key hashes, and the final table still honors v3's collision knob. The process-wall measurements support an incremental gain with limited timing confidence.
 
 - [Quick eval](../results/parallel-links.md) and [result JSON](../results/parallel-links.json)
 - [Native and Linux interleaved runs and exact differential hashes](../results/parallel-links-ab.json)
