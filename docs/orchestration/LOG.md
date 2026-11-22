@@ -239,3 +239,9 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **Explorer 2:** quote mask is negative (−28). Re-tasked to a hex-32 SIMD validator and exact packer kernel for Method (`explore/gemini-hex32`).
 - **Analyst:** board fit: 1.70 s fixed + 0.000318 s per instruction per row, within 4 ms on all three points. It predates the root cause and is being redone.
 - **Scout:** v5 on the **new-generator 60M** data (seed 61, 60M/15M, NCPU=8) runs **8.58 s**, against 1.32 s on old data. Events parse is 6.36 s (73 G instructions), because the intern map goes superlinear with rehashes under the shard locks as about 8M long IDs pile in. Every earlier instruction model and 60M projection was measured on stale data. **The long-ID fast path is the #1 priority.**
+- **Explorer 5, v5 per phase, plain vs gVisor (ms, median of 3 reversed pairs):** lookups 42→93, **event parse 584→1,495**, clicks 111→197, dedup 41→54, sessions 109→138, **write 35→165**, start and exit 17→76.
+  - Input policy under gVisor: mmap 2.06 s (best), MAP_POPULATE 2.17 s, whole-file reads 2.53 s, reads + MADV_HUGEPAGE 2.56 s. **Keep mmap.**
+- **Orchestrator:**
+  - **The v6 writer (no dictionaries or statistics) is dropped from the trains**, since 4× output costs more under gVisor.
+  - v7 = `3671aeb` + revert move 4 + move 6 (lock-free long IDs).
+  - Explorer 3 re-tasked from pread to **write-path syscalls** (one write per file, tables in parallel) on `explore/gemini3-write`.
