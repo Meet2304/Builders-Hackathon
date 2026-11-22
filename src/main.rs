@@ -2122,7 +2122,7 @@ struct Scratch<E> {
     persons: Interner,
     dropped: Vec<u64>,
     off: Vec<usize>,
-    locs: Vec<u32>,   // local person of each kept row, in input order
+    locs: Vec<u32>,   // local person of each source row, or u32::MAX if dropped
     starts: Vec<u32>, // counting sort: per-person run start (then end)
     evs: Vec<E>,      // the partition's events, grouped by person, ts-sorted per run
     spare: Vec<E>,
@@ -2327,8 +2327,8 @@ fn process_part<L: Layout>(
         return; // clicks of people with no events never matter
     }
     sc.dropped.clear();
-    sc.dropped.resize(n.div_ceil(64), 0);
     if !drops.is_empty() {
+        sc.dropped.resize(n.div_ceil(64), 0);
         sc.off.clear();
         let mut o = 0;
         for x in ev {
@@ -2340,16 +2340,20 @@ fn process_part<L: Layout>(
             sc.dropped[b >> 6] |= 1 << (b & 63);
         }
     }
-    // pass 1: intern persons and count each one's rows
+    // Pass 1: count kept rows by person, with one locator per source row.
+    // Save the drop decision here so scatter can just zip rows and locators.
     sc.persons.reset(n, ev[0].r.len(), hmask);
     sc.locs.clear();
+    sc.locs.reserve(n);
     sc.starts.clear();
     let mut b = 0usize;
+    let has_drops = !drops.is_empty();
     for x in ev {
         for r in &x.r[p] {
-            let gone = sc.dropped[b >> 6] >> (b & 63) & 1 != 0;
+            let gone = has_drops && sc.dropped[b >> 6] >> (b & 63) & 1 != 0;
             b += 1;
             if gone {
+                sc.locs.push(u32::MAX);
                 continue;
             }
             let loc = sc.persons.intern(r.person());
@@ -2360,29 +2364,28 @@ fn process_part<L: Layout>(
             sc.locs.push(loc);
         }
     }
-    let kept = sc.locs.len();
     let mut sum = 0u32;
     for c in sc.starts.iter_mut() {
         let cnt = *c;
         *c = sum;
         sum += cnt;
     }
-    // pass 2: scatter each kept row's element into its person's run (counting sort)
+    let kept = sum as usize;
+    // Pass 2: scatter each kept row into its person's run, in source order.
     sc.evs.clear();
     sc.evs.reserve(kept);
     let sorted = &mut sc.evs.spare_capacity_mut()[..kept];
-    let (mut b, mut j) = (0usize, 0usize);
+    let mut locs = &sc.locs[..];
     for x in ev {
-        for r in &x.r[p] {
-            let gone = sc.dropped[b >> 6] >> (b & 63) & 1 != 0;
-            b += 1;
-            if gone {
-                continue;
+        let rows = &x.r[p];
+        let (current, rest) = locs.split_at(rows.len());
+        locs = rest;
+        for (r, &loc) in rows.iter().zip(current) {
+            if loc != u32::MAX {
+                let cursor = &mut sc.starts[loc as usize];
+                sorted[*cursor as usize].write(r.elem());
+                *cursor += 1;
             }
-            let loc = sc.locs[j] as usize;
-            j += 1;
-            sorted[sc.starts[loc] as usize].write(r.elem());
-            sc.starts[loc] += 1;
         }
     }
     // The counts cover exactly the kept rows, and the same rows are visited
