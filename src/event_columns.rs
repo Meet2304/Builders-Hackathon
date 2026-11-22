@@ -741,8 +741,8 @@ mod tests {
         let w = window(start, start + 14 * DAY_MS);
         let patterns: [[&[u8]; 7]; 8] = [
             [
-                b"eA_09",
-                b"U_2",
+                b"eA_09Zx9I",
+                b"U_2a3Z_9k",
                 b"2026-10-01T01:02:03Z",
                 b"2026-10-01T01:03:01Z",
                 b"view",
