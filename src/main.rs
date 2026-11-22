@@ -862,10 +862,14 @@ impl Interner {
     fn intern(&mut self, k: u64) -> u32 {
         let mut s = (k >> self.shift) as usize & self.probe_mask;
         let grow_at = self.tab.len() / 2;
+        debug_assert!(self.tab.len() == self.mask + 1 && self.probe_mask <= self.mask);
         loop {
-            let e = &mut self.tab[s];
+            // s <= mask, and tab.len() == mask + 1 (clear_table).
+            let e = unsafe { self.tab.get_unchecked_mut(s) };
             if e.0 == k {
-                self.counts[e.1 as usize] += 1;
+                // Stored ordinals index keys/counts, which grow together.
+                debug_assert!((e.1 as usize) < self.counts.len());
+                unsafe { *self.counts.get_unchecked_mut(e.1 as usize) += 1 };
                 return e.1;
             }
             if e.0 == 0 {
@@ -886,7 +890,8 @@ impl Interner {
     fn get(&self, k: u64) -> Option<u32> {
         let mut s = (k >> self.shift) as usize & self.probe_mask;
         loop {
-            let e = &self.tab[s];
+            // s <= mask, and tab.len() == mask + 1 (clear_table).
+            let e = unsafe { self.tab.get_unchecked(s) };
             if e.0 == k {
                 return Some(e.1);
             }
@@ -2457,14 +2462,23 @@ fn sort_clicks<L: Layout>(ctx: &Ctx, sc: &mut Scratch<L::Elem>, ck: &[CkPart], p
     sc.cks.clear();
     sc.ck_at.clear();
     sc.ck_at.resize(sc.persons.keys.len(), 0);
+    let total: usize = ck.iter().map(|part| part[p].len()).sum();
+    sc.cks.reserve(total);
+    let cks_out = sc.cks.as_mut_ptr();
+    let mut w = 0usize;
     for part in ck {
         for c in &part[p] {
             if let Some(loc) = sc.persons.get(c.person) {
-                sc.ck_at[loc as usize] += 1;
-                sc.cks.push(PCk { loc, ts: c.ts(ctx), cid: c.cid, camp: c.camp(ctx) });
+                // loc < keys.len() == ck_at.len(); w < total, reserved above.
+                unsafe {
+                    *sc.ck_at.get_unchecked_mut(loc as usize) += 1;
+                    cks_out.add(w).write(PCk { loc, ts: c.ts(ctx), cid: c.cid, camp: c.camp(ctx) });
+                }
+                w += 1;
             }
         }
     }
+    unsafe { sc.cks.set_len(w) };
     assert!(u32::try_from(sc.cks.len()).is_ok(), "too many clicks in one partition");
     if env_flags().2 {
         sc.cks.sort_unstable_by(|a, b| a.loc.cmp(&b.loc).then_with(|| click_ord(a, b, ids)));
@@ -2549,12 +2563,19 @@ fn process_part<L: Layout>(
     sc.persons.reset(n, ev[0].r.len(), hmask);
     sc.locs.clear();
     sc.locs.reserve(n);
+    let locs_out = sc.locs.as_mut_ptr();
+    let mut w = 0usize;
     for x in ev {
         for r in &x.r[p] {
             let loc = sc.persons.intern(r.person());
-            sc.locs.push(loc);
+            // w < n: the rows visited here are exactly the n counted above, and
+            // `reserve(n)` on the cleared Vec gave room for n.
+            unsafe { locs_out.add(w).write(loc) };
+            w += 1;
         }
     }
+    debug_assert!(w == n);
+    unsafe { sc.locs.set_len(w) };
     if !drops.is_empty() {
         sc.off.clear();
         let mut o = 0;
@@ -2588,9 +2609,14 @@ fn process_part<L: Layout>(
         locs = rest;
         for (r, &loc) in rows.iter().zip(current) {
             if loc != u32::MAX {
-                let cursor = &mut sc.persons.counts[loc as usize];
-                sorted[*cursor as usize].write(r.elem());
-                *cursor += 1;
+                // loc < counts.len() (an interned ordinal), and each cursor stays
+                // inside its person's prefix-summed run, so < kept == sorted.len().
+                unsafe {
+                    let cursor = sc.persons.counts.get_unchecked_mut(loc as usize);
+                    debug_assert!((*cursor as usize) < sorted.len());
+                    sorted.get_unchecked_mut(*cursor as usize).write(r.elem());
+                    *cursor += 1;
+                }
             }
         }
     }
