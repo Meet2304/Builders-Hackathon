@@ -38,7 +38,9 @@
 //!                               v1's timestamp parser only
 //!   SESSIONS_DEBUG_NO_FAST=2    half the IDs (by hash parity) take the interned fallback,
 //!                               to mix packed and interned keys
-//!   SESSIONS_DEBUG_NO_FAST=3    the portable SWAR classifier instead of NEON/SSE2
+//!   SESSIONS_DEBUG_NO_FAST=3    the portable SWAR classifier and the scalar ID packer
+//!                               instead of NEON/SSE2 and NEON/SSSE3 (knobs 1 and 2
+//!                               also use the scalar packer)
 //!   SESSIONS_DEBUG_STATS=1      print fast-path / split_fields line counts per input kind
 
 mod links;
@@ -141,6 +143,19 @@ impl Knobs {
     }
 }
 
+/// Instructions retired by the process so far (macOS only: proc_pid_rusage V4).
+#[cfg(target_os = "macos")]
+fn instructions() -> Option<u64> {
+    let mut ri: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
+    let p = &mut ri as *mut libc::rusage_info_v4 as *mut libc::rusage_info_t;
+    (unsafe { libc::proc_pid_rusage(libc::getpid(), libc::RUSAGE_INFO_V4, p) } == 0).then_some(ri.ri_instructions)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn instructions() -> Option<u64> {
+    None
+}
+
 /// Process CPU time so far (user + sys, all threads), in seconds.
 fn cpu_secs() -> f64 {
     let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
@@ -205,6 +220,127 @@ fn pack(b: &[u8]) -> Option<u64> {
     Some(k)
 }
 
+/// SIMD pack: the same result as `pack` (asserted by the unit test and, at startup, by
+/// `pack_simd_self_test`). One 16-byte load; nibble-table lookups classify each byte
+/// and give its code offset; two multiply/shift merges join the 6-bit codes, and three
+/// scalar ops place them. Reads 16 bytes from `b`'s start, so it only runs when those
+/// stay inside `b`'s page; any other case uses `pack`.
+#[inline(always)]
+fn pack_fast(b: &[u8]) -> Option<u64> {
+    let n = b.len();
+    if n.wrapping_sub(1) >= 10 {
+        return None;
+    }
+    let p = b.as_ptr();
+    if (p as usize & 4095) > 4096 - 16 {
+        return pack(b);
+    }
+    unsafe { pack_simd(p, n) }
+}
+
+/// Class bits by low nibble: 1 = 0..=9 (row 3, digits), 2 = 1..=f (rows 4, 6: letters
+/// after '@' and '`'), 4 = 0..=a (rows 5, 7: up to 'Z' and 'z'), 8 = f (row 5: '_').
+const PK_LO: [u8; 16] = [5, 7, 7, 7, 7, 7, 7, 7, 7, 7, 6, 2, 2, 2, 2, 10];
+/// Class bits allowed by high nibble (row); 0 for every other row, including >= 0x80.
+const PK_HI: [u8; 16] = [0, 0, 0, 1, 2, 12, 2, 4, 0, 0, 0, 0, 0, 0, 0, 0];
+/// Code = byte + offset by row (wrapping): '0' -> 1, 'A' -> 11, 'a' -> 38. '_' (row 5
+/// gives 41) is fixed up to 37 separately.
+const PK_OFF: [u8; 16] = [0, 0, 0, 209, 202, 202, 197, 197, 0, 0, 0, 0, 0, 0, 0, 0];
+const PK_IDX: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+
+/// Codes c0..c11 as u32 lanes q0 = c0..c3, q1 = c4..c7 (in `lo`) and q2 (in `hi`), 24
+/// bits each, c0 highest; c10, c11 are zero. Place them as `pack` does.
+#[inline(always)]
+fn pk_place(lo: u64, hi: u64) -> u64 {
+    lo << 40 | (lo >> 32) << 16 | hi >> 8
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+unsafe fn pack_simd(p: *const u8, n: usize) -> Option<u64> {
+    use std::arch::aarch64::*;
+    unsafe {
+        let v = vld1q_u8(p);
+        let live = vcltq_u8(vld1q_u8(PK_IDX.as_ptr()), vdupq_n_u8(n as u8));
+        let (hi, lo) = (vshrq_n_u8(v, 4), vandq_u8(v, vdupq_n_u8(15)));
+        let valid = vtstq_u8(vqtbl1q_u8(vld1q_u8(PK_LO.as_ptr()), lo), vqtbl1q_u8(vld1q_u8(PK_HI.as_ptr()), hi));
+        if vmaxvq_u8(vbicq_u8(live, valid)) != 0 {
+            return None;
+        }
+        let code = vaddq_u8(v, vqtbl1q_u8(vld1q_u8(PK_OFF.as_ptr()), hi));
+        let code = vsubq_u8(code, vandq_u8(vceqq_u8(v, vdupq_n_u8(b'_')), vdupq_n_u8(4)));
+        let w16 = vreinterpretq_u16_u8(vandq_u8(code, live));
+        // u16 lane = c_even | c_odd << 8  ->  c_even << 6 | c_odd
+        let pairs = vsraq_n_u16(vandq_u16(vshlq_n_u16(w16, 6), vdupq_n_u16(0x0fc0)), w16, 8);
+        // u32 lane = p_even | p_odd << 16  ->  p_even << 12 | p_odd
+        let w32 = vreinterpretq_u32_u16(pairs);
+        let quads = vreinterpretq_u64_u32(vsraq_n_u32(vandq_u32(vshlq_n_u32(w32, 12), vdupq_n_u32(0x00ff_f000)), w32, 16));
+        Some(pk_place(vgetq_lane_u64(quads, 0), vgetq_lane_u64(quads, 1)))
+    }
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "ssse3"))]
+#[inline(always)]
+unsafe fn pack_simd(p: *const u8, n: usize) -> Option<u64> {
+    use std::arch::x86_64::*;
+    unsafe {
+        let ld = |t: &[u8; 16]| _mm_loadu_si128(t.as_ptr() as *const __m128i);
+        let v = _mm_loadu_si128(p as *const __m128i);
+        let live = _mm_cmpgt_epi8(_mm_set1_epi8(n as i8), ld(&PK_IDX));
+        let nib = _mm_set1_epi8(15);
+        let (hi, lo) = (_mm_and_si128(_mm_srli_epi16(v, 4), nib), _mm_and_si128(v, nib));
+        let cls = _mm_and_si128(_mm_shuffle_epi8(ld(&PK_LO), lo), _mm_shuffle_epi8(ld(&PK_HI), hi));
+        let bad = _mm_and_si128(_mm_cmpeq_epi8(cls, _mm_setzero_si128()), live);
+        if _mm_movemask_epi8(bad) != 0 {
+            return None;
+        }
+        let code = _mm_add_epi8(v, _mm_shuffle_epi8(ld(&PK_OFF), hi));
+        let code = _mm_sub_epi8(code, _mm_and_si128(_mm_cmpeq_epi8(v, _mm_set1_epi8(b'_' as i8)), _mm_set1_epi8(4)));
+        let code = _mm_and_si128(code, live);
+        // c_even * 64 + c_odd per u16 (<= 4095), then p_even * 4096 + p_odd per u32
+        let pairs = _mm_maddubs_epi16(code, _mm_set1_epi16(0x0140));
+        let quads = _mm_madd_epi16(pairs, _mm_set1_epi32(0x0001_1000));
+        let lo = _mm_cvtsi128_si64(quads) as u64;
+        let hi = _mm_cvtsi128_si64(_mm_srli_si128(quads, 8)) as u64;
+        Some(pk_place(lo, hi))
+    }
+}
+
+#[cfg(not(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3"))))]
+#[inline(always)]
+unsafe fn pack_simd(p: *const u8, n: usize) -> Option<u64> {
+    pack(unsafe { std::slice::from_raw_parts(p, n) })
+}
+
+/// Startup guard for the SIMD packer, whose x86 build only the scorer runs natively.
+/// Lanes are classified independently, so: every byte value filling 1..=10 lanes (with
+/// a packable or unpackable tail behind it), and every rotation of a mixed string at
+/// every length, against `pack`. Any disagreement switches the run to `pack` (exact
+/// either way). About 1k checks.
+fn pack_simd_self_test() -> bool {
+    let check = |s: &[u8], fill: u8| -> bool {
+        let mut buf = [fill; 32];
+        buf[..s.len()].copy_from_slice(s);
+        unsafe { pack_simd(buf.as_ptr(), s.len()) == pack(&buf[..s.len()]) }
+    };
+    for c in 0..=255u8 {
+        if !check(&[c; 10], b'a') || !check(&[c; 1], 0xff) || !check(&[c; 7], b'_') {
+            return false;
+        }
+    }
+    let base: &[u8; 10] = b"Az_09azZ9_";
+    for n in 1..=10 {
+        for r in 0..10 {
+            let mut s = *base;
+            s.rotate_left(r);
+            if !check(&s[..n], b'0') || !check(&s[..n], b',') {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 #[inline]
 fn is_packed(k: u64) -> bool {
     k & 15 == 0
@@ -219,17 +355,34 @@ struct Shard<'a> {
 struct Ids<'a> {
     shards: Vec<Mutex<Shard<'a>>>,
     no_fast: u8,
+    simd_pack: bool, // off under any NO_FAST knob or if the startup self-test fails
 }
 
 impl<'a> Ids<'a> {
     fn new(no_fast: u8) -> Self {
         let shards = (0..64).map(|_| Mutex::new(Shard { map: new_map(0), strs: Vec::new() })).collect();
-        Ids { shards, no_fast }
+        let simd_pack = no_fast == 0 && pack_simd_self_test();
+        if !simd_pack && no_fast == 0 {
+            eprintln!("warning: SIMD ID packer failed its self-test; using the scalar packer");
+        }
+        Ids { shards, no_fast, simd_pack }
     }
 
     /// Key of a non-empty ID.
     #[inline]
     fn key(&self, b: &'a [u8]) -> u64 {
+        if self.simd_pack {
+            if let Some(k) = pack_fast(b) {
+                return k;
+            }
+            return self.intern(b);
+        }
+        self.key_slow(b)
+    }
+
+    /// `key` under a debug knob or a failed self-test.
+    #[inline(never)]
+    fn key_slow(&self, b: &'a [u8]) -> u64 {
         let try_pack = match self.no_fast {
             1 => false,
             2 => xxh3_64(b) & 1 == 0,
@@ -291,6 +444,7 @@ impl<'a> Ids<'a> {
 struct LinkTable {
     slots: Vec<[AtomicU64; 2]>,
     mask: usize,
+    shift: u32, // 64 - log2(slots.len())
     hmask: u64,
 }
 
@@ -298,12 +452,13 @@ impl LinkTable {
     fn new(n: usize, hmask: u64) -> Self {
         let cap = (2 * n).next_power_of_two().max(16);
         let slots = (0..cap).map(|_| [AtomicU64::new(0), AtomicU64::new(0)]).collect();
-        LinkTable { slots, mask: cap - 1, hmask }
+        LinkTable { slots, mask: cap - 1, shift: 64 - cap.trailing_zeros(), hmask }
     }
 
+    /// Home slot: the high bits of a multiplicative hash (as `Lookups::hpart`).
     #[inline]
     fn slot(&self, k: u64) -> usize {
-        (mix(k) & self.hmask) as usize & self.mask
+        ((k.wrapping_mul(0x9e37_79b9_7f4a_7c15) & self.hmask) >> self.shift) as usize
     }
 
     /// Insert a key that isn't in the table yet.
@@ -797,20 +952,51 @@ fn decimal_eight(digits: u64) -> u64 {
     ((quads as u32) as u64) * 10_000 + (quads >> 32)
 }
 
-#[inline]
-fn clock_ms(clock: u64) -> Option<i64> {
-    let digits = clock ^ u64::from_le_bytes(*b"00:00:00");
-    if !eight_digits(digits) || digits & 0x0000_ff00_00ff_0000 != 0 {
-        return None;
+const BAD_CLOCK: u32 = 1 << 28;
+
+const fn clock_lookup() -> [u32; 196_608] {
+    let mut table = [BAD_CLOCK; 196_608];
+    let mut n = 0;
+    while n < 60 {
+        let tens = 48 + n / 10;
+        let ones = 48 + n % 10;
+        let key = tens | (ones << 8);
+        if n < 24 {
+            table[key] = n as u32 * 3_600_000;
+        }
+        table[65_536 | key] = n as u32 * 60_000;
+        table[131_072 | key] = n as u32 * 1_000;
+        n += 1;
     }
-    let pairs = digits * 10 + (digits >> 8);
-    let h = pairs as u8;
-    let m = (pairs >> 24) as u8;
-    let s = (pairs >> 48) as u8;
-    if h > 23 || m > 59 || s > 59 {
-        return None;
+    table
+}
+
+static CLOCK: [u32; 196_608] = clock_lookup();
+
+#[inline(always)]
+fn clock_millis<const CHECK: bool>(table: &[u32; 196_608], tail: u64, base: i64) -> i64 {
+    let ms = table[65_536 | (tail >> 8) as u16 as usize] + table[131_072 | (tail >> 32) as u16 as usize];
+    if CHECK && (ms >= BAD_CLOCK || tail & 0xff00_00ff != 0x3a00_003a) {
+        return i64::MAX;
     }
-    Some(((h as i64 * 60 + m as i64) * 60 + s as i64) * 1000)
+    base + ms as i64
+}
+
+#[inline(always)]
+fn direct_clock<const CHECK: bool>(table: &[u32; 196_608], clock: u64, base: i64) -> i64 {
+    let ms = table[clock as u16 as usize]
+        + table[65_536 | (clock >> 24) as u16 as usize]
+        + table[131_072 | (clock >> 48) as u16 as usize];
+    if CHECK && (ms >= BAD_CLOCK || clock & 0x0000_ff00_00ff_0000 != 0x0000_3a00_003a_0000) {
+        return i64::MAX;
+    }
+    base + ms as i64
+}
+
+#[cold]
+#[inline(never)]
+fn fallback_timestamp(s: &[u8]) -> i64 {
+    parse_ts(s).unwrap_or(i64::MAX)
 }
 
 // Inverse of days_from_civil, used once per cached calendar day.
@@ -826,21 +1012,40 @@ fn civil_from_days(day: i64) -> (i64, i64, i64) {
     (era * 400 + yoe + i64::from(m <= 2), m, d)
 }
 
-#[derive(Clone, Copy, Default)]
-struct CalendarDay {
+#[derive(Clone, Copy)]
+struct CalendarHour {
     prefix: u64,
-    midnight: i64,
+    suffix: u64,
+    base: i64,
 }
 
 struct TimestampDecoder {
-    days: [CalendarDay; 512],
+    table: &'static [u32; 196_608],
+    hours: [CalendarHour; 1024],
+    numeric: [(u64, i64); 32],
+    ingest_days: [(u64, i64); 64],
 }
 
 impl TimestampDecoder {
     fn new(start: i64, end: i64) -> Self {
-        let mut decoder = Self { days: [CalendarDay::default(); 512] };
-        // This covers click offsets, and the ordinary ingest dates around
-        // the window. A miss still uses the general parser, even for ingest.
+        let mut decoder = Self {
+            table: &CLOCK,
+            hours: [CalendarHour { prefix: 0, suffix: u64::MAX, base: 0 }; 1024],
+            numeric: [(u64::MAX, 0); 32],
+            ingest_days: [(0, 0); 64],
+        };
+        let numeric_start = start.saturating_sub(7 * DAY_MS).div_euclid(100_000_000);
+        let numeric_end = end.div_euclid(100_000_000);
+        if numeric_end - numeric_start <= 31 {
+            for n in numeric_start.max(0)..=numeric_end.min(99_999) {
+                let tag = format!("{n:05}");
+                let mut bytes = [0u8; 8];
+                bytes[..5].copy_from_slice(tag.as_bytes());
+                let tag = u64::from_le_bytes(bytes);
+                let i = Self::numeric_index(tag);
+                decoder.numeric[i] = (tag, n * 100_000_000);
+            }
+        }
         let first = start.div_euclid(DAY_MS) - 8;
         let last = end.div_euclid(DAY_MS) + 8;
         if last - first > 48 {
@@ -852,68 +1057,115 @@ impl TimestampDecoder {
                 continue;
             }
             let date = format!("{y:04}-{m:02}-{d:02}");
-            let bytes = date.as_bytes();
-            let prefix = u64::from_le_bytes(bytes[..8].try_into().unwrap());
-            let index = Self::index(bytes[6], bytes[8], bytes[9]);
-            decoder.days[index] = CalendarDay { prefix, midnight: day * DAY_MS };
+            let tag = u64::from_le_bytes(date.as_bytes()[..8].try_into().unwrap());
+            let day_key = Self::day_index(u16::from_le_bytes(date.as_bytes()[8..10].try_into().unwrap()));
+            decoder.ingest_days[day_key] = (tag, day * DAY_MS);
+            for h in 0..24 {
+                let date = format!("{y:04}-{m:02}-{d:02}T{h:02}");
+                let bytes = date.as_bytes();
+                let prefix = u64::from_le_bytes(bytes[..8].try_into().unwrap());
+                let suffix = u64::from_le_bytes(bytes[5..13].try_into().unwrap());
+                decoder.hours[Self::index(suffix)] = CalendarHour {
+                    prefix, suffix, base: (day * 24 + h) * 3_600_000,
+                };
+            }
         }
         decoder
     }
 
-    #[inline]
-    fn index(month: u8, tens: u8, ones: u8) -> usize {
-        (((month as usize) & 1) << 8) | (((tens as usize) & 15) << 4) | ((ones as usize) & 15)
+    #[inline(always)]
+    fn numeric_index(tag: u64) -> usize {
+        (((tag >> 32) & 15) | ((tag >> 20) & 16)) as usize
     }
 
-    #[inline]
-    fn cached_datetime(&self, s: &[u8]) -> Option<i64> {
+    #[inline(always)]
+    fn pair_index(ascii: u16) -> usize {
+        // (10 * ASCII tens + ASCII ones) modulo 32; distinct for 00..31.
+        (((ascii as u32 * 2561) >> 8) & 31) as usize
+    }
+
+    #[inline(always)]
+    fn index(suffix: u64) -> usize {
+        (Self::pair_index((suffix >> 24) as u16) << 5) | Self::pair_index((suffix >> 48) as u16)
+    }
+
+    #[inline(always)]
+    fn calendar<const N: usize>(&self, s: &[u8; N]) -> (&CalendarHour, u64, u64) {
         let prefix = u64::from_le_bytes(s[..8].try_into().unwrap());
-        let day = &self.days[Self::index(s[6], s[8], s[9])];
-        // A matching slot checks the complete date: the prefix covers year,
-        // month and dashes, and the index plus high nibbles checks day digits.
-        if day.prefix == 0 || prefix != day.prefix
-            || (s[8] & 0xf0) != b'0' || (s[9] & 0xf0) != b'0' || s[10] != b'T'
-        {
-            return None;
-        }
-        let clock = u64::from_le_bytes(s[11..19].try_into().unwrap());
-        Some(day.midnight + clock_ms(clock)?)
+        let suffix = u64::from_le_bytes(s[5..13].try_into().unwrap());
+        (&self.hours[Self::index(suffix)], prefix, suffix)
     }
 
-    #[inline]
-    fn parse(&self, s: &[u8]) -> Option<i64> {
-        match s.len() {
-            20 if s[19] == b'Z' => {
-                if let Some(ts) = self.cached_datetime(s) {
-                    return Some(ts);
-                }
-            }
-            25 if matches!(s[19], b'+' | b'-') && s[22] == b':' => {
-                if let Some(ts) = self.cached_datetime(s) {
-                    let (h, m) = (dig2(s, 20)?, dig2(s, 23)?);
-                    if h > 23 || m > 59 {
-                        return None;
+    #[inline(always)]
+    fn day_index(packed: u16) -> usize {
+        (((packed & 3) << 4) | ((packed >> 8) & 15)) as usize
+    }
+
+    #[inline(always)]
+    fn parse_pair(&self, event: &[u8], ingest: &[u8]) -> (i64, i64) {
+        if let Ok(i) = <&[u8; 20]>::try_from(ingest) {
+            let prefix = u64::from_le_bytes(i[..8].try_into().unwrap());
+            let tail = u32::from_le_bytes(i[8..12].try_into().unwrap());
+            let (expected, midnight) = self.ingest_days[Self::day_index(tail as u16)];
+            if prefix == expected {
+                let b = direct_clock::<false>(self.table, u64::from_le_bytes(i[11..19].try_into().unwrap()), midnight);
+                if let Ok(t) = <&[u8; 20]>::try_from(event) {
+                    let e_prefix = u64::from_le_bytes(t[..8].try_into().unwrap());
+                    let e_date = u32::from_le_bytes(t[8..12].try_into().unwrap());
+                    if (e_prefix == prefix) & ((e_date ^ tail) & 0x00ff_ffff == 0) & (t[19] == b'Z') {
+                        return (direct_clock::<true>(self.table, u64::from_le_bytes(t[11..19].try_into().unwrap()), midnight), b);
                     }
-                    let offset = (h * 60 + m) * 60_000;
-                    return Some(if s[19] == b'+' { ts - offset } else { ts + offset });
                 }
+                return (self.parse(event), b);
             }
-            13 => {
-                const ZEROES: u64 = u64::from_le_bytes(*b"00000000");
-                let low = u64::from_le_bytes(s[5..13].try_into().unwrap()) ^ ZEROES;
-                let high = (u64::from_le_bytes(s[..8].try_into().unwrap()) ^ ZEROES) & 0xff_ffff_ffff;
-                if eight_digits(high) && eight_digits(low) {
-                    // The first five digits were loaded with three zero lanes.
-                    return Some((decimal_eight(high) * 100_000 + decimal_eight(low)) as i64);
-                }
-                return None;
-            }
-            _ => {}
         }
-        parse_ts(s)
+        (self.parse(event), fallback_timestamp(ingest))
+    }
+
+    #[inline(always)]
+    fn parse(&self, s: &[u8]) -> i64 {
+        if let Ok(s) = <&[u8; 20]>::try_from(s) {
+            let (hour, prefix, suffix) = self.calendar(s);
+            if prefix == hour.prefix && suffix == hour.suffix && s[19] == b'Z' {
+                return clock_millis::<true>(self.table,
+                    u64::from_le_bytes(s[12..20].try_into().unwrap()) >> 8, hour.base,
+                );
+            }
+        } else if let Ok(s) = <&[u8; 13]>::try_from(s) {
+            let tag = u64::from_le_bytes(s[..8].try_into().unwrap()) & 0xff_ffff_ffff;
+            let (expected, base) = self.numeric[Self::numeric_index(tag)];
+            if tag == expected {
+                let low = u64::from_le_bytes(s[5..].try_into().unwrap()) ^ 0x3030_3030_3030_3030;
+                if eight_digits(low) {
+                    return base + decimal_eight(low) as i64;
+                }
+                return i64::MAX;
+            }
+        } else {
+            return self.parse_offset(s);
+        }
+        fallback_timestamp(s)
+    }
+
+    #[cold]
+    fn parse_offset(&self, s: &[u8]) -> i64 {
+        if let Ok(s) = <&[u8; 25]>::try_from(s) {
+            let (hour, prefix, suffix) = self.calendar(s);
+            if prefix == hour.prefix && suffix == hour.suffix && matches!(s[19], b'+' | b'-') && s[22] == b':' {
+                let ts = clock_millis::<true>(self.table,
+                    u64::from_le_bytes(s[13..21].try_into().unwrap()), hour.base,
+                );
+                let offset = self.table[u16::from_le_bytes([s[20], s[21]]) as usize]
+                    + self.table[65_536 | u16::from_le_bytes([s[23], s[24]]) as usize];
+                if ts == i64::MAX || offset >= BAD_CLOCK {
+                    return i64::MAX;
+                }
+                return if s[19] == b'+' { ts - offset as i64 } else { ts + offset as i64 };
+            }
+        }
+        fallback_timestamp(s)
     }
 }
-
 
 /// Purchase price: ASCII digits only, value 1..=10_000_000.
 #[inline]
@@ -1023,10 +1275,13 @@ struct Lookups<'a> {
 }
 
 impl<'a> Lookups<'a> {
-    /// Engine hash of a key, masked by the debug knob.
+    /// Partition hash of a key (for `bucket`): one multiply, whose high bits depend on
+    /// every bit of `k`. Independent of the low bits of `mix`, which index the tables
+    /// inside a partition. Masked by the same debug knob. The link table's home slot uses the same
+    /// high bits; it's a separate table, so that doesn't cluster anything.
     #[inline]
-    fn hk(&self, k: u64) -> u64 {
-        mix(k) & self.hmask
+    fn hpart(&self, k: u64) -> u64 {
+        k.wrapping_mul(0x9e37_79b9_7f4a_7c15) & self.hmask
     }
 
     #[inline]
@@ -1057,6 +1312,7 @@ trait Layout: Copy + Send + Sync {
     type Elem: Copy + Ord + Default + Send + Sync;
     fn row(person: u64, ts: i64, price: u32, cat: u32, base: i64) -> Self;
     fn person(&self) -> u64;
+    fn set_person(&mut self, person: u64);
     fn elem(&self) -> Self::Elem;
     fn ts(e: Self::Elem, base: i64) -> i64;
     fn price(e: Self::Elem) -> u32;
@@ -1082,6 +1338,10 @@ impl Layout for Row16 {
     #[inline]
     fn person(&self) -> u64 {
         self.person
+    }
+    #[inline]
+    fn set_person(&mut self, person: u64) {
+        self.person = person;
     }
     #[inline]
     fn elem(&self) -> u64 {
@@ -1131,6 +1391,10 @@ impl Layout for Row24 {
     #[inline]
     fn person(&self) -> u64 {
         self.person
+    }
+    #[inline]
+    fn set_person(&mut self, person: u64) {
+        self.person = person;
     }
     #[inline]
     fn elem(&self) -> (i64, u32, u32) {
@@ -1221,10 +1485,18 @@ struct Win {
 
 impl Win {
     #[inline]
-    fn parse_ts(&self, s: &[u8]) -> Option<i64> {
+    fn parse_ts(&self, s: &[u8]) -> i64 {
         match &self.decoder {
             Some(d) => d.parse(s),
-            None => parse_ts(s),
+            None => fallback_timestamp(s),
+        }
+    }
+
+    #[inline]
+    fn parse_pair(&self, event: &[u8], ingest: &[u8]) -> (i64, i64) {
+        match &self.decoder {
+            Some(d) => d.parse_pair(event, ingest),
+            None => (fallback_timestamp(event), fallback_timestamp(ingest)),
         }
     }
 }
@@ -1234,7 +1506,8 @@ struct EvOut<L> {
     e: Vec<Vec<EidEnt>>, // by eid partition
     rf: Vec<Vec<u32>>,   // parallel to e: dest << 20 | seq, or INVALID
     r: Vec<Vec<L>>,      // by person partition
-    pend: Vec<PendEv>,   // valid rows waiting on their (prefetched) link lookup
+    pend: [PendEv<L>; BATCH], // valid rows waiting on their (prefetched) link lookup
+    np: usize,                // rows in `pend`
     base: i64,
 }
 
@@ -1242,15 +1515,13 @@ struct EvOut<L> {
 /// parsed and probed BATCH rows later, so the DRAM misses overlap.
 const BATCH: usize = 16;
 
+/// A valid row whose `person` still holds the user key, and that key's link slot.
 #[derive(Clone, Copy)]
-struct PendEv {
+struct PendEv<L> {
+    row: L,
     eid: u64,
     ingest: i64,
-    user: u64,
     slot: usize,
-    ts: i64,
-    price: u32,
-    cat: u32,
 }
 
 fn buckets_with<T>(nb: usize, per: usize) -> Vec<Vec<T>> {
@@ -1261,34 +1532,53 @@ impl<L: Layout> EvOut<L> {
     fn new(nb: usize, bytes: usize, base: i64) -> Self {
         // ~75 bytes per line; reserve 25% headroom (virtual memory only until touched)
         let per = bytes / 75 / nb * 5 / 4 + 16;
-        EvOut { e: buckets_with(nb, per), rf: buckets_with(nb, per), r: buckets_with(nb, per), pend: Vec::with_capacity(BATCH), base }
+        let pend = [PendEv { row: L::row(0, base, 0, 0, base), eid: 0, ingest: 0, slot: 0 }; BATCH];
+        EvOut { e: buckets_with(nb, per), rf: buckets_with(nb, per), r: buckets_with(nb, per), pend, np: 0, base }
+    }
+
+    /// Queue a valid row (person = user key): its link slot is prefetched now and probed
+    /// when the batch is full.
+    #[inline(always)]
+    fn queue(&mut self, row: L, eid: u64, ingest: i64, lk: &Lookups) {
+        let slot = lk.links.slot(row.person());
+        prefetch(&lk.links.slots[slot]);
+        self.pend[self.np & (BATCH - 1)] = PendEv { row, eid, ingest, slot };
+        self.np += 1;
+        if self.np == BATCH {
+            self.flush(lk);
+        }
     }
 
     /// Resolve the pending rows' persons and emit them.
+    #[inline]
     fn flush(&mut self, lk: &Lookups) {
         let nb = self.r.len();
-        for x in self.pend.drain(..) {
-            let person = lk.links.get_at(x.user, x.slot);
-            let d = bucket(lk.hk(person), nb);
-            let seq = self.r[d].len();
+        let np = std::mem::take(&mut self.np);
+        for x in &self.pend[..np] {
+            let (mut row, user) = (x.row, x.row.person());
+            let person = lk.links.get_at(user, x.slot);
+            row.set_person(person);
+            let d = bucket(lk.hpart(person), nb);
+            let q = bucket(lk.hpart(x.eid), nb);
+            // SAFETY: bucket(_, nb) < nb == self.r.len() == self.e.len() == self.rf.len()
+            let (r, e, rf) = unsafe { (self.r.get_unchecked_mut(d), self.e.get_unchecked_mut(q), self.rf.get_unchecked_mut(q)) };
+            let seq = r.len();
             // MAX_TASK_BYTES keeps this far below 2^20; fail loudly rather than corrupt
             assert!(seq < 1 << 20, "rows per (task, partition) overflow the 20-bit ref");
-            self.r[d].push(L::row(person, x.ts, x.price, x.cat, self.base));
-            let q = bucket(lk.hk(x.eid), nb);
-            self.e[q].push(EidEnt { eid: x.eid, ingest: x.ingest });
-            self.rf[q].push((d as u32) << 20 | seq as u32);
+            r.push(row);
+            e.push(EidEnt { eid: x.eid, ingest: x.ingest });
+            rf.push((d as u32) << 20 | seq as u32);
         }
     }
 }
 
 /// v1's validation of an event line, given its 7 fields: Some((user, ts, price)) if valid.
 #[inline]
-fn validate<'a>(f: &[&'a [u8]; 7], ingest: i64, w: &Win) -> Option<(&'a [u8], i64, u32)> {
+fn validate<'a>(f: &[&'a [u8]; 7], ts: i64, ingest: i64, w: &Win) -> Option<(&'a [u8], i64, u32)> {
     let (user, product, etype) = (f[1], f[5], f[4]);
     if user.is_empty() || product.is_empty() {
         return None;
     }
-    let ts = w.parse_ts(f[2])?;
     if ts < w.start || ts >= w.end {
         return None;
     }
@@ -1309,23 +1599,21 @@ fn parse_event<'a, L: Layout>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &
         return;
     }
     let eid = lk.ids.key(f[0]);
-    let ingest = w.parse_ts(f[3]).unwrap_or(i64::MAX);
-    match validate(f, ingest, w) {
+    let (ts, ingest) = w.parse_pair(f[2], f[3]);
+    match validate(f, ts, ingest, w) {
         Some((user, ts, price)) => {
             let user = lk.ids.key(user);
-            let slot = lk.links.slot(user);
-            prefetch(&lk.links.slots[slot]);
             // only purchases (price >= 1) ever read the category; views/carts skip the lookup
             let cat = if price > 0 { lk.category(f[5]) } else { 0 };
-            o.pend.push(PendEv { eid, ingest, user, slot, ts, price, cat });
-            if o.pend.len() == BATCH {
-                o.flush(lk);
-            }
+            o.queue(L::row(user, ts, price, cat, o.base), eid, ingest, lk);
         }
         None => {
-            let q = bucket(lk.hk(eid), o.r.len());
-            o.e[q].push(EidEnt { eid, ingest });
-            o.rf[q].push(INVALID);
+            let q = bucket(lk.hpart(eid), o.e.len());
+            // SAFETY: q < nb == o.e.len() == o.rf.len()
+            unsafe {
+                o.e.get_unchecked_mut(q).push(EidEnt { eid, ingest });
+                o.rf.get_unchecked_mut(q).push(INVALID);
+            }
         }
     }
 }
@@ -1337,7 +1625,7 @@ fn parse_click<'a>(f: &[&'a [u8]; 4], lk: &Lookups<'a>, w: &Win) -> Option<(Ck, 
         return None;
     }
     let camp = lk.campaign(f[2])?;
-    let ts = w.parse_ts(f[3])?;
+    let ts = w.parse_ts(f[3]);
     if ts < w.start - WEEK_MS || ts >= w.end {
         return None;
     }
@@ -1350,7 +1638,7 @@ fn parse_click<'a>(f: &[&'a [u8]; 4], lk: &Lookups<'a>, w: &Win) -> Option<(Ck, 
 fn flush_clicks(pend: &mut Vec<(Ck, usize)>, lk: &Lookups, b: &mut [Vec<Ck>]) {
     for (mut c, slot) in pend.drain(..) {
         c.person = lk.links.get_at(c.person, slot);
-        b[bucket(lk.hk(c.person), b.len())].push(c);
+        b[bucket(lk.hpart(c.person), b.len())].push(c);
     }
 }
 
@@ -1954,11 +2242,13 @@ fn main() {
     rayon::ThreadPoolBuilder::new().num_threads(ncpu).build_global().ok();
     // `[  1.234s] phase (detail, cpu=X.XXXs)`: wall since start, then the process's
     // cumulative user+sys CPU, inside the parentheses so the Eval phase key is unchanged.
+    // On macOS also the cumulative instructions retired: `, instr=1.234G`.
     let lap = |what: &str| {
         let (wall, cpu) = (t0.elapsed().as_secs_f64(), cpu_secs());
+        let ins = instructions().map_or(String::new(), |i| format!(", instr={:.4}G", i as f64 / 1e9));
         match what.strip_suffix(')') {
-            Some(head) if head.contains(" (") => eprintln!("[{wall:>7.3}s] {head}, cpu={cpu:.3}s)"),
-            _ => eprintln!("[{wall:>7.3}s] {what} (cpu={cpu:.3}s)"),
+            Some(head) if head.contains(" (") => eprintln!("[{wall:>7.3}s] {head}, cpu={cpu:.3}s{ins})"),
+            _ => eprintln!("[{wall:>7.3}s] {what} (cpu={cpu:.3}s{ins})"),
         }
     };
     let knobs = Knobs::from_env();
@@ -2211,7 +2501,12 @@ mod tests {
                 }
             }
             for c in &cases {
-                assert_eq!(dec.parse(c), parse_ts(c), "{:?}", String::from_utf8_lossy(c));
+                assert_eq!(dec.parse(c), parse_ts(c).unwrap_or(i64::MAX), "{:?}", String::from_utf8_lossy(c));
+                assert_eq!(
+                    dec.parse_pair(c, ws.as_bytes()),
+                    (parse_ts(c).unwrap_or(i64::MAX), start),
+                    "{:?}", String::from_utf8_lossy(c),
+                );
             }
         }
     }
@@ -2296,6 +2591,173 @@ mod tests {
             a.sort_unstable();
             b.sort_unstable();
             assert_eq!(a, b, "same multiset, len {len}");
+        }
+    }
+
+    #[test]
+    fn simd_pack_matches_pack() {
+        assert!(pack_simd_self_test());
+        // A buffer spanning a real page boundary: IDs placed in the last 32 bytes before
+        // it take pack_fast's scalar fallback, the others its SIMD path.
+        let mut buf = vec![0u8; 3 * 4096];
+        let base = buf.as_ptr() as usize;
+        let edge = ((base + 4096) & !4095) + 4096 - base; // a page start inside buf
+        let ats: Vec<usize> = [0usize, 1, 7, 15, 100].into_iter().chain(edge - 32..edge).collect();
+        let mut n_checks = 0u64;
+        let mut check = |s: &[u8], fill: u8| {
+            for &at in &ats {
+                buf[at..at + s.len()].copy_from_slice(s);
+                buf[at + s.len()..at + s.len() + 16].fill(fill);
+                let b = &buf[at..at + s.len()];
+                assert_eq!(pack_fast(b), pack(b), "{:?} at {at} fill {fill}", String::from_utf8_lossy(s));
+                n_checks += 1;
+            }
+        };
+        // One byte of each class at every position of every length 1..=12: every byte
+        // value 0..=255 (so digits, upper, lower, '_', the gaps between them, controls,
+        // and >= 0x80) at position i of a packable base, with packable and unpackable
+        // tails. Covers 10 (longest packed) vs 11 and 12 (never packed).
+        let bases: [&[u8]; 3] = [b"u9_ZaQ0x7_kM", b"zzzzzzzzzzzz", b"000000000000"];
+        for base in bases {
+            for len in 1..=12 {
+                for i in 0..len {
+                    for c in 0..=255u8 {
+                        let mut s = base[..len].to_vec();
+                        s[i] = c;
+                        for fill in [b'a', b'_', b',', 0, 0xff] {
+                            check(&s, fill);
+                        }
+                    }
+                }
+            }
+        }
+        // Every 1- and 2-byte string.
+        for a in 0..=255u8 {
+            check(&[a], b'0');
+            for b in 0..=255u8 {
+                check(&[a, b], b'z');
+            }
+        }
+        // 3-byte strings over the packable symbols and their neighbours.
+        let near: Vec<u8> = (0..=255u8)
+            .filter(|&c| SYM[c as usize] != 0 || SYM[c.wrapping_add(1) as usize] != 0 || SYM[c.wrapping_sub(1) as usize] != 0)
+            .collect();
+        for &a in &near {
+            for &b in &near {
+                for &c in &near {
+                    check(&[a, b, c], 0);
+                }
+            }
+        }
+        // Random strings of 1..=12 bytes, mostly near-packable.
+        let mut x = 0x5eed_0f_1d5u64;
+        let mut next = || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            x
+        };
+        let mut packable: Vec<Vec<u8>> = Vec::new();
+        for _ in 0..200_000 {
+            let len = 1 + (next() % 12) as usize;
+            let s: Vec<u8> = (0..len).map(|_| if next() % 8 == 0 { next() as u8 } else { near[(next() % near.len() as u64) as usize] }).collect();
+            check(&s, next() as u8);
+            if pack(&s).is_some() {
+                packable.push(s);
+            }
+        }
+        assert!(n_checks > 10_000_000, "{n_checks}");
+        // Order preservation: u64 order of packed keys == byte-wise order, including
+        // prefixes and the class boundaries ('9' < 'A', 'Z' < '_' < 'a').
+        for s in [&b"0"[..], b"9", b"A", b"Z", b"_", b"a", b"z", b"a0", b"a_", b"aZ", b"az", b"zzzzzzzzzz", b"0000000000", b"_________"] {
+            packable.push(s.to_vec());
+        }
+        let alphabet: Vec<u8> = (0..=255u8).filter(|&c| SYM[c as usize] != 0).collect();
+        for &a in &alphabet {
+            packable.push(vec![a]);
+            for &b in &alphabet {
+                packable.push(vec![a, b]);
+            }
+        }
+        let mut by_bytes = packable.clone();
+        by_bytes.sort();
+        by_bytes.dedup();
+        let mut by_key: Vec<(u64, Vec<u8>)> = by_bytes.iter().map(|s| (pack_fast(s).unwrap(), s.clone())).collect();
+        by_key.sort();
+        assert!(by_key.windows(2).all(|w| w[0].0 < w[1].0), "distinct strings, distinct keys");
+        assert!(by_key.iter().map(|(_, s)| s).eq(by_bytes.iter()), "key order == byte order");
+        // Keys decode back to their bytes.
+        let ids = Ids::new(0);
+        let mut dec = [0u8; 10];
+        for (k, s) in &by_key {
+            assert_eq!(ids.bytes(*k, &mut dec), &s[..]);
+        }
+    }
+}
+
+#[cfg(test)]
+mod idbench {
+    use super::*;
+    use std::hint::black_box;
+
+    fn strip(f: &[u8]) -> &[u8] {
+        if f.len() >= 2 && f[0] == b'"' && f[f.len() - 1] == b'"' { &f[1..f.len() - 1] } else { f }
+    }
+
+    /// Instructions and time per ID for the packers and `Ids::key` over the dev set's
+    /// event and click IDs: cargo test --release idbench -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn idbench() {
+        let mut bufs = Vec::new();
+        for dir in ["data/dev/events", "data/dev/clicks"] {
+            let mut ps: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+            ps.sort();
+            for p in ps {
+                bufs.push(std::fs::read(p).unwrap());
+            }
+        }
+        let mut ids: Vec<&[u8]> = Vec::new();
+        for b in &bufs {
+            for line in b.split(|&c| c == b'\n').skip(1) {
+                let mut it = line.split(|&c| c == b',');
+                for _ in 0..2 {
+                    if let Some(f) = it.next() {
+                        let f = strip(f);
+                        if !f.is_empty() {
+                            ids.push(f);
+                        }
+                    }
+                }
+            }
+        }
+        let n = ids.len() as f64;
+        macro_rules! run {
+            ($name:expr, $f:expr) => {{
+                let f = $f;
+                let i0 = instructions().unwrap();
+                let t0 = std::time::Instant::now();
+                let mut acc = 0u64;
+                for &b in &ids {
+                    acc = acc.wrapping_add(f(black_box(b)));
+                }
+                black_box(acc);
+                let i1 = instructions().unwrap();
+                eprintln!("{:>12}: {:6.1} instr/id  {:6.2} ns/id", $name, (i1 - i0) as f64 / n, t0.elapsed().as_nanos() as f64 / n);
+            }};
+        }
+        let packable = ids.iter().filter(|b| pack(b).is_some()).count();
+        eprintln!("{} ids, {:.2}% packable", ids.len(), 100.0 * packable as f64 / n);
+        for _ in 0..2 {
+            run!("baseline", |b: &[u8]| b.len() as u64);
+            run!("pack", |b: &[u8]| pack(b).unwrap_or(1));
+            run!("pack_fast", |b: &[u8]| pack_fast(b).unwrap_or(1));
+            run!("xxh3", |b: &[u8]| xxh3_64(b));
+            let ids0 = Ids::new(0);
+            run!("key(simd)", |b| ids0.key(b));
+            run!("key(again)", |b| ids0.key(b));
+            let ids3 = Ids::new(3);
+            run!("key(scalar)", |b| ids3.key(b));
         }
     }
 }
