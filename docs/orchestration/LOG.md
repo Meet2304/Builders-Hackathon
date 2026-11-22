@@ -624,3 +624,5 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - (d) chunk size (128 KB hint from another team)
   - (e) Gemini's ideas
   Scorer Lab A/Bs them on real x86 (`lab/scorer`, run `45028709603`, with v15/v16/PGO first). Explorer 4 is on write round 2 (`explore/v17-write`).
+- **Eval refit (09:04):** v15 is 912.9 x86 Ir/line (−30.6% vs v8), but the board only improved 12.4%. **board ≈ 0.646 s + 0.000333 × Ir/line**, which means about **0.65 s is a floor that instructions don't explain** (memory stalls, faults, mapping, exit). Eval is running v16's `final` gate (fuzz 1000, amd64, cascadelake build, x86 seed-42, 60M consistency); PASS/FAIL by 09:30.
+  - **Re-aim:** Scorer Lab now captures per-phase wall times plus `perf` cache, TLB and fault counters on real x86, and NCPU 4/8/16. Neon Architect now prioritizes memory-stall levers: populate, SMT thread count, software prefetch in the dedup, scatter and lookup loops.
