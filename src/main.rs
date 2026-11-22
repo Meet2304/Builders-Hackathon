@@ -2048,6 +2048,7 @@ fn task_group(nchunks: usize, nb: usize, chunk: usize) -> usize {
 }
 
 /// The high 16 bits of each locator identify the current partition generation.
+const _: () = assert!(std::mem::size_of::<(u64, u64)>() == 16); // dedup_part's byte offsets
 #[derive(Default)]
 struct DedupScratch {
     generation: u16,
@@ -2080,19 +2081,27 @@ fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, scratch: &mut DedupScrat
     let tag = (scratch.generation as u64) << 48;
     assert!(ev.len() < 1 << 24, "dedup task index exceeds 24 bits");
     let m = cap - 1;
+    // Byte offsets into the table: (rot32(h) & hmask & m) << 4 == rot36(h) & hash_mask,
+    // since hash_mask's low 4 bits are zero. Probing walks the whole table (m), as before.
+    let hash_mask = ((m as u64) & hmask) << 4;
+    let probe_mask = m << 4;
+    let base = scratch.slots.as_mut_ptr().cast::<u8>();
     for (t, o) in ev.iter().enumerate() {
-        assert!(o.e[q].len() < 1 << 24, "dedup entry index exceeds 24 bits");
-        for (i, en) in o.e[q].iter().enumerate() {
+        let es = &o.e[q];
+        assert!(es.len() < 1 << 24, "dedup entry index exceeds 24 bits");
+        // locator of es[i] is tag | t << 24 | i: advance it with the entry
+        let mut loc = tag | (t as u64) << 24;
+        for en in es {
             // Partition routing consumes the top hash bits; use middle bits
             // of a multiplicative hash for this partition-local table. Full
             // eid equality still resolves every collision exactly.
-            let mut s = (en.eid.wrapping_mul(PART_MULTIPLIER).rotate_left(32) & hmask) as usize & m;
+            let mut off = (en.eid.wrapping_mul(PART_MULTIPLIER).rotate_left(36) & hash_mask) as usize;
             loop {
-                // SAFETY: s <= cap - 1, and slots.len() >= cap. All slots are
-                // initialized; an older locator generation is logically empty.
-                let slot = unsafe { scratch.slots.get_unchecked_mut(s) };
+                // SAFETY: off = 16 * s with s <= cap - 1, and slots.len() >= cap, so this is
+                // slot s. All slots are initialized; an older generation is logically empty.
+                let slot = unsafe { &mut *base.add(off).cast::<(u64, u64)>() };
                 if slot.1 < tag {
-                    *slot = (en.eid, tag | (t as u64) << 24 | i as u64);
+                    *slot = (en.eid, loc);
                     break;
                 }
                 if slot.0 == en.eid {
@@ -2100,7 +2109,7 @@ fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, scratch: &mut DedupScrat
                     // strictly smaller ingest wins; on a tie the first copy stays
                     let w = &ev[wt].e[q][wi];
                     let (lt, rf) = if en.ingest < w.ingest {
-                        slot.1 = tag | (t as u64) << 24 | i as u64;
+                        slot.1 = loc;
                         (wt, w.rf)
                     } else {
                         (t, en.rf)
@@ -2110,8 +2119,9 @@ fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, scratch: &mut DedupScrat
                     }
                     break;
                 }
-                s = (s + 1) & m;
+                off = (off + 16) & probe_mask;
             }
+            loc += 1;
         }
     }
     drops
