@@ -284,3 +284,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **v7b = `method/v7b` @ `96af24b`** = `e693e18` + move 6b: mimalloc `purge_delay=-1` and `purge_decommits=0`, plus `libc::_exit(0)` after the last writer closes. Knobs `SESSIONS_PURGE=on` and `SESSIONS_EXIT=normal` restore the old behaviour. madvise 13,834 → 3. Outputs byte-identical to `e693e18` at NCPU=1; seeds 7–11 50/50.
   - **v8 work on `method/v8`:** move 7 (`6c56c54`, Explorer 4's column decoder wired to the long-ID table) + hex32 (`2b9aecd`).
 - Explorer 5: three-armed gVisor ABBA (v5 / v7 / v7b) once Eval's `v5-newgen` releases the lock. The Red Team adds v7b, focusing on `_exit` output completeness.
+- **Analyst 3 correctness flag:** `aca7078` (an intermediate v8 commit: "Recognize 33-byte hex IDs in click and link columns", parent `8bb8d43`) is **DIFFER on new dev** (133,891 vs 118,107 user rows), on both arm64 and x86.
+  - The Orchestrator built the current `method/v8` head `2b9aecd`: **new dev MATCH**.
+  - v7 `e693e18` MATCHes on x86. Method is asked for the root cause and full gates on the v8 head. **Never ship an intermediate commit.**
+- **Analyst 3 x86 perf:** the scalar `hex32()` costs 256 Ir per long ID on x86 (about 2× ARM). Events on x86 go only 813 → 804 per line (ARM 829 → 768). Method is wiring the SIMD `digits()` kernel (`2b9aecd`) in v8, worth about 70 per event line on x86.
