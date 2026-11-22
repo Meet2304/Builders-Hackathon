@@ -1,0 +1,94 @@
+--- a/src/main.rs	2026-11-21 21:58:30
++++ b/src/main.rs	2026-11-21 23:51:19
+@@ -1606,6 +1606,22 @@
+     cat_sum: Vec<i64>,
+ }
+ 
++
++fn hwi() -> u64 {
++    let mut info: libc::rusage_info_v4 = unsafe { std::mem::zeroed() };
++    let rc = unsafe { libc::proc_pid_rusage(std::process::id() as libc::c_int, libc::RUSAGE_INFO_V4, &mut info as *mut libc::rusage_info_v4 as *mut libc::rusage_info_t) };
++    if rc == 0 { info.ri_instructions } else { 0 }
++}
++static SUB: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
++static SUBN: [AtomicU64; 4] = [const { AtomicU64::new(0) }; 4];
++struct Lap(u64);
++impl Lap { fn lap(&mut self, i: usize) { let t = hwi(); SUB[i].fetch_add(t - self.0, Relaxed); self.0 = hwi(); } }
++pub fn dump_sub() {
++    let names = ["droprefs", "intern+count", "scatter", "runsort", "clickcollect+sort", "walk", "-", "-"];
++    for i in 0..6 { eprintln!("SUB {} {}", names[i], SUB[i].load(Relaxed)); }
++    eprintln!("SUBN rows {} kept {} clicks {} persons {}", SUBN[0].load(Relaxed), SUBN[1].load(Relaxed), SUBN[2].load(Relaxed), SUBN[3].load(Relaxed));
++}
++
+ fn process_part<L: Layout>(
+     ctx: &Ctx,
+     acc: &mut Acc,
+@@ -1617,6 +1633,7 @@
+ ) {
+     let lk = ctx.lk;
+     let hmask = lk.hmask;
++    let mut lp0 = Lap(hwi());
+     let n: usize = ev.iter().map(|o| o.r[p].len()).sum();
+     if n == 0 {
+         return; // clicks of people with no events never matter
+@@ -1635,6 +1652,10 @@
+             sc.dropped[b >> 6] |= 1 << (b & 63);
+         }
+     }
++    lp0.lap(0);
++    let mut lp = Lap(hwi());
++    SUBN[0].fetch_add(n as u64, Relaxed);
++    lp.lap(7);
+     // pass 1: intern persons and count each one's rows
+     sc.persons.reset(n);
+     sc.locs.clear();
+@@ -1662,6 +1683,7 @@
+         *c = sum;
+         sum += cnt;
+     }
++    lp.lap(1);
+     // pass 2: scatter each kept row's element into its person's run (counting sort)
+     sc.evs.clear();
+     sc.evs.resize(kept, L::Elem::default());
+@@ -1679,6 +1701,7 @@
+             sc.starts[loc] += 1;
+         }
+     }
++    lp.lap(2);
+     // starts[loc] is now the end of loc's run; sort each run by ts
+     let mut s0 = 0usize;
+     for &e in &sc.starts {
+@@ -1688,6 +1711,8 @@
+         }
+         s0 = e;
+     }
++    lp.lap(3);
++    SUBN[1].fetch_add(sc.locs.len() as u64, Relaxed); SUBN[3].fetch_add(sc.persons.keys.len() as u64, Relaxed);
+     let wide = ctx.wide || sc.persons.keys.len() >= 1 << 24;
+     let shift = if wide { 0 } else { 40 };
+     sc.cks.clear();
+@@ -1703,6 +1728,8 @@
+     // a session start is the latest one with the smallest click_id.
+     sc.cks.sort_unstable_by(|a, b| a.k.cmp(&b.k).then(a.ts.cmp(&b.ts)).then_with(|| lk.ids.cmp(b.cid, a.cid)));
+ 
++    lp.lap(4);
++    SUBN[2].fetch_add(sc.cks.len() as u64, Relaxed);
+     let base = ctx.base;
+     let Scratch { persons, evs, starts, cks, active, cat_sum, .. } = sc;
+     let ncat = cat_sum.len();
+@@ -1796,6 +1823,7 @@
+         i = j;
+         ci = cj;
+     }
++    lp.lap(5);
+ }
+ 
+ #[allow(clippy::too_many_arguments)]
+@@ -2200,6 +2228,7 @@
+     }
+     // Every Parquet writer is closed (ArrowWriter::close flushed it, and its File was
+     // dropped inside write_parquet), so nothing is left to flush. Skip the teardown.
++    if env::var_os("SUBDUMP").is_some() { dump_sub(); }
+     std::process::exit(0);
+ }
+ 
