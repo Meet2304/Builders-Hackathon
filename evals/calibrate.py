@@ -38,7 +38,7 @@ def refresh_ledger(model, imodel, estimates):
         key = tuple(cells[columns[name]] for name in ("Date", "Version", "Commit"))
         if key in estimates:
             board, ipr, iboard = estimates[key]
-        elif (wall := cells[columns["20M"]]).endswith("s"):
+        elif (wall := cells[columns["20M"]].removesuffix(" (noisy)")).endswith("s"):
             board, ipr, iboard = estimate(model, float(wall.removesuffix("s"))), None, None
         else:
             board, ipr, iboard = None, None, None
