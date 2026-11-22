@@ -153,3 +153,12 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Sol:** finish the paired timestamp decoder and write a port recipe. Then subdivide dedup inside each person partition for 60M.
   - **Eval:** quick profile of `20b8e79` as `v5-pre1`, a scan of the cascadelake binary for 512-bit instructions, a stale-binary guard plus the binary's sha256 in each result, and predicted 60M board time as a headline.
   - **Analyst 2:** verify the packer, a 60M cliff map (instructions vs cache/TLB, THP), and a Gemini brief on how leaders reach about 0.84 s at 60M.
+- **Sol:** paired timestamp decoder ported onto the packer, `explore/fast-timestamps-v4` @ `75f9993`. Timestamps 152 → 74 instructions per record. Seed-43 events parse 820 → 731 per line, whole process 1,480 → 1,386. It passes 50/50 timestamp reviews, fixtures, dev and fuzz. Method will cherry-pick it as v5 move 2.
+- **Analyst 2** (`d53ff40`, merged):
+  - The packer is confirmed (−87 events, −94 clicks). The head `20b8e79` predicts about **1.13 s on the 20M board and 3.30 s on the 60M final**.
+  - At 60M, only dedup gets worse per line (cycles ×1.42, instructions flat). Sessions and links no longer blow up.
+  - Warm the cache before 60M counts.
+  - mimalloc asks for THP via madvise; leave the allocator alone.
+  - **Spec traps:** about 1 in 64 duplicates name a different user, and dedup runs before validation, so **dedup can't be scoped to person partitions**. Dropping invalid rows at the scan is also illegal. Uncompressed Parquet is legal.
+  - Gemini puts the realistic band at 280–350 instructions per line.
+- **Orchestrator:** warned Sol (dedup-subdivide must split on the dedup key, with a cross-user test) and told Explorer 3 that uncompressed Parquet is legal. Analyst 2 is now the independent verifier for v5 candidates (`75f9993`, dedup keying and dedup-subdivide, the fused and sort branches).
