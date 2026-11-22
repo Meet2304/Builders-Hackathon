@@ -81,6 +81,19 @@ impl Bytes {
     }
 
     #[inline(always)]
+    fn is_hex<const SKIP_PREFIX: bool>(self) -> bool {
+        unsafe {
+            let digits = vcleq_u8(vsubq_u8(self.0, vdupq_n_u8(b'0')), vdupq_n_u8(9));
+            let letters = vcleq_u8(vsubq_u8(self.0, vdupq_n_u8(b'a')), vdupq_n_u8(5));
+            let mut valid = vorrq_u8(digits, letters);
+            if SKIP_PREFIX {
+                valid = vsetq_lane_u8(u8::MAX, valid, 0);
+            }
+            vminvq_u8(valid) == u8::MAX
+        }
+    }
+
+    #[inline(always)]
     fn pack_id(self) -> Option<(usize, u64)> {
         unsafe {
             let v = self.0;
@@ -160,6 +173,21 @@ impl Bytes {
     }
 
     #[inline(always)]
+    fn is_hex<const SKIP_PREFIX: bool>(self) -> bool {
+        unsafe {
+            let in_range = |base: u8, limit: u8| {
+                let bytes = _mm_sub_epi8(self.0, _mm_set1_epi8(base as i8));
+                _mm_cmpeq_epi8(
+                    _mm_subs_epu8(bytes, _mm_set1_epi8(limit as i8)),
+                    _mm_setzero_si128(),
+                )
+            };
+            let mask = _mm_movemask_epi8(_mm_or_si128(in_range(b'0', 9), in_range(b'a', 5)));
+            mask | i32::from(SKIP_PREFIX) == 0xffff
+        }
+    }
+
+    #[inline(always)]
     fn pack_id(self) -> Option<(usize, u64)> {
         unsafe {
             let v = self.0;
@@ -193,6 +221,34 @@ impl Bytes {
             Some((n, pk_place(lo, hi)))
         }
     }
+}
+
+enum Id<'a> {
+    Short(u64),
+    Long(&'a [u8; LONG_ID_LEN]),
+}
+
+impl<'a> Id<'a> {
+    #[inline(always)]
+    fn is_empty(&self) -> bool {
+        matches!(self, Self::Short(0))
+    }
+
+    #[inline(always)]
+    fn key(self, ids: &Ids<'a>) -> u64 {
+        match self {
+            Self::Short(key) => key,
+            Self::Long(bytes) => pack_long(bytes, ids),
+        }
+    }
+}
+
+const LONG_ID_LEN: usize = 33;
+
+/// Until the pipeline has a wider key, use the existing exact representation.
+#[cold]
+fn pack_long<'a>(bytes: &'a [u8; LONG_ID_LEN], ids: &Ids<'a>) -> u64 {
+    ids.intern(bytes)
 }
 
 struct Column {
@@ -233,9 +289,32 @@ impl Column {
     }
 
     #[inline(always)]
-    unsafe fn id<const TERM: u8>(&self) -> Option<(u64, *const u8)> {
-        let (len, key) = self.bytes.pack_id()?;
-        Some((key, unsafe { self.end::<TERM>(len)? }))
+    unsafe fn id<'a, const TERM: u8, const PREFIX: u8>(&self) -> Option<(Id<'a>, *const u8)> {
+        if let Some((len, key)) = self.bytes.pack_id() {
+            return Some((Id::Short(key), unsafe { self.end::<TERM>(len)? }));
+        }
+        unsafe { self.long_id::<TERM, PREFIX>() }
+    }
+
+    /// The caller's chunk guard covers the prefix, 32 hex digits and delimiters.
+    /// The first register already contains the prefix and the first 15 digits.
+    #[cold]
+    #[inline(never)]
+    unsafe fn long_id<'a, const TERM: u8, const PREFIX: u8>(&self) -> Option<(Id<'a>, *const u8)> {
+        unsafe {
+            if self.bytes.words().0 as u8 != PREFIX {
+                return None;
+            }
+            let next = self.end::<TERM>(LONG_ID_LEN)?;
+            let last = *self.start.add(32);
+            if !self.bytes.is_hex::<true>()
+                || !Bytes::load(self.start.add(16)).is_hex::<false>()
+                || !matches!(last, b'0'..=b'9' | b'a'..=b'f')
+            {
+                return None;
+            }
+            Some((Id::Long(&*self.start.cast::<[u8; LONG_ID_LEN]>()), next))
+        }
     }
 
     #[inline(always)]
@@ -389,29 +468,31 @@ unsafe fn click_time(c: &Column, dec: &TimestampDecoder) -> Option<(i64, *const 
     }
 }
 
-/// Requires CLICK_GUARD bytes starting at p. Each successful ID advances by at
-/// most 13, campaign by at most 11, and the timestamp reads at most 27 bytes.
-const CLICK_GUARD: usize = 64;
-// The first ID advances by at most 13; the second loads at most 17 bytes.
-const LINK_GUARD: usize = 32;
+// A long quoted ID advances by 36 bytes. The campaign advances by at most
+// 11 bytes and the timestamp can read through 27 bytes from its field start.
+const CLICK_GUARD: usize = 112;
+// The two long quoted IDs, including their separators, can consume 72 bytes.
+const LINK_GUARD: usize = 72;
 
 #[inline(always)]
-unsafe fn click_line(
+unsafe fn click_line<'a>(
     p: *const u8,
-    lk: &Lookups,
+    lk: &Lookups<'a>,
     w: &Win,
     dec: &TimestampDecoder,
 ) -> Option<(*const u8, Option<Ck>)> {
     unsafe {
-        let (cid, p) = Column::open(p).id::<b','>()?;
-        let (person, p) = Column::open(p).id::<b','>()?;
+        let (cid, p) = Column::open(p).id::<b',', b'k'>()?;
+        let (person, p) = Column::open(p).id::<b',', b'u'>()?;
         let (camp, p) = campaign(&Column::open(p), &lk.campaigns)?;
         let (ts, next) = click_time(&Column::open(p), dec)?;
         let row = camp
-            .filter(|_| cid != 0 && person != 0 && ts >= w.start - WEEK_MS && ts < w.end)
+            .filter(|_| {
+                !cid.is_empty() && !person.is_empty() && ts >= w.start - WEEK_MS && ts < w.end
+            })
             .map(|camp| Ck {
-                cid,
-                person,
+                cid: cid.key(&lk.ids),
+                person: person.key(&lk.ids),
                 camp,
                 ts,
             });
@@ -420,11 +501,12 @@ unsafe fn click_line(
 }
 
 #[inline(always)]
-unsafe fn link_line(p: *const u8) -> Option<(*const u8, Option<(u64, u64)>)> {
+unsafe fn link_line<'a>(p: *const u8, ids: &Ids<'a>) -> Option<(*const u8, Option<(u64, u64)>)> {
     unsafe {
-        let (a, p) = Column::open(p).id::<b','>()?;
-        let (b, next) = Column::open(p).id::<b'\n'>()?;
-        Some((next, (a != 0 && b != 0).then_some((a, b))))
+        let (a, p) = Column::open(p).id::<b',', b'u'>()?;
+        let (b, next) = Column::open(p).id::<b'\n', b'u'>()?;
+        let row = (!a.is_empty() && !b.is_empty()).then(|| (a.key(ids), b.key(ids)));
+        Some((next, row))
     }
 }
 
@@ -513,7 +595,7 @@ pub(super) fn links<'a>(
         buf,
         start,
         end,
-        |p| unsafe { link_line(p) },
+        |p| unsafe { link_line(p, ids) },
         |f| decode_link(f, ids),
         |pair| out.push(pair),
     );
@@ -677,6 +759,67 @@ mod tests {
             let lk = lookups(catalog);
             compare_clicks(&padded, &lk, &w);
             compare_clicks(line, &lk, &w);
+        }
+    }
+
+    #[test]
+    fn long_click_and_link_ids() {
+        let catalog = b"campaign_id,channel\nc_10,search\n";
+        let start = parse_ts(b"2028-02-28T00:00:00Z").unwrap();
+        let w = window(start, start + 14 * crate::DAY_MS);
+        let click_id = b"k0123456789abcdef0123456789abcdef";
+        let user_id = b"u9876543210abcdef9876543210abcdef";
+        for mask in 0..16 {
+            for (click, user) in [
+                (&click_id[..], &user_id[..]),
+                (&click_id[..], &b"user_1"[..]),
+                (&b"click_1"[..], &user_id[..]),
+            ] {
+                let mut buf = Vec::new();
+                for (i, field) in [click, user, b"c_10", b"2028-02-29T00:00:00Z"]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let quote = (mask >> i) & 1 != 0;
+                    if quote {
+                        buf.push(b'"');
+                    }
+                    buf.extend_from_slice(field);
+                    if quote {
+                        buf.push(b'"');
+                    }
+                    buf.push(if i == 3 { b'\n' } else { b',' });
+                }
+                buf.extend_from_slice(&[b'\n'; CLICK_GUARD]);
+                let lk = lookups(catalog);
+                assert_eq!(compare_clicks(&buf, &lk, &w).1, 1);
+            }
+        }
+
+        let mut link = [b'\n'; LINK_GUARD];
+        link[0] = b'"';
+        link[1..34].copy_from_slice(user_id);
+        link[34..37].copy_from_slice(b"\",\"");
+        link[37..70].copy_from_slice(user_id);
+        link[70] = b'"';
+        let ids = Ids::new(0);
+        let (next, pair) = unsafe { link_line(link.as_ptr(), &ids) }.unwrap();
+        assert_eq!(
+            unsafe { next.offset_from(link.as_ptr()) } as usize,
+            LINK_GUARD
+        );
+        let key = ids.key(user_id);
+        assert_eq!(pair, Some((key, key)));
+
+        for lane in 1..LONG_ID_LEN {
+            let mut bad = link;
+            for byte in [b'g', b'F', b'"', 0xff] {
+                bad[1 + lane] = byte;
+                assert!(
+                    unsafe { Column::open(bad.as_ptr()).id::<b',', b'u'>() }.is_none(),
+                    "lane {lane}, byte {byte}"
+                );
+            }
         }
     }
 
