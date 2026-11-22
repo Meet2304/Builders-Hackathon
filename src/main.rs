@@ -1631,7 +1631,10 @@ impl<'a> IdIndex<'a> {
         match self.direct_slot(b) {
             Some(v) => {
                 if v >= self.direct.len() {
-                    self.direct.resize(v + 1, u32::MAX);
+                    // Amortized growth: absent slots are u32::MAX, and every reader
+                    // filters them, so a longer table answers the same.
+                    let len = (v + 1).max(2 * self.direct.len()).min(1 << 22);
+                    self.direct.resize(len, u32::MAX);
                 }
                 self.direct[v] = val;
             }
@@ -2983,18 +2986,79 @@ fn load_products<'a>(buf: &'a [u8], direct_on: bool) -> (IdIndex<'a>, Vec<Vec<u8
     let mut cat_names: Vec<Vec<u8>> = Vec::new();
     let mut products = IdIndex::new(b"p", direct_on);
     let Some(h) = memchr::memchr(b'\n', buf) else { return (products, cat_names) };
-    for_each_line(buf, h + 1, buf.len(), |line| {
-        let mut f = [&[][..]; 2];
-        if !split_fields(line, &mut f) || f[0].is_empty() {
+    // A cache in front of `cats` for names of 1..=16 bytes, keyed by their zero-padded
+    // bytes and length. It only ever holds (name, index) pairs `cats` assigned.
+    const CN: usize = 64;
+    let mut cache = [(0u128, 0usize, u32::MAX); CN];
+    let mut ncached = 0;
+    let n = buf.len();
+    let mut handle = |id: &'a [u8], cat: &'a [u8], cat_at: usize| {
+        if id.is_empty() {
             return;
         }
+        let len = cat.len();
+        let key = if (1..=16).contains(&len) && cat_at + 16 <= n {
+            // SAFETY: cat_at + 16 <= buf.len()
+            let w = unsafe { buf.as_ptr().add(cat_at).cast::<u128>().read_unaligned() };
+            let w = u128::from_le(w);
+            Some(if len == 16 { w } else { w & ((1u128 << (8 * len)) - 1) })
+        } else {
+            None
+        };
+        let mut at = usize::MAX;
+        if let Some(k) = key {
+            let mut s = ((k as u64 ^ (k >> 64) as u64 ^ len as u64).wrapping_mul(PART_MULTIPLIER) >> 58) as usize;
+            loop {
+                let e = cache[s];
+                if e.2 == u32::MAX {
+                    at = s;
+                    break;
+                }
+                if e.0 == k && e.1 == len {
+                    products.set(id, e.2); // the last row wins
+                    return;
+                }
+                s = (s + 1) & (CN - 1);
+            }
+        }
         let next = cat_names.len() as u32;
-        let ci = *cats.entry(f[1]).or_insert_with(|| {
-            cat_names.push(f[1].to_vec());
+        let ci = *cats.entry(cat).or_insert_with(|| {
+            cat_names.push(cat.to_vec());
             next
         });
-        products.set(f[0], ci); // the last row wins
-    });
+        if let (Some(k), true) = (key, at != usize::MAX && ncached < CN / 2) {
+            cache[at] = (k, len, ci);
+            ncached += 1;
+        }
+        products.set(id, ci); // the last row wins
+    };
+    let mut p = h + 1;
+    while p < n {
+        // Fast path: a line with exactly one comma and no quote is `id,category`,
+        // exactly as split_fields reads it. Anything else takes split_fields.
+        let mut i = p;
+        while i < n && !matches!(buf[i], b',' | b'"' | b'\n') {
+            i += 1;
+        }
+        if i < n && buf[i] == b',' {
+            let mut j = i + 1;
+            while j < n && !matches!(buf[j], b',' | b'"' | b'\n') {
+                j += 1;
+            }
+            if j >= n || buf[j] == b'\n' {
+                handle(&buf[p..i], &buf[i + 1..j], i + 1);
+                p = j + 1;
+                continue;
+            }
+        }
+        let nl = memchr::memchr(b'\n', &buf[p..n]).map_or(n, |k| p + k);
+        let mut f = [&[][..]; 2];
+        if split_fields(&buf[p..nl], &mut f) {
+            // a quoted category's bytes are not at a known offset: no cache key
+            handle(f[0], f[1], usize::MAX - 16);
+        }
+        p = nl + 1;
+    }
     (products, cat_names)
 }
 
@@ -3411,28 +3475,38 @@ fn main() {
     let events_in = Input::open(&data.join("events"));
     let clicks_in = Input::open(&data.join("clicks"));
 
-    let (products, mut cat_names) = load_products(&products_buf, knobs.no_fast != 1);
-    let unknown_cat = cat_names.len() as u32;
-    cat_names.push(b"unknown".to_vec());
-    let mut order: Vec<u32> = (0..cat_names.len() as u32).collect();
-    order.sort_by(|&a, &b| cat_names[a as usize].cmp(&cat_names[b as usize]));
-    let mut cat_rank = vec![0u32; cat_names.len()];
-    for (r, &c) in order.iter().enumerate() {
-        cat_rank[c as usize] = r as u32;
-    }
-    let (campaigns, camp_ids, channels) = load_campaigns(&campaigns_buf, knobs.no_fast != 1);
     // Long IDs (33 B) are 1 in 8 distinct values: one table slot per 256 input bytes
     // keeps the load near 0.4 (an ID field costs >= 34 B, so a full window falls back
     // to the interner long before it could matter).
     let in_bytes: usize = [&links_in, &events_in, &clicks_in].iter().flat_map(|i| i.maps.iter()).map(|m| m.len()).sum();
-    let ids = Ids::with_long(knobs.no_fast, in_bytes / 256, hmask);
     let scan = match knobs.no_fast {
         1 => Scan::Scalar,
         3 => Scan::Swar,
         _ => Scan::Simd,
     };
     lap("link parsing start");
-    let (links, nlinked) = load_links(&links_in, knobs.chunk, scan, &ids, hmask);
+    // The products and campaigns catalogs are serial work that nothing needs until
+    // events: load them on one worker while the others parse links.
+    let ((products, cat_names, cat_rank, unknown_cat, campaigns, camp_ids, channels), (ids, links, nlinked)) = rayon::join(
+        || {
+            let (products, mut cat_names) = load_products(&products_buf, knobs.no_fast != 1);
+            let unknown_cat = cat_names.len() as u32;
+            cat_names.push(b"unknown".to_vec());
+            let mut order: Vec<u32> = (0..cat_names.len() as u32).collect();
+            order.sort_by(|&a, &b| cat_names[a as usize].cmp(&cat_names[b as usize]));
+            let mut cat_rank = vec![0u32; cat_names.len()];
+            for (r, &c) in order.iter().enumerate() {
+                cat_rank[c as usize] = r as u32;
+            }
+            let (campaigns, camp_ids, channels) = load_campaigns(&campaigns_buf, knobs.no_fast != 1);
+            (products, cat_names, cat_rank, unknown_cat, campaigns, camp_ids, channels)
+        },
+        || {
+            let ids = Ids::with_long(knobs.no_fast, in_bytes / 256, hmask);
+            let (links, nlinked) = load_links(&links_in, knobs.chunk, scan, &ids, hmask);
+            (ids, links, nlinked)
+        },
+    );
     let lk = Lookups { products, cat_names, cat_rank, unknown_cat, campaigns, camp_ids, channels, ids, links, hmask };
     lap(&format!("lookups ({nlinked} linked ids)"));
 
