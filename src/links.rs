@@ -20,10 +20,13 @@ impl Components {
         // At most two distinct IDs per edge, so the table stays at most 2/3 full.
         let cap = (3 * edges).next_power_of_two().max(16);
         assert!(u32::try_from(cap - 1).is_ok(), "too many link slots");
-        let (keys, parents) = rayon::join(
-            || vec_init(cap, |_| AtomicU64::new(0)),
-            || vec_init(cap, |i| AtomicU32::new(i as u32)),
-        );
+        let layout = std::alloc::Layout::array::<AtomicU64>(cap).unwrap();
+        let keys = unsafe {
+            let p = std::alloc::alloc_zeroed(layout) as *mut AtomicU64;
+            assert!(!p.is_null(), "components keys allocation");
+            Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, cap)).into_vec()
+        };
+        let parents = vec_init(cap, |i| AtomicU32::new(i as u32));
         Self {
             keys,
             parents,

@@ -646,7 +646,12 @@ struct LinkTable {
 impl LinkTable {
     fn new(n: usize, hmask: u64) -> Self {
         let cap = (2 * n).next_power_of_two().max(16);
-        let slots = (0..cap).map(|_| [AtomicU64::new(0), AtomicU64::new(0)]).collect();
+        let layout = std::alloc::Layout::array::<[AtomicU64; 2]>(cap).unwrap();
+        let slots = unsafe {
+            let p = std::alloc::alloc_zeroed(layout) as *mut [AtomicU64; 2];
+            assert!(!p.is_null(), "link table allocation");
+            Box::from_raw(std::ptr::slice_from_raw_parts_mut(p, cap)).into_vec()
+        };
         LinkTable { slots, mask: cap - 1, shift: 64 - cap.trailing_zeros(), hmask }
     }
 
@@ -1034,23 +1039,32 @@ impl Input {
         let mut paths: Vec<PathBuf> = match fs::read_dir(dir) {
             Ok(rd) => rd
                 .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map_or(false, |t| t.is_file() || t.is_symlink()))
                 .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|x| x == "csv") && p.is_file())
+                .filter(|p| p.extension().is_some_and(|x| x == "csv"))
                 .collect(),
             Err(_) => Vec::new(),
         };
         paths.sort();
-        let maps = paths
-            .iter()
-            .filter_map(|p| {
+        let maps: Vec<Option<Mmap>> = paths
+            .par_iter()
+            .map(|p| {
                 let f = File::open(p).expect("open csv");
-                if f.metadata().map(|m| m.len()).unwrap_or(0) == 0 {
+                let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+                if len == 0 {
                     return None;
                 }
-                Some(unsafe { Mmap::map(&f).expect("mmap csv") })
+                Some(unsafe {
+                    memmap2::MmapOptions::new()
+                        .len(len as usize)
+                        .map(&f)
+                        .expect("mmap csv")
+                })
             })
             .collect();
-        Input { maps }
+        Input {
+            maps: maps.into_iter().flatten().collect(),
+        }
     }
 
     /// (file index, start, end) chunks covering every data line (headers skipped).
@@ -2771,7 +2785,11 @@ fn main() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()));
-    rayon::ThreadPoolBuilder::new().num_threads(ncpu).build_global().ok();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(ncpu)
+        .stack_size(256 * 1024)
+        .build_global()
+        .ok();
     // `[  1.234s] phase (detail, cpu=X.XXXs)`: wall since start, then the process's
     // cumulative user+sys CPU, inside the parentheses so the Eval phase key is unchanged.
     // On macOS also the cumulative instructions retired: `, instr=1.234G`.
