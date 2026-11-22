@@ -165,8 +165,9 @@ seed-42, NCPU=1, the clean metric. These runs were measured under machine load, 
 | CPU          | 0.76 s | 0.51 s | 0.36 s |
 
 - **The lock is gone, and about 56% of the single-thread intern CPU with it.** Under contention the gain is
-  larger: the native NCPU=8 run took 1.43 s whole against v5's 1.75–1.79 s in the same window (load-
-  affected). Expect most of Explorer 5's 1.53 s → ~0.6 s gVisor events-parse gap to close.
+  larger: in one back-to-back unlocked pair at NCPU=8 (heavy load), v7 took 1.43 s
+  against v5's 4.94 s. v5's locked median was 1.79 s. No locked v7 timing was taken, to leave the lock to
+  Explorer 5. Expect most of Explorer 5's 1.53 s → ~0.6 s gVisor events-parse gap to close.
 - **Instructions barely moved (−14 per line), because the scalar `hex32` loop costs about 190 of the roughly
   300 instructions per long ID.** A SIMD hex-32 validator and packer (SSSE3/NEON, around 15 instructions) is
   worth about −60 instructions per event line. → **Method**, with Explorer 2's `explore/gemini-hex32`.
