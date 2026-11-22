@@ -268,3 +268,9 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Explorer 4 and Sol → Opus on `claude_andrew`**, to spread the load: `claude_master` now carries 9 threads.
   - Tasks were re-sent. **Switch Explorer 4, Explorer 5 and Sol back to Codex Sol once the Codex limits reset** (user request).
 - **Sol (before the limit):** the per-column event decoder recognises 33-byte IDs. The seed-42 fallback went 24.53% → 0.35%, and decoded values match on the new dev and seed-42 data.
+- **Method: v7 candidate `e693e18`** = `3671aeb` + writer revert (`c7acf4a`) + **move 6: lock-free, pre-sized long-ID table**.
+  - 128-bit hex value → stable slot key, max 128 probes, then overflow to the interner.
+  - Byte-exact ordering: long vs long by prefix then value; long vs short by decoded bytes. The `env` reads were hoisted to startup.
+  - Gates: unit tests (6,000 long IDs and near-misses, plus an overflow test), fixtures 36/36, new dev MATCH under `NO_FAST` 0–3, new seeds 7–11 vs reference 50/50, new seed-42 MATCH.
+  - Indicative, niced, 4 threads, no lock: 20M 3.65 → 1.82 s; 60M 16.4 → 7.1 s (events parse 11.1 → 2.8 s).
+- **Orchestrator:** v7 verification in parallel: Explorer 5 (gVisor timing first), the Red Team (long-ID adversarial cases), Analyst 2 (spec check) and Eval (full eval as v7). Method builds v8 moves on top: Explorer 4's click and link decoder, Sol's event decoder (06:00 go/no-go), Explorer 2's hex32 kernel.
