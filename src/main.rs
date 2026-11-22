@@ -3471,6 +3471,53 @@ fn pipeline<'a, L: Layout>(
         .collect()
 }
 
+/// SESSIONS_PIN=1 (Linux): pin rayon worker i to the i-th CPU of an order that lists one
+/// hyperthread of every physical core first, then their siblings (from sysfs topology),
+/// so SESSIONS_THREADS=4 on 4c/8t gets one worker per core. Unset: no pinning.
+fn pin_order() -> Vec<usize> {
+    if !cfg!(target_os = "linux") || env::var_os("SESSIONS_PIN").is_none_or(|v| v != "1") {
+        return Vec::new();
+    }
+    let mut cpus = Vec::new();
+    for c in 0..1024 {
+        let base = format!("/sys/devices/system/cpu/cpu{c}/topology");
+        let Ok(sib) = fs::read_to_string(format!("{base}/thread_siblings_list")) else {
+            if c > 0 && !Path::new(&format!("/sys/devices/system/cpu/cpu{c}")).exists() {
+                break;
+            }
+            continue;
+        };
+        // rank of c among its siblings ("0,4" or "0-1"): 0 for the first thread of a core
+        let mut sibs: Vec<usize> = Vec::new();
+        for part in sib.trim().split(',') {
+            match part.split_once('-') {
+                Some((a, b)) => sibs.extend(a.parse::<usize>().unwrap_or(0)..=b.parse::<usize>().unwrap_or(0)),
+                None => sibs.extend(part.parse::<usize>().ok()),
+            }
+        }
+        let rank = sibs.iter().position(|&x| x == c).unwrap_or(0);
+        cpus.push((rank, c));
+    }
+    cpus.sort();
+    let order: Vec<usize> = cpus.into_iter().map(|(_, c)| c).collect();
+    eprintln!("pin: worker order {order:?}");
+    order
+}
+
+fn pin_worker(order: &[usize], i: usize) {
+    if order.is_empty() {
+        return;
+    }
+    #[cfg(target_os = "linux")]
+    unsafe {
+        let mut set: libc::cpu_set_t = std::mem::zeroed();
+        libc::CPU_SET(order[i % order.len()], &mut set);
+        libc::sched_setaffinity(0, size_of::<libc::cpu_set_t>(), &set);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = i;
+}
+
 fn main() {
     let t0 = Instant::now();
     no_purge();
@@ -3485,8 +3532,10 @@ fn main() {
         unsafe { mi_option_set(MI_OPTION_ALLOW_LARGE_OS_PAGES, 1) };
     }
     let threads = env::var("SESSIONS_THREADS").ok().and_then(|v| v.parse().ok()).filter(|&n: &usize| n > 0).unwrap_or(ncpu);
+    let pin = pin_order();
     rayon::ThreadPoolBuilder::new()
         .num_threads(threads)
+        .start_handler(move |i| pin_worker(&pin, i))
         .stack_size(8 << 20) // 8 MiB: nested rayon joins overflowed 256 KiB (Red Team seed 535, PARTS=4096); pages are touched only when used
         .build_global()
         .ok();
