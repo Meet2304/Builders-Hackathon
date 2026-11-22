@@ -696,11 +696,12 @@ impl LinkTable {
     }
 }
 
-/// Per-thread open-addressing map u64 key -> dense u32, reused across partitions.
+/// Per-thread open-addressing map u64 key -> dense u32 and event count.
 #[derive(Default)]
 struct Interner {
     tab: Vec<(u64, u32)>,
     keys: Vec<u64>,
+    counts: Vec<u32>, // event counts, then scatter cursors
     mask: usize,
     shift: u32,
     probe_mask: usize,
@@ -713,6 +714,7 @@ impl Interner {
         self.partition_bits = partitions.next_power_of_two().trailing_zeros();
         self.hash_mask = hmask;
         self.keys.clear();
+        self.counts.clear();
         // Estimate distinct people from row count. The table grows on demand
         // for partitions with unusually few rows per person.
         self.clear_table(n.div_ceil(8).next_power_of_two().max(16));
@@ -748,6 +750,7 @@ impl Interner {
         loop {
             let e = &mut self.tab[s];
             if e.0 == k {
+                self.counts[e.1 as usize] += 1;
                 return e.1;
             }
             if e.0 == 0 {
@@ -757,6 +760,7 @@ impl Interner {
                 let id = self.keys.len() as u32;
                 *e = (k, id);
                 self.keys.push(k);
+                self.counts.push(1);
                 return id;
             }
             s = (s + 1) & self.mask;
@@ -2123,7 +2127,6 @@ struct Scratch<E> {
     dropped: Vec<u64>,
     off: Vec<usize>,
     locs: Vec<u32>,   // local person of each source row, or u32::MAX if dropped
-    starts: Vec<u32>, // counting sort: per-person run start (then end)
     evs: Vec<E>,      // the partition's events, grouped by person, ts-sorted per run
     spare: Vec<E>,
     cks: Vec<PCk>,
@@ -2267,6 +2270,7 @@ fn sort_clicks<L: Layout>(ctx: &Ctx, sc: &mut Scratch<L::Elem>, ck: &[CkPart], p
             }
         }
     }
+    assert!(u32::try_from(sc.cks.len()).is_ok(), "too many clicks in one partition");
     if env_flags().2 {
         sc.cks.sort_unstable_by(|a, b| a.loc.cmp(&b.loc).then_with(|| click_ord(a, b, ids)));
         let mut end = 0;
@@ -2326,6 +2330,7 @@ fn process_part<L: Layout>(
     if n == 0 {
         return; // clicks of people with no events never matter
     }
+    assert!(u32::try_from(n).is_ok(), "too many events in one partition");
     sc.dropped.clear();
     if !drops.is_empty() {
         sc.dropped.resize(n.div_ceil(64), 0);
@@ -2345,7 +2350,6 @@ fn process_part<L: Layout>(
     sc.persons.reset(n, ev[0].r.len(), hmask);
     sc.locs.clear();
     sc.locs.reserve(n);
-    sc.starts.clear();
     let mut b = 0usize;
     let has_drops = !drops.is_empty();
     for x in ev {
@@ -2357,15 +2361,11 @@ fn process_part<L: Layout>(
                 continue;
             }
             let loc = sc.persons.intern(r.person());
-            if loc as usize == sc.starts.len() {
-                sc.starts.push(0);
-            }
-            sc.starts[loc as usize] += 1;
             sc.locs.push(loc);
         }
     }
     let mut sum = 0u32;
-    for c in sc.starts.iter_mut() {
+    for c in sc.persons.counts.iter_mut() {
         let cnt = *c;
         *c = sum;
         sum += cnt;
@@ -2382,7 +2382,7 @@ fn process_part<L: Layout>(
         locs = rest;
         for (r, &loc) in rows.iter().zip(current) {
             if loc != u32::MAX {
-                let cursor = &mut sc.starts[loc as usize];
+                let cursor = &mut sc.persons.counts[loc as usize];
                 sorted[*cursor as usize].write(r.elem());
                 *cursor += 1;
             }
@@ -2391,9 +2391,9 @@ fn process_part<L: Layout>(
     // The counts cover exactly the kept rows, and the same rows are visited
     // here in the same order. Every slot in the prefix-summed runs is written.
     unsafe { sc.evs.set_len(kept) };
-    // starts[loc] is now the end of loc's run; sort each run by ts
+    // Each scatter cursor now points past its person's run.
     let mut s0 = 0usize;
-    for &e in &sc.starts {
+    for &e in &sc.persons.counts {
         let e = e as usize;
         if e - s0 > 1 {
             L::sort_run(&mut sc.evs[s0..e], &mut sc.spare);
@@ -2407,10 +2407,10 @@ fn process_part<L: Layout>(
         CLICK_N.fetch_add(sc.cks.len() as u64, Relaxed);
     }
 
-    let Scratch { persons, evs, starts, cks, ck_at, active, category_sales, .. } = sc;
+    let Scratch { persons, evs, cks, ck_at, active, category_sales, .. } = sc;
     let mut ci = 0usize;
     let mut i = 0usize;
-    for (loc, &j) in starts.iter().enumerate() {
+    for (loc, &j) in persons.counts.iter().enumerate() {
         let j = j as usize;
         let person = persons.keys[loc].wrapping_mul(PART_INVERSE);
         let cj = ck_at[loc] as usize;
@@ -2865,7 +2865,6 @@ fn pipeline<'a, L: Layout>(
                     dropped: Vec::new(),
                     off: Vec::new(),
                     locs: Vec::new(),
-                    starts: Vec::new(),
                     evs: Vec::new(),
                     spare: Vec::new(),
                     cks: Vec::new(),
@@ -3071,9 +3070,11 @@ mod tests {
             assert_eq!(people.get(key), Some(original as u32 - 1));
             assert_eq!(people.intern(key), original as u32 - 1);
         }
+        assert_eq!(people.counts, vec![2; 100]);
         people.reset(1, DEFAULT_NB, 0);
         assert_eq!(people.get(PART_MULTIPLIER), None);
         assert_eq!(people.intern(PART_MULTIPLIER), 0);
+        assert_eq!(people.counts, [1]);
     }
 
     /// Deterministic xorshift strings over packable chars plus a few that force fallback.
