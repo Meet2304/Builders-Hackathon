@@ -460,3 +460,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Sol → v13 events phase:** gVisor sub-phase split, fault-serialization microbenchmark, then build the top lever (`explore/v13-events`).
   - **Neon Detective → Codex-Andrew 6.1 Sol + Gemini Neon:** design ranking of events-phase page-touch reductions, top-2 sketches to Sol by 07:15.
   - **Explorer 4: v12 (4 B dedup offsets)** correctness running lock-free, then 20M/60M gVisor A/B vs `be41e2e`.
+- **06:26, user: no Codex-Andrew; fewer concurrent threads; use Codex and the current Claude account only.**
+  - **Neon Detective stopped**; Sol covers the events-phase work. Explorer 4 was interrupted and reconfigured to Codex 6.2 Sol, idle for now.
+  - **v12 (`explore/v12-dedup`, 4 B dedup offsets; Explorer 4):** all gates pass (fixtures, dev `NO_FAST` 0–3 and seed-42 at NCPU 1 and 8, long-ID 240/240, seed-535 ×10). Candidate native `c4b42d11fdd8` vs base `0748b677dd8a`. The interrupt killed its timing run; **the Orchestrator re-runs it** (`/tmp/builders-v12-run.py`: 20M faults 3 pairs, then 60M gVisor 5 pairs vs `be41e2e`; pid 83434).
+  - **Active:** Sol (Codex, v13 events) and the Orchestrator; Eval idle (claudeAgent).
