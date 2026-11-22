@@ -617,3 +617,10 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
     - **Sessions deep cut** (`explore/v17-sessions`)
     - **Dedup + links deep cut** (`explore/v17-dedup`)
 - **USER SUBMITTED v16** (`d5e9ee3`): board **0.9378 s** (BB-86EECFA6, rank 83). It's our best and is entered in the final. That's −1.3% vs v15's 0.9504 (within board noise; consistent with the exit-teardown fix).
+- **09:00: Neon Architect restarted** (claude_andrew + Gemini 4 Neon in the browser; it had died on the 08:04 quota wall before starting the events rewrite). New target: **scorer-specific levers** on `explore/v17-levers` from v16, each behind an env switch:
+  - (a) input prefetch: `MADV_POPULATE_READ` / `MAP_POPULATE` / `SEQUENTIAL` / `WILLNEED`, done in parallel
+  - (b) HT-aware thread count (4 / 8 / 12 / 16)
+  - (c) rayon idle spinning on SMT siblings
+  - (d) chunk size (128 KB hint from another team)
+  - (e) Gemini's ideas
+  Scorer Lab A/Bs them on real x86 (`lab/scorer`, run `45028709603`, with v15/v16/PGO first). Explorer 4 is on write round 2 (`explore/v17-write`).
