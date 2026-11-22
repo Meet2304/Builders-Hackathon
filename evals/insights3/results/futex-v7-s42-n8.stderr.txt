@@ -1,0 +1,6 @@
+[  0.173s] lookups (1199413 linked ids, cpu=0.250s)
+[  2.079s] events parsed (cpu=3.430s)
+[  2.439s] clicks parsed (cpu=4.062s)
+[  2.590s] events deduped (1470457 dropped rows, cpu=4.426s)
+[  3.009s] sessions + attribution (cpu=5.223s)
+[  4.505s] written (2226091 user_daily rows, cpu=5.839s)

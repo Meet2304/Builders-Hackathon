@@ -1,0 +1,141 @@
+{
+ "lookups": {
+  "futex": 615,
+  "distinct_addrs": 90,
+  "ops": {
+   "FUTEX_WAKE_PRIVATE": 392,
+   "FUTEX_WAIT_BITSET_PRIVATE": 223
+  },
+  "top_addrs": [
+   [
+    "0x45125e50f30",
+    23
+   ],
+   [
+    "0x45125e50798",
+    22
+   ],
+   [
+    "0x45125e50990",
+    20
+   ]
+  ]
+ },
+ "events": {
+  "futex": 58192,
+  "distinct_addrs": 80,
+  "ops": {
+   "FUTEX_WAIT_BITSET_PRIVATE": 20339,
+   "FUTEX_WAKE_PRIVATE": 37853
+  },
+  "top_addrs": [
+   [
+    "0x45125e50708",
+    2139
+   ],
+   [
+    "0x45125e507e0",
+    1284
+   ],
+   [
+    "0x45125e50ea0",
+    1233
+   ]
+  ]
+ },
+ "clicks": {
+  "futex": 5843,
+  "distinct_addrs": 80,
+  "ops": {
+   "FUTEX_WAIT_BITSET_PRIVATE": 2100,
+   "FUTEX_WAKE_PRIVATE": 3743
+  },
+  "top_addrs": [
+   [
+    "0x45125e50708",
+    148
+   ],
+   [
+    "0x45125e506c0",
+    128
+   ],
+   [
+    "0x45125e50ee8",
+    125
+   ]
+  ]
+ },
+ "dedup": {
+  "futex": 20,
+  "distinct_addrs": 8,
+  "ops": {
+   "FUTEX_WAIT_BITSET_PRIVATE": 9,
+   "FUTEX_WAKE_PRIVATE": 11
+  },
+  "top_addrs": [
+   [
+    "0xffff9139b7e0",
+    4
+   ],
+   [
+    "0xffff9139b7d8",
+    3
+   ],
+   [
+    "0x45125e64100",
+    3
+   ]
+  ]
+ },
+ "sessions": {
+  "futex": 90,
+  "distinct_addrs": 17,
+  "ops": {
+   "FUTEX_WAIT_BITSET_PRIVATE": 36,
+   "FUTEX_WAKE_PRIVATE": 47,
+   "FUTEX_WAIT_PRIVATE": 7
+  },
+  "top_addrs": [
+   [
+    "0xaaaab7ad3430",
+    15
+   ],
+   [
+    "0x45125e64200",
+    10
+   ],
+   [
+    "0x45125e64080",
+    8
+   ]
+  ]
+ },
+ "write": {
+  "futex": 99,
+  "distinct_addrs": 26,
+  "ops": {
+   "FUTEX_WAKE_PRIVATE": 60,
+   "FUTEX_WAIT_BITSET_PRIVATE": 39
+  },
+  "top_addrs": [
+   [
+    "0x45125e64200",
+    9
+   ],
+   [
+    "0x45125e64300",
+    9
+   ],
+   [
+    "0x45125e64180",
+    7
+   ]
+  ]
+ },
+ "exit": {
+  "futex": 0,
+  "distinct_addrs": 0,
+  "ops": {},
+  "top_addrs": []
+ }
+}
