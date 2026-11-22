@@ -2367,22 +2367,28 @@ fn main() {
     fs::create_dir_all(&ud_dir).expect("mkdir user_daily");
     fs::create_dir_all(&cd_dir).expect("mkdir campaign_daily");
 
-    let mut camp_total = vec![[0i64; 4]; (ncamp + 1) * ndays];
-    for a in &accs {
-        for (t, v) in camp_total.iter_mut().zip(&a.camp) {
-            for x in 0..4 {
-                t[x] += v[x];
+    rayon::join(
+        || {
+            let mut camp_total = vec![[0i64; 4]; (ncamp + 1) * ndays];
+            for a in &accs {
+                for (t, v) in camp_total.iter_mut().zip(&a.camp) {
+                    for x in 0..4 {
+                        t[x] += v[x];
+                    }
+                }
             }
-        }
-    }
-    let nonempty: Vec<&Acc> = accs.iter().filter(|a| !a.users.is_empty()).collect();
-    nonempty.par_iter().enumerate().for_each(|(i, a)| {
-        write_parquet(&ud_dir.join(format!("part-{i:05}.parquet")), user_batch(&a.users, &lk));
-    });
-    if nonempty.is_empty() {
-        write_parquet(&ud_dir.join("part-00000.parquet"), user_batch(&[], &lk));
-    }
-    write_parquet(&cd_dir.join("part-00000.parquet"), campaign_batch(&camp_total, &ctx));
+            write_parquet(&cd_dir.join("part-00000.parquet"), campaign_batch(&camp_total, &ctx));
+        },
+        || {
+            let nonempty: Vec<&Acc> = accs.iter().filter(|a| !a.users.is_empty()).collect();
+            nonempty.par_iter().enumerate().for_each(|(i, a)| {
+                write_parquet(&ud_dir.join(format!("part-{i:05}.parquet")), user_batch(&a.users, &lk));
+            });
+            if nonempty.is_empty() {
+                write_parquet(&ud_dir.join("part-00000.parquet"), user_batch(&[], &lk));
+            }
+        },
+    );
     let rows: usize = accs.iter().map(|a| a.users.len()).sum();
     lap(&format!("written ({rows} user_daily rows)"));
     if STATS_ON.load(Relaxed) {
