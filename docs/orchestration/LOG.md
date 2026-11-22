@@ -718,3 +718,9 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - Based on v17; added exact link-membership filtering, 64-row staged event scatter, two-bit duplicate prefilter with exact fallback, and persistent largest-first session workers.
 - Native release build succeeded. No tests, evals, benchmarks, or candidate executions, per explicit user instruction. Scorer performance and correctness unverified; no rank guarantee.
 - Submission tag: `v18-hailmary`. Full rationale: `HAIL-MARY-v18.md`. v17 retained as fallback.
+
+### v19 hail-mary — second user-requested attempt
+- User confirmed v18 was submitted; score not supplied.
+- Based on v18; sequential event staging, exact-size contiguous event/person partitions, stable locator remapping, recycled parse buffers.
+- Native release compilation only; no tests/evals/benchmarks. Candidate correctness, memory and speed unverified.
+- Submission tag: `v19-hailmary`; design: `HAIL-MARY-v19.md`. v18 and v17 tags preserved.

@@ -2052,10 +2052,35 @@ impl Win {
     }
 }
 
+/// One contiguous allocation split into stable partition slices.
+struct EventParts<T> {
+    rows: Vec<T>,
+    off: Vec<usize>,
+}
+
+impl<T> EventParts<T> {
+    fn empty(nb: usize) -> Self {
+        Self { rows: Vec::new(), off: vec![0; nb + 1] }
+    }
+
+    fn len(&self) -> usize { self.off.len().saturating_sub(1) }
+}
+
+impl<T> std::ops::Index<usize> for EventParts<T> {
+    type Output = [T];
+    #[inline]
+    fn index(&self, p: usize) -> &[T] {
+        &self.rows[self.off[p]..self.off[p + 1]]
+    }
+}
+
 /// One parse task's output for events.
 struct EvOut<L> {
-    e: Vec<Vec<EidEnt>>, // by eid partition
-    r: Vec<Vec<L>>,      // by person partition
+    // Append-only parse streams. Partitioning is deferred until the task ends.
+    raw_rows: Vec<L>,
+    raw_eids: Vec<EidEnt>,
+    e: EventParts<EidEnt>, // by eid partition
+    r: EventParts<L>,      // by person partition
     pend: [PendEv<L>; EVENT_BATCH], // valid rows waiting on their (prefetched) link lookup
     np: usize,                // rows in `pend`
     base: i64,
@@ -2075,16 +2100,24 @@ struct PendEv<L> {
     slot: usize,
 }
 
-fn buckets_with<T>(nb: usize, per: usize) -> Vec<Vec<T>> {
-    (0..nb).map(|_| if per >= 32 { Vec::with_capacity(per) } else { Vec::new() }).collect()
-}
-
 impl<L: Layout> EvOut<L> {
+    #[cfg(test)]
     fn new(nb: usize, bytes: usize, base: i64) -> Self {
-        // ~75 bytes per line; reserve 25% headroom (virtual memory only until touched)
-        let per = bytes / 75 / nb * 5 / 4 + 16;
+        Self::with_buffers(nb, bytes, base, Vec::new(), Vec::new())
+    }
+
+    fn with_buffers(nb: usize, bytes: usize, base: i64, mut raw_rows: Vec<L>, mut raw_eids: Vec<EidEnt>) -> Self {
+        // ~75 bytes per line; reserve 25% headroom, reusing task-local storage.
+        let reserve = bytes / 75 * 5 / 4 + 16;
+        raw_rows.clear();
+        raw_eids.clear();
+        raw_rows.reserve(reserve);
+        raw_eids.reserve(reserve);
         let pend = [PendEv { row: L::row(0, base, 0, 0, base), eid: 0, ingest: 0, slot: 0 }; EVENT_BATCH];
-        EvOut { e: buckets_with(nb, per), r: buckets_with(nb, per), pend, np: 0, base }
+        EvOut {
+            raw_rows, raw_eids,
+            e: EventParts::empty(nb), r: EventParts::empty(nb), pend, np: 0, base,
+        }
     }
 
     /// Queue a valid row (person = user key): its link slot is prefetched now and probed
@@ -2099,36 +2132,73 @@ impl<L: Layout> EvOut<L> {
         }
     }
 
-    /// Resolve the pending rows' persons and emit them.
+    /// Resolve linked persons, then append to sequential streams. The parser
+    /// never interleaves decoding with hundreds of random partition writes.
     #[inline]
     fn flush(&mut self, lk: &Lookups) {
-        let nb = self.r.len();
         let np = std::mem::take(&mut self.np);
-        // Resolve the entire batch before scattering. Destination cache misses
-        // overlap with the remaining link lookups instead of serializing each row.
-        let mut destinations = [(0usize, 0usize); EVENT_BATCH];
-        for (x, dest) in self.pend[..np].iter_mut().zip(&mut destinations) {
-            let person = lk.links.get_at(x.row.person(), x.slot).wrapping_mul(PART_MULTIPLIER);
-            x.row.set_person(person);
-            let d = bucket(person & lk.hmask, nb);
-            let q = bucket(lk.hpart(x.eid), nb);
-            *dest = (d, q);
-            let r = &self.r[d];
-            let e = &self.e[q];
-            // Prefetch only allocated storage. No uninitialized value is read.
-            if r.len() < r.capacity() { prefetch(unsafe { r.as_ptr().add(r.len()) }); }
-            if e.len() < e.capacity() { prefetch(unsafe { e.as_ptr().add(e.len()) }); }
+        self.raw_rows.reserve(np);
+        self.raw_eids.reserve(np);
+        for x in &self.pend[..np] {
+            let mut row = x.row;
+            row.set_person(lk.links.get_at(row.person(), x.slot).wrapping_mul(PART_MULTIPLIER));
+            let rf = u32::try_from(self.raw_rows.len()).expect("task row index overflow");
+            assert!(rf != INVALID, "task row collides with invalid sentinel");
+            self.raw_rows.push(row);
+            self.raw_eids.push(EidEnt { eid: x.eid, ingest: x.ingest, rf });
         }
-        for (x, &(d, q)) in self.pend[..np].iter().zip(&destinations) {
-            let row = x.row;
-            // SAFETY: bucket(_, nb) < nb == self.r.len() == self.e.len()
-            let (r, e) = unsafe { (self.r.get_unchecked_mut(d), self.e.get_unchecked_mut(q)) };
-            let seq = r.len();
-            // MAX_TASK_BYTES keeps this far below 2^20; fail loudly rather than corrupt
+    }
+
+    /// Count first, allocate exact-size destinations, and scatter each stream
+    /// separately. Remap every valid event reference to its final partition/row.
+    fn finish(&mut self, lk: &Lookups) {
+        self.flush(lk);
+        let nb = self.r.len();
+        let mut nr = vec![0usize; nb];
+        let mut ne = vec![0usize; nb];
+        for row in &self.raw_rows {
+            nr[bucket(row.person() & lk.hmask, nb)] += 1;
+        }
+        for en in &self.raw_eids {
+            ne[bucket(lk.hpart(en.eid), nb)] += 1;
+        }
+        for p in 0..nb {
+            self.r.off[p + 1] = self.r.off[p] + nr[p];
+            self.e.off[p + 1] = self.e.off[p] + ne[p];
+        }
+        let mut row_at = self.r.off[..nb].to_vec();
+        let mut eid_at = self.e.off[..nb].to_vec();
+        let mut rows = Vec::<L>::with_capacity(self.raw_rows.len());
+        let mut entries = Vec::<EidEnt>::with_capacity(self.raw_eids.len());
+        let mut refs = Vec::with_capacity(self.raw_rows.len());
+        for &row in &self.raw_rows {
+            let p = bucket(row.person() & lk.hmask, nb);
+            let at = row_at[p];
+            let seq = at - self.r.off[p];
             assert!(seq < 1 << 20, "rows per (task, partition) overflow the 20-bit ref");
-            r.push(row);
-            e.push(EidEnt { eid: x.eid, ingest: x.ingest, rf: (d as u32) << 20 | seq as u32 });
+            refs.push((p as u32) << 20 | seq as u32);
+            // Counts cover every source row. Cursors are disjoint per partition,
+            // start at their prefix offsets, and each advances exactly nr[p] times.
+            unsafe { rows.as_mut_ptr().add(at).write(row); }
+            row_at[p] += 1;
         }
+        for &en in &self.raw_eids {
+            let q = bucket(lk.hpart(en.eid), nb);
+            let rf = if en.rf == INVALID { INVALID } else { refs[en.rf as usize] };
+            // Same count/prefix/cursor invariant as the row scatter above.
+            unsafe { entries.as_mut_ptr().add(eid_at[q]).write(EidEnt { rf, ..en }); }
+            eid_at[q] += 1;
+        }
+        // Both counting scatters initialized every element exactly once.
+        unsafe {
+            rows.set_len(self.raw_rows.len());
+            entries.set_len(self.raw_eids.len());
+        }
+        self.r.rows = rows;
+        self.e.rows = entries;
+        // The caller recycles these allocations for the next parse task.
+        self.raw_rows.clear();
+        self.raw_eids.clear();
     }
 }
 
@@ -2189,11 +2259,7 @@ fn emit_event<L: Layout>(rec: EvRec, lk: &Lookups, o: &mut EvOut<L>) {
     let EvRec { eid, ingest, row } = rec;
     match row {
         Some(EventValues { user, ts, price, cat }) => o.queue(L::row(user, ts, price, cat, o.base), eid, ingest, lk),
-        None => {
-            let q = bucket(lk.hpart(eid), o.e.len());
-            // SAFETY: q < nb == o.e.len()
-            unsafe { o.e.get_unchecked_mut(q).push(EidEnt { eid, ingest, rf: INVALID }) };
-        }
+        None => o.raw_eids.push(EidEnt { eid, ingest, rf: INVALID }),
     }
 }
 
@@ -3548,13 +3614,14 @@ fn pipeline<'a, L: Layout>(
 ) -> Vec<Acc> {
     let (lk, nb, hmask, base) = (ctx.lk, knobs.nb, knobs.hmask, ctx.base);
     let (ncamp, ndays, ncat) = (ctx.ncamp, ctx.ndays, lk.cat_names.len());
-    // events: one pass -> dedup entries by eid partition, valid rows by person partition
+    // Events: sequential decode buffers, followed by exact-size counting scatters.
     let ev_chunks = events_in.chunks(knobs.chunk);
     let mut ev_out: Vec<EvOut<L>> = ev_chunks
         .par_chunks(task_group(ev_chunks.len(), nb, knobs.chunk))
-        .map(|task| {
+        .map_init(|| (Vec::new(), Vec::new()), |buffers, task| {
             let bytes: usize = task.iter().map(|&(_, s, e)| e - s).sum();
-            let mut o = EvOut::<L>::new(nb, bytes, base);
+            let mut o = EvOut::<L>::with_buffers(nb, bytes, base,
+                std::mem::take(&mut buffers.0), std::mem::take(&mut buffers.1));
             for &(fi, s, e) in task {
                 let buf: &[u8] = &events_in.maps[fi];
                 #[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
@@ -3564,7 +3631,9 @@ fn pipeline<'a, L: Layout>(
                 }
                 for_each_record(buf, s, e, scan, |f| parse_event(f, lk, win, &mut o));
             }
-            o.flush(lk);
+            o.finish(lk);
+            buffers.0 = std::mem::take(&mut o.raw_rows);
+            buffers.1 = std::mem::take(&mut o.raw_eids);
             o
         })
         .collect();
@@ -3644,7 +3713,7 @@ fn pipeline<'a, L: Layout>(
     }
     let ndrops: usize = drops.iter().map(|d| d.len()).sum();
     ev_out.par_iter_mut().for_each(|o| {
-        o.e = Vec::new();
+        o.e = EventParts::empty(0);
     });
     lap(&format!("events deduped ({ndrops} dropped rows)"));
 
@@ -4036,7 +4105,8 @@ mod tests {
                         let eid = (i % 19 + 1) as u64;
                         let ingest = ((i * 13 + t * 7) % 31) as i64;
                         let rf = if (i + t) % 5 == 0 { INVALID } else { i as u32 };
-                        o.e[0].push(EidEnt { eid, ingest, rf });
+                        o.e.rows.push(EidEnt { eid, ingest, rf });
+                        o.e.off[1] += 1;
                         let drop = if rf == INVALID { None } else { Some((t as u64) << 24 | i as u64) };
                         let encoded = drop.unwrap_or(u64::MAX);
                         match winners.get_mut(&eid) {
