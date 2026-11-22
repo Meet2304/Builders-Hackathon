@@ -417,3 +417,4 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - gVisor 20M paired: vs v7b 0.959 ± 0.027 (+4.1%); **vs v8 0.999 ± 0.036 (+0.1%)**, 1.140 vs 1.160 s. No gain.
   - **Calibration caveat:** v8 measures 1.12–1.16 s on local gVisor 20M, not the 0.965 s implied by its board. v8's board beat the 1.123× model by about 15%, so local gVisor only gives relative signal now.
   - Next: a standalone v10-vs-v8 gVisor A/B at 20M (7 pairs) and 60M by about 06:05, then the v10 full eval (about 1.5 h, ends about 07:40). Explorer 5 stays parked (no duplicate timing).
+- **Eval: v10 `def3d26` vs v8 `2bfb034`, gVisor 20M, 7 paired rounds: ratio 0.9465 ± 2SE 0.048 (+5.3%)**, medians 1.07 vs 1.12 s. Gate C (paired) passes narrowly. 60M (5 pairs) is staging; the full eval waits for the Orchestrator's go.
