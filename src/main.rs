@@ -39,6 +39,7 @@
 //!   SESSIONS_DEBUG_NO_FAST=2    half the IDs (by hash parity) take the interned fallback,
 //!                               to mix packed and interned keys
 //!   SESSIONS_DEBUG_NO_FAST=3    the portable SWAR classifier instead of NEON/SSE2
+//!   SESSIONS_DEBUG_STATS=1      print fast-path / split_fields line counts per input kind
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -538,6 +539,12 @@ fn classify_simd(p: &[u8; 64]) -> [u64; 3] {
 /// >= 2 that ends with '"' accounts for 2). split_fields splits on every comma and then
 /// requires exactly that of each field containing a quote, so the fast path accepts the
 /// same lines with the same (stripped) fields. Every other line goes to split_fields.
+/// SESSIONS_DEBUG_STATS=1: lines taken by the fast path / by split_fields, per field count
+/// N (2 = links, 4 = clicks, 7 = events), printed at exit. Counted per call, so the hot
+/// loop only bumps two locals.
+static STATS_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static STATS: [[AtomicU64; 2]; 8] = [const { [AtomicU64::new(0), AtomicU64::new(0)] }; 8];
+
 #[inline]
 fn for_each_record<'a, const N: usize>(buf: &'a [u8], start: usize, end: usize, scan: Scan, mut f: impl FnMut(&[&'a [u8]; N])) {
     let mut out = [&[][..]; N];
@@ -553,6 +560,7 @@ fn for_each_record<'a, const N: usize>(buf: &'a [u8], start: usize, end: usize, 
     let mut ncomma = 0usize;
     let mut nquote = 0u32;
     let mut ls = start;
+    let (mut n_fast, mut n_slow) = (0u64, 0u64);
     let mut emit = |ls: usize, le: usize, commas: &[usize; N], ncomma: usize, nquote: u32| {
         if ncomma == N - 1 {
             let mut s = ls;
@@ -562,6 +570,7 @@ fn for_each_record<'a, const N: usize>(buf: &'a [u8], start: usize, end: usize, 
                     s = commas[i] + 1;
                 }
                 out[N - 1] = &buf[s..le];
+                n_fast += 1;
                 f(&out);
                 return;
             }
@@ -577,10 +586,12 @@ fn for_each_record<'a, const N: usize>(buf: &'a [u8], start: usize, end: usize, 
                 s = e + 1;
             }
             if counted == nquote {
+                n_fast += 1;
                 f(&out);
                 return;
             }
         }
+        n_slow += 1;
         if split_fields(&buf[ls..le], &mut out) {
             f(&out);
         }
@@ -622,6 +633,10 @@ fn for_each_record<'a, const N: usize>(buf: &'a [u8], start: usize, end: usize, 
     }
     if ls < end {
         emit(ls, end, &commas, ncomma, nquote);
+    }
+    if STATS_ON.load(Relaxed) {
+        STATS[N][0].fetch_add(n_fast, Relaxed);
+        STATS[N][1].fetch_add(n_slow, Relaxed);
     }
 }
 
@@ -1083,13 +1098,159 @@ struct EidEnt {
     ingest: i64,
 }
 
-/// A valid event, in its person's partition.
+/// A valid event row in its person's partition, and the per-person sort element it
+/// becomes. Row16 is the default; Row24 is the exact fallback when a timestamp offset
+/// or a category index doesn't fit (and under SESSIONS_DEBUG_NO_FAST=1).
+trait Layout: Copy + Send + Sync {
+    /// Sort element of one event within its person's run: orders by ts first.
+    type Elem: Copy + Ord + Default + Send + Sync;
+    fn row(person: u64, ts: i64, price: u32, cat: u32, base: i64) -> Self;
+    fn person(&self) -> u64;
+    fn elem(&self) -> Self::Elem;
+    fn ts(e: Self::Elem, base: i64) -> i64;
+    fn price(e: Self::Elem) -> u32;
+    fn cat(e: Self::Elem) -> u32;
+    /// Sort one person's run by ts (ties in any order).
+    fn sort_run(run: &mut [Self::Elem], spare: &mut Vec<Self::Elem>);
+}
+
+/// 16 B: ts_off = ts - base (window_start - 7 d) in ms, price:24 | cat:8.
 #[derive(Clone, Copy)]
-struct Row {
+struct Row16 {
+    person: u64,
+    ts_off: u32,
+    pc: u32,
+}
+
+impl Layout for Row16 {
+    type Elem = u64; // ts_off << 32 | price << 8 | cat
+    #[inline]
+    fn row(person: u64, ts: i64, price: u32, cat: u32, base: i64) -> Self {
+        Row16 { person, ts_off: (ts - base) as u32, pc: price << 8 | cat }
+    }
+    #[inline]
+    fn person(&self) -> u64 {
+        self.person
+    }
+    #[inline]
+    fn elem(&self) -> u64 {
+        (self.ts_off as u64) << 32 | self.pc as u64
+    }
+    #[inline]
+    fn ts(e: u64, base: i64) -> i64 {
+        base + (e >> 32) as i64
+    }
+    #[inline]
+    fn price(e: u64) -> u32 {
+        e as u32 >> 8
+    }
+    #[inline]
+    fn cat(e: u64) -> u32 {
+        e as u32 & 0xff
+    }
+    #[inline]
+    fn sort_run(run: &mut [u64], spare: &mut Vec<u64>) {
+        if run.len() >= RADIX_RUN_MIN {
+            if spare.len() < run.len() {
+                spare.resize(run.len(), 0);
+            }
+            let n = run.len();
+            radix_u64(run, &mut spare[..n], |&e| e >> 32);
+        } else {
+            run.sort_unstable();
+        }
+    }
+}
+
+/// 24 B: the v3 layout, for windows past 2^32 ms or more than 256 categories.
+#[derive(Clone, Copy)]
+struct Row24 {
     person: u64,
     ts: i64,
     price: u32, // purchase price, 0 for view/cart
     cat: u32,
+}
+
+impl Layout for Row24 {
+    type Elem = (i64, u32, u32);
+    #[inline]
+    fn row(person: u64, ts: i64, price: u32, cat: u32, _base: i64) -> Self {
+        Row24 { person, ts, price, cat }
+    }
+    #[inline]
+    fn person(&self) -> u64 {
+        self.person
+    }
+    #[inline]
+    fn elem(&self) -> (i64, u32, u32) {
+        (self.ts, self.price, self.cat)
+    }
+    #[inline]
+    fn ts(e: (i64, u32, u32), _base: i64) -> i64 {
+        e.0
+    }
+    #[inline]
+    fn price(e: (i64, u32, u32)) -> u32 {
+        e.1
+    }
+    #[inline]
+    fn cat(e: (i64, u32, u32)) -> u32 {
+        e.2
+    }
+    #[inline]
+    fn sort_run(run: &mut [(i64, u32, u32)], _spare: &mut Vec<(i64, u32, u32)>) {
+        run.sort_unstable();
+    }
+}
+
+/// Runs at least this long sort by LSD radix instead of pdqsort (whale persons).
+const RADIX_RUN_MIN: usize = 512;
+
+/// 8-bit LSD radix on `key`, ping-ponging with `scratch`; skips a byte that is the same
+/// on every row. From Explorer 2's explore/gemini-radix (c99960e).
+fn radix_u64<T: Copy, F: Fn(&T) -> u64>(data: &mut [T], scratch: &mut [T], key: F) {
+    let n = data.len();
+    debug_assert!(n >= 2 && scratch.len() >= n && n <= u32::MAX as usize);
+    let mut hists = [[0u32; 256]; 8];
+    let sample = key(&data[0]);
+    for item in data.iter() {
+        let k = key(item);
+        for (b, h) in hists.iter_mut().enumerate() {
+            h[((k >> (8 * b)) & 0xff) as usize] += 1;
+        }
+    }
+    let mut in_scratch = false;
+    for (pass, hist) in hists.iter_mut().enumerate() {
+        let shift = pass * 8;
+        if hist[((sample >> shift) & 0xff) as usize] == n as u32 {
+            continue;
+        }
+        let mut sum = 0u32;
+        for c in hist.iter_mut() {
+            let cnt = *c;
+            *c = sum;
+            sum += cnt;
+        }
+        if !in_scratch {
+            for i in 0..n {
+                let item = data[i];
+                let b = ((key(&item) >> shift) & 0xff) as usize;
+                scratch[hist[b] as usize] = item;
+                hist[b] += 1;
+            }
+        } else {
+            for i in 0..n {
+                let item = scratch[i];
+                let b = ((key(&item) >> shift) & 0xff) as usize;
+                data[hist[b] as usize] = item;
+                hist[b] += 1;
+            }
+        }
+        in_scratch = !in_scratch;
+    }
+    if in_scratch {
+        data.copy_from_slice(&scratch[..n]);
+    }
 }
 
 /// A valid click, in its person's partition.
@@ -1118,11 +1279,12 @@ impl Win {
 }
 
 /// One parse task's output for events.
-struct EvOut {
+struct EvOut<L> {
     e: Vec<Vec<EidEnt>>, // by eid partition
     rf: Vec<Vec<u32>>,   // parallel to e: dest << 20 | seq, or INVALID
-    r: Vec<Vec<Row>>,    // by person partition
+    r: Vec<Vec<L>>,      // by person partition
     pend: Vec<PendEv>,   // valid rows waiting on their (prefetched) link lookup
+    base: i64,
 }
 
 /// Link lookups go in batches of BATCH: a row's table slot is prefetched when it's
@@ -1144,11 +1306,11 @@ fn buckets_with<T>(nb: usize, per: usize) -> Vec<Vec<T>> {
     (0..nb).map(|_| if per >= 32 { Vec::with_capacity(per) } else { Vec::new() }).collect()
 }
 
-impl EvOut {
-    fn new(nb: usize, bytes: usize) -> Self {
+impl<L: Layout> EvOut<L> {
+    fn new(nb: usize, bytes: usize, base: i64) -> Self {
         // ~75 bytes per line; reserve 25% headroom (virtual memory only until touched)
         let per = bytes / 75 / nb * 5 / 4 + 16;
-        EvOut { e: buckets_with(nb, per), rf: buckets_with(nb, per), r: buckets_with(nb, per), pend: Vec::with_capacity(BATCH) }
+        EvOut { e: buckets_with(nb, per), rf: buckets_with(nb, per), r: buckets_with(nb, per), pend: Vec::with_capacity(BATCH), base }
     }
 
     /// Resolve the pending rows' persons and emit them.
@@ -1160,7 +1322,7 @@ impl EvOut {
             let seq = self.r[d].len();
             // MAX_TASK_BYTES keeps this far below 2^20; fail loudly rather than corrupt
             assert!(seq < 1 << 20, "rows per (task, partition) overflow the 20-bit ref");
-            self.r[d].push(Row { person, ts: x.ts, price: x.price, cat: x.cat });
+            self.r[d].push(L::row(person, x.ts, x.price, x.cat, self.base));
             let q = bucket(lk.hk(x.eid), nb);
             self.e[q].push(EidEnt { eid: x.eid, ingest: x.ingest });
             self.rf[q].push((d as u32) << 20 | seq as u32);
@@ -1191,7 +1353,7 @@ fn validate<'a>(f: &[&'a [u8]; 7], ingest: i64, w: &Win) -> Option<(&'a [u8], i6
 }
 
 #[inline]
-fn parse_event<'a>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &mut EvOut) {
+fn parse_event<'a, L: Layout>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &mut EvOut<L>) {
     if f[0].is_empty() {
         return;
     }
@@ -1249,7 +1411,7 @@ fn task_group(nchunks: usize, nb: usize, chunk: usize) -> usize {
 
 /// Dedup one eid partition: returns the drops (dest:16 | t:24 | seq:24) of every losing
 /// copy that produced a row.
-fn dedup_part(ev: &[EvOut], q: usize, hmask: u64, tab: &mut Vec<(u64, u64)>) -> Vec<u64> {
+fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, tab: &mut Vec<(u64, u64)>) -> Vec<u64> {
     let n: usize = ev.iter().map(|o| o.e[q].len()).sum();
     let mut drops = Vec::new();
     if n == 0 {
@@ -1316,15 +1478,6 @@ struct Ctx<'a, 'l> {
     wide: bool,   // ts - base may not fit 40 bits: sort on (person, ts) pairs
 }
 
-/// A person partition's event, keyed by local person.
-#[derive(Clone, Copy)]
-struct PEv {
-    k: u64, // local << 40 | (ts - base), or just local when wide
-    ts: i64,
-    price: u32,
-    cat: u32,
-}
-
 #[derive(Clone, Copy)]
 struct PCk {
     k: u64,
@@ -1334,17 +1487,28 @@ struct PCk {
 }
 
 /// Per-worker scratch, reused across partitions.
-struct Scratch {
+struct Scratch<E> {
     persons: Interner,
     dropped: Vec<u64>,
     off: Vec<usize>,
-    evs: Vec<PEv>,
+    locs: Vec<u32>,   // local person of each kept row, in input order
+    starts: Vec<u32>, // counting sort: per-person run start (then end)
+    evs: Vec<E>,      // the partition's events, grouped by person, ts-sorted per run
+    spare: Vec<E>,
     cks: Vec<PCk>,
     active: ActiveSet,
     cat_sum: Vec<i64>,
 }
 
-fn process_part(ctx: &Ctx, acc: &mut Acc, sc: &mut Scratch, ev: &[EvOut], ck: &[Vec<Vec<Ck>>], drops: &[u64], p: usize) {
+fn process_part<L: Layout>(
+    ctx: &Ctx,
+    acc: &mut Acc,
+    sc: &mut Scratch<L::Elem>,
+    ev: &[EvOut<L>],
+    ck: &[Vec<Vec<Ck>>],
+    drops: &[u64],
+    p: usize,
+) {
     let lk = ctx.lk;
     let hmask = lk.hmask;
     let n: usize = ev.iter().map(|o| o.r[p].len()).sum();
@@ -1365,9 +1529,10 @@ fn process_part(ctx: &Ctx, acc: &mut Acc, sc: &mut Scratch, ev: &[EvOut], ck: &[
             sc.dropped[b >> 6] |= 1 << (b & 63);
         }
     }
+    // pass 1: intern persons and count each one's rows
     sc.persons.reset(n);
-    sc.evs.clear();
-    sc.evs.reserve(n);
+    sc.locs.clear();
+    sc.starts.clear();
     let mut b = 0usize;
     for x in ev {
         for r in &x.r[p] {
@@ -1376,20 +1541,49 @@ fn process_part(ctx: &Ctx, acc: &mut Acc, sc: &mut Scratch, ev: &[EvOut], ck: &[
             if gone {
                 continue;
             }
-            let loc = sc.persons.intern(r.person, hmask) as u64;
-            sc.evs.push(PEv { k: loc, ts: r.ts, price: r.price, cat: r.cat });
+            let loc = sc.persons.intern(r.person(), hmask);
+            if loc as usize == sc.starts.len() {
+                sc.starts.push(0);
+            }
+            sc.starts[loc as usize] += 1;
+            sc.locs.push(loc);
         }
+    }
+    let kept = sc.locs.len();
+    let mut sum = 0u32;
+    for c in sc.starts.iter_mut() {
+        let cnt = *c;
+        *c = sum;
+        sum += cnt;
+    }
+    // pass 2: scatter each kept row's element into its person's run (counting sort)
+    sc.evs.clear();
+    sc.evs.resize(kept, L::Elem::default());
+    let (mut b, mut j) = (0usize, 0usize);
+    for x in ev {
+        for r in &x.r[p] {
+            let gone = sc.dropped[b >> 6] >> (b & 63) & 1 != 0;
+            b += 1;
+            if gone {
+                continue;
+            }
+            let loc = sc.locs[j] as usize;
+            j += 1;
+            sc.evs[sc.starts[loc] as usize] = r.elem();
+            sc.starts[loc] += 1;
+        }
+    }
+    // starts[loc] is now the end of loc's run; sort each run by ts
+    let mut s0 = 0usize;
+    for &e in &sc.starts {
+        let e = e as usize;
+        if e - s0 > 1 {
+            L::sort_run(&mut sc.evs[s0..e], &mut sc.spare);
+        }
+        s0 = e;
     }
     let wide = ctx.wide || sc.persons.keys.len() >= 1 << 24;
     let shift = if wide { 0 } else { 40 };
-    if wide {
-        sc.evs.sort_unstable_by(|a, b| a.k.cmp(&b.k).then(a.ts.cmp(&b.ts)));
-    } else {
-        for e in sc.evs.iter_mut() {
-            e.k = e.k << 40 | (e.ts - ctx.base) as u64;
-        }
-        sc.evs.sort_unstable_by_key(|e| e.k);
-    }
     sc.cks.clear();
     for part in ck {
         for c in &part[p] {
@@ -1403,17 +1597,15 @@ fn process_part(ctx: &Ctx, acc: &mut Acc, sc: &mut Scratch, ev: &[EvOut], ck: &[
     // a session start is the latest one with the smallest click_id.
     sc.cks.sort_unstable_by(|a, b| a.k.cmp(&b.k).then(a.ts.cmp(&b.ts)).then_with(|| lk.ids.cmp(b.cid, a.cid)));
 
-    let Scratch { persons, evs, cks, active, cat_sum, .. } = sc;
+    let base = ctx.base;
+    let Scratch { persons, evs, starts, cks, active, cat_sum, .. } = sc;
     let ncat = cat_sum.len();
     let mut ci = 0usize;
     let mut i = 0usize;
-    while i < evs.len() {
-        let loc = evs[i].k >> shift;
+    for (loc, &j) in starts.iter().enumerate() {
+        let j = j as usize;
+        let loc = loc as u64;
         let person = persons.keys[loc as usize];
-        let mut j = i + 1;
-        while j < evs.len() && evs[j].k >> shift == loc {
-            j += 1;
-        }
         while ci < cks.len() && cks[ci].k >> shift < loc {
             ci += 1;
         }
@@ -1433,16 +1625,17 @@ fn process_part(ctx: &Ctx, acc: &mut Acc, sc: &mut Scratch, ev: &[EvOut], ck: &[
         while k < j {
             // session = evs[k0..k]; equal timestamps have gap 0 and always join
             let k0 = k;
-            let start = evs[k].ts;
+            let start = L::ts(evs[k], base);
             let mut last = start;
             let mut rev = 0i64;
             let mut purchased = false;
-            while k < j && evs[k].ts - last <= GAP_MS {
-                let e = &evs[k];
-                last = e.ts;
-                if e.price > 0 {
+            while k < j && L::ts(evs[k], base) - last <= GAP_MS {
+                let e = evs[k];
+                last = L::ts(e, base);
+                let price = L::price(e);
+                if price > 0 {
                     purchased = true;
-                    rev += e.price as i64;
+                    rev += price as i64;
                 }
                 k += 1;
             }
@@ -1458,9 +1651,10 @@ fn process_part(ctx: &Ctx, acc: &mut Acc, sc: &mut Scratch, ev: &[EvOut], ck: &[
                 d_any_purchase = false;
             }
             if purchased {
-                for e in &evs[k0..k] {
-                    if e.price > 0 {
-                        cat_sum[e.cat as usize] += e.price as i64;
+                for &e in &evs[k0..k] {
+                    let price = L::price(e);
+                    if price > 0 {
+                        cat_sum[L::cat(e) as usize] += price as i64;
                     }
                 }
             }
@@ -1708,6 +1902,105 @@ fn user_batch(rows: &[UserRow], lk: &Lookups) -> RecordBatch {
 
 // ------------------------------------------------------------------ main
 
+/// Events, clicks, dedup and sessions, for one event-row layout.
+#[allow(clippy::too_many_arguments)]
+fn pipeline<'a, L: Layout>(
+    ctx: &Ctx<'a, '_>,
+    win: &Win,
+    events_in: &'a Input,
+    clicks_in: &'a Input,
+    knobs: &Knobs,
+    scan: Scan,
+    lap: &dyn Fn(&str),
+) -> Vec<Acc> {
+    let (lk, nb, hmask, base) = (ctx.lk, knobs.nb, knobs.hmask, ctx.base);
+    let (ncamp, ndays, ncat) = (ctx.ncamp, ctx.ndays, lk.cat_names.len());
+    // events: one pass -> dedup entries by eid partition, valid rows by person partition
+    let ev_chunks = events_in.chunks(knobs.chunk);
+    let mut ev_out: Vec<EvOut<L>> = ev_chunks
+        .par_chunks(task_group(ev_chunks.len(), nb, knobs.chunk))
+        .map(|task| {
+            let bytes: usize = task.iter().map(|&(_, s, e)| e - s).sum();
+            let mut o = EvOut::<L>::new(nb, bytes, base);
+            for &(fi, s, e) in task {
+                let buf: &[u8] = &events_in.maps[fi];
+                for_each_record(buf, s, e, scan, |f| parse_event(f, lk, win, &mut o));
+            }
+            o.flush(lk);
+            o
+        })
+        .collect();
+    assert!(ev_out.len() < 1 << 24, "task index overflows the 24-bit drop field");
+    lap("events parsed");
+
+    // clicks: parse + validate + scatter by person
+    let ck_chunks = clicks_in.chunks(knobs.chunk);
+    let ck_out: Vec<Vec<Vec<Ck>>> = ck_chunks
+        .par_chunks(task_group(ck_chunks.len(), nb, knobs.chunk))
+        .map(|task| {
+            let bytes: usize = task.iter().map(|&(_, s, e)| e - s).sum();
+            let mut b: Vec<Vec<Ck>> = buckets_with(nb, bytes / 60 / nb * 5 / 4 + 16);
+            let mut pend = Vec::with_capacity(BATCH);
+            for &(fi, s, e) in task {
+                let buf: &[u8] = &clicks_in.maps[fi];
+                for_each_record(buf, s, e, scan, |f| {
+                    if let Some(c) = parse_click(f, lk, win) {
+                        pend.push(c);
+                        if pend.len() == BATCH {
+                            flush_clicks(&mut pend, lk, &mut b);
+                        }
+                    }
+                });
+            }
+            flush_clicks(&mut pend, lk, &mut b);
+            b
+        })
+        .collect();
+    lap("clicks parsed");
+
+    // dedup per eid partition; the losers' drops go to their person partitions
+    let drops: Vec<Vec<u64>> =
+        (0..nb).into_par_iter().map_init(Vec::new, |tab, q| dedup_part(&ev_out, q, hmask, tab)).collect();
+    let mut drops_by: Vec<Vec<u64>> = (0..nb).map(|_| Vec::new()).collect();
+    for &d in drops.iter().flatten() {
+        drops_by[(d >> 48) as usize].push(d);
+    }
+    let ndrops: usize = drops.iter().map(|d| d.len()).sum();
+    ev_out.par_iter_mut().for_each(|o| {
+        o.e = Vec::new();
+        o.rf = Vec::new();
+    });
+    lap(&format!("events deduped ({ndrops} dropped rows)"));
+
+
+    (0..nb)
+        .into_par_iter()
+        .fold(
+            || {
+                let acc = Acc { users: Vec::new(), camp: vec![[0i64; 4]; (ncamp + 1) * ndays] };
+                let sc = Scratch {
+                    persons: Interner::default(),
+                    dropped: Vec::new(),
+                    off: Vec::new(),
+                    locs: Vec::new(),
+                    starts: Vec::new(),
+                    evs: Vec::new(),
+                    spare: Vec::new(),
+                    cks: Vec::new(),
+                    active: ActiveSet::new(ncamp),
+                    cat_sum: vec![0i64; ncat],
+                };
+                (acc, sc)
+            },
+            |(mut acc, mut sc), p| {
+                process_part(ctx, &mut acc, &mut sc, &ev_out, &ck_out, &drops_by[p], p);
+                (acc, sc)
+            },
+        )
+        .map(|(acc, _)| acc)
+        .collect()
+}
+
 fn main() {
     let t0 = Instant::now();
     let get = |k: &str, d: &str| env::var(k).unwrap_or_else(|_| d.to_string());
@@ -1728,7 +2021,7 @@ fn main() {
         }
     };
     let knobs = Knobs::from_env();
-    let nb = knobs.nb;
+    STATS_ON.store(env::var_os("SESSIONS_DEBUG_STATS").is_some(), Relaxed);
     let hmask = knobs.hmask;
 
     let manifest: serde_json::Value =
@@ -1764,63 +2057,6 @@ fn main() {
     let lk = Lookups { products, cat_names, cat_rank, unknown_cat, campaigns, camp_ids, channels, ids, links, hmask };
     lap(&format!("lookups ({nlinked} linked ids)"));
 
-    // events: one pass -> dedup entries by eid partition, valid rows by person partition
-    let ev_chunks = events_in.chunks(knobs.chunk);
-    let mut ev_out: Vec<EvOut> = ev_chunks
-        .par_chunks(task_group(ev_chunks.len(), nb, knobs.chunk))
-        .map(|task| {
-            let bytes: usize = task.iter().map(|&(_, s, e)| e - s).sum();
-            let mut o = EvOut::new(nb, bytes);
-            for &(fi, s, e) in task {
-                let buf: &[u8] = &events_in.maps[fi];
-                for_each_record(buf, s, e, scan, |f| parse_event(f, &lk, &win, &mut o));
-            }
-            o.flush(&lk);
-            o
-        })
-        .collect();
-    assert!(ev_out.len() < 1 << 24, "task index overflows the 24-bit drop field");
-    lap("events parsed");
-
-    // clicks: parse + validate + scatter by person
-    let ck_chunks = clicks_in.chunks(knobs.chunk);
-    let ck_out: Vec<Vec<Vec<Ck>>> = ck_chunks
-        .par_chunks(task_group(ck_chunks.len(), nb, knobs.chunk))
-        .map(|task| {
-            let bytes: usize = task.iter().map(|&(_, s, e)| e - s).sum();
-            let mut b: Vec<Vec<Ck>> = buckets_with(nb, bytes / 60 / nb * 5 / 4 + 16);
-            let mut pend = Vec::with_capacity(BATCH);
-            for &(fi, s, e) in task {
-                let buf: &[u8] = &clicks_in.maps[fi];
-                for_each_record(buf, s, e, scan, |f| {
-                    if let Some(c) = parse_click(f, &lk, &win) {
-                        pend.push(c);
-                        if pend.len() == BATCH {
-                            flush_clicks(&mut pend, &lk, &mut b);
-                        }
-                    }
-                });
-            }
-            flush_clicks(&mut pend, &lk, &mut b);
-            b
-        })
-        .collect();
-    lap("clicks parsed");
-
-    // dedup per eid partition; the losers' drops go to their person partitions
-    let drops: Vec<Vec<u64>> =
-        (0..nb).into_par_iter().map_init(Vec::new, |tab, q| dedup_part(&ev_out, q, hmask, tab)).collect();
-    let mut drops_by: Vec<Vec<u64>> = (0..nb).map(|_| Vec::new()).collect();
-    for &d in drops.iter().flatten() {
-        drops_by[(d >> 48) as usize].push(d);
-    }
-    let ndrops: usize = drops.iter().map(|d| d.len()).sum();
-    ev_out.par_iter_mut().for_each(|o| {
-        o.e = Vec::new();
-        o.rf = Vec::new();
-    });
-    lap(&format!("events deduped ({ndrops} dropped rows)"));
-
     let first_day = win.start.div_euclid(DAY_MS);
     let ndays = ((win.end - 1).div_euclid(DAY_MS) - first_day + 1).max(1) as usize;
     let ncamp = lk.camp_ids.len();
@@ -1828,30 +2064,13 @@ fn main() {
     let wide = !(0..1i64 << 40).contains(&win.end.saturating_sub(base));
     let ctx = Ctx { lk: &lk, first_day, ndays, ncamp, base, wide };
     let ncat = lk.cat_names.len();
-
-    let accs: Vec<Acc> = (0..nb)
-        .into_par_iter()
-        .fold(
-            || {
-                let acc = Acc { users: Vec::new(), camp: vec![[0i64; 4]; (ncamp + 1) * ndays] };
-                let sc = Scratch {
-                    persons: Interner::default(),
-                    dropped: Vec::new(),
-                    off: Vec::new(),
-                    evs: Vec::new(),
-                    cks: Vec::new(),
-                    active: ActiveSet::new(ncamp),
-                    cat_sum: vec![0i64; ncat],
-                };
-                (acc, sc)
-            },
-            |(mut acc, mut sc), p| {
-                process_part(&ctx, &mut acc, &mut sc, &ev_out, &ck_out, &drops_by[p], p);
-                (acc, sc)
-            },
-        )
-        .map(|(acc, _)| acc)
-        .collect();
+    // 16 B rows unless a ts offset (ms) or a category index wouldn't fit them
+    let compact = knobs.no_fast != 1 && win.end.saturating_sub(base) < 1i64 << 32 && ncat <= 256;
+    let accs = if compact {
+        pipeline::<Row16>(&ctx, &win, &events_in, &clicks_in, &knobs, scan, &lap)
+    } else {
+        pipeline::<Row24>(&ctx, &win, &events_in, &clicks_in, &knobs, scan, &lap)
+    };
     lap("sessions + attribution");
 
     let ud_dir = out.join("user_daily");
@@ -1877,6 +2096,12 @@ fn main() {
     write_parquet(&cd_dir.join("part-00000.parquet"), campaign_batch(&camp_total, &ctx));
     let rows: usize = accs.iter().map(|a| a.users.len()).sum();
     lap(&format!("written ({rows} user_daily rows)"));
+    if STATS_ON.load(Relaxed) {
+        for (n, what) in [(7, "events"), (4, "clicks"), (2, "links")] {
+            let (f, sl) = (STATS[n][0].load(Relaxed), STATS[n][1].load(Relaxed));
+            eprintln!("stats: {what} lines fast={f} split_fields={sl} ({:.1}% fast)", 100.0 * f as f64 / (f + sl).max(1) as f64);
+        }
+    }
     // Every Parquet writer is closed (ArrowWriter::close flushed it, and its File was
     // dropped inside write_parquet), so nothing is left to flush. Skip the teardown.
     std::process::exit(0);
@@ -2106,5 +2331,30 @@ mod tests {
         run::<2>(0x9e37_79b9_7f4a_7c15, 400_000);
         run::<4>(0x2545_f491_4f6c_dd1d, 400_000);
         run::<7>(0x1234_5678_9abc_def1, 400_000);
+    }
+
+    #[test]
+    fn radix_and_row16_sort_runs() {
+        let mut x = 0x0bad_5eed_1234_5678u64;
+        for len in [2usize, 3, 31, 511, 512, 513, 5000, 70_000] {
+            let mut v: Vec<u64> = (0..len)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    // ts_off in a 21-day range (some equal), arbitrary price/cat bits
+                    ((x % 1_814_400_000 / 997) << 32) | (x >> 40)
+                })
+                .collect();
+            let mut want = v.clone();
+            want.sort_unstable_by_key(|&e| e >> 32);
+            Row16::sort_run(&mut v, &mut Vec::new());
+            let ts: Vec<u64> = v.iter().map(|&e| e >> 32).collect();
+            assert_eq!(ts, want.iter().map(|&e| e >> 32).collect::<Vec<_>>(), "len {len}");
+            let (mut a, mut b) = (v.clone(), want.clone());
+            a.sort_unstable();
+            b.sort_unstable();
+            assert_eq!(a, b, "same multiset, len {len}");
+        }
     }
 }
