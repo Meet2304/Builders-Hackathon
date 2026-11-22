@@ -3079,6 +3079,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn dedup_scratch_reset_preserves_winners() {
+        let mut scratch = DedupScratch::default();
+        for hmask in [0, 3, u64::MAX] {
+            for n in [128, 0, 1, 17, 257, 2, 128] {
+                let mut ev: Vec<EvOut<Row16>> = (0..3).map(|_| EvOut::new(1, 0, 0)).collect();
+                let mut expected = Vec::new();
+                let mut winners = std::collections::HashMap::<u64, (i64, u64)>::new();
+                for (t, o) in ev.iter_mut().enumerate() {
+                    for i in 0..n {
+                        let eid = (i % 19 + 1) as u64;
+                        let ingest = ((i * 13 + t * 7) % 31) as i64;
+                        let rf = if (i + t) % 5 == 0 { INVALID } else { i as u32 };
+                        o.e[0].push(EidEnt { eid, ingest });
+                        o.rf[0].push(rf);
+                        let drop = if rf == INVALID { None } else { Some((t as u64) << 24 | i as u64) };
+                        let encoded = drop.unwrap_or(u64::MAX);
+                        match winners.get_mut(&eid) {
+                            None => { winners.insert(eid, (ingest, encoded)); }
+                            Some(w) => {
+                                let loser = if ingest < w.0 {
+                                    let old = w.1;
+                                    *w = (ingest, encoded);
+                                    old
+                                } else { encoded };
+                                if loser != u64::MAX { expected.push(loser); }
+                            }
+                        }
+                    }
+                }
+                let mut actual = dedup_part(&ev, 0, hmask, &mut scratch);
+                actual.sort_unstable();
+                expected.sort_unstable();
+                assert_eq!(actual, expected, "n={n}, hmask={hmask}");
+            }
+        }
+    }
+
+    #[test]
     fn person_interner_keeps_ordinals_through_growth() {
         let mut people = Interner::default();
         people.reset(1, DEFAULT_NB, 0);
