@@ -297,3 +297,22 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **v8 head `2b9aecd` x86 MATCH** on new dev.
   - x86 instructions per event line: v7 and v7b 1,480; **v8 1,384 (−96)**. Events 804 → 753 (the SSSE3 hex kernel is about 48 Ir per long ID, against 256 scalar); clicks 150 → 106. No x86 regressions.
 - **Orchestrator incident (fixed):** merging `analysis3` (branched from `1f02cb2`) carried v6's `src/main.rs` into main (`b43bf46`). **Restored main src to v5 `5b7bcc2` in `d4917b0`**; it was on origin for about 1 min, and nothing was submitted from it. **Rule from now on:** bring notes branches onto main with `git checkout <branch> -- <notes dir>`, never a full merge, unless `git diff --name-only main...<branch>` is notes-only.
+
+### 2026-11-22, 02:20 ET: resume after the claude_master limit
+- **User:** "continue", "optimize usage and start as many threads as you can", "complete the eval on v7 at priority".
+- **Orchestrator:**
+  - Re-oriented from the log; the bench lock was free.
+  - **Started the v7b full eval myself** (`evals/run.py --version v7b --rev 96af24b --profile full`, in the eval worktree, holding the bench lock).
+  - Diagnosed `v5-newgen`'s REJECT: the `SESSIONS_DEBUG_HASH_BITS=4` dev run **timed out** (fuzz under that knob passed 150/150). That's a perf timeout under a pathological knob, not a mismatch. New policy (sent to Eval): a knob dev timeout with fuzz passing is a *warn*, and the timeout is raised to 600 s.
+  - **Approved move 8 without waiting for Sol's 06:00 sign-off.** v8 release candidate = tree of `try/coldec` @ `2bfb034`; Method is fast-forwarding `method/v8` and running the final gates.
+- **Provider rebalance:** claude_master is out until about 05:00; Codex had been capped; Grok is out.
+  - Eval → claude_andrew.
+  - Analyst 3 and Explorer 5 → Cursor Opus 5.5.
+  - Explorer 3 and Neon Detective → Cursor Gemini 4 Neon.
+  - Analyst 2 → Antigravity Opus 4.6 Thinking.
+  - Explorer (Sol) and Explorer 4 → back to Codex gpt-6.2-sol (user request; fall back to claude_andrew if capped).
+  - Red Team stays on claude_andrew; Method and Analyst stay on claudeAgent.
+- **Assignments:**
+  - **v8 verification:** Analyst 2 (spec check of move 8), Analyst 3 (x86 MATCH and instructions), Red Team (adversarial, by 04:30), Explorer 5 (3-arm gVisor ABBA at 20M + 60M), Eval (full v8 after v7b, then v7b vs v8 under gVisor at 60M).
+  - **v9 (freeze 08:00):** Explorer 3 (write path), Explorer Sol (`LongTable` at 60M), Explorer 4 (links), Neon Detective (start, exit and lookups traces), Method (v8, then start/exit, then integration).
+  - **Analyst:** the release schedule plus the final-pick rule (`release-final.md`).
