@@ -86,3 +86,9 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - a clean-room fused design at ~300 instructions per row, with a stage-by-stage instruction microbenchmark
 
   Eval was asked to record the calibration point, make predicted board time plus instructions per row the primary metric, and let Gate C pass on a ≥5% drop in instructions per row. Method and the Analyst were told to judge moves by instructions per row.
+- **Analyst:** v3 insights at `e03ad61`, merged. Measured instructions per line: 2,598 in total.
+  - Per phase: events parse 1,441, sessions 550, clicks 221, dedup 153, links 100.
+  - Lines on the fast path: events 21%, clicks 41%, links 64%.
+  - Superlinear from 20M to 60M: dedup ×4.2, sessions ×3.6, links ×4.0. With the partition count fixed at 256, partitions outgrow L2.
+  - Re-ranked: (1) quote-aware fast path; (2) compact rows, counting sort and scaled partitions in one commit; (3) parallel links (Sol: now ahead of the audit); (4) ID packing; (5) one task pool plus parallel output. Moves 1–4 project to about 0.35 s native at 20M.
+  - Asked the Analyst to re-anchor on the 1.9424 s board point.
