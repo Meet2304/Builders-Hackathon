@@ -86,6 +86,9 @@ const MAX_NB: usize = 4096;
 /// `seq` always fits the 20 bits it gets in a ref.
 const MAX_TASK_BYTES: usize = 8 << 20;
 const INVALID: u32 = u32::MAX;
+const PART_MULTIPLIER: u64 = 0x9e37_79b9_7f4a_7c15;
+// Its inverse modulo 2^64, used once per person when emitting user-day rows.
+const PART_INVERSE: u64 = 0xf1de_83e1_9937_733d;
 
 /// Partition of hash `h` among `nb` buckets: the high bits of h * nb. For nb = 2^k this
 /// equals h >> (64 - k); it also works for nb = 1 and for any nb that isn't a power of 2.
@@ -460,7 +463,7 @@ impl LinkTable {
     /// Home slot: the high bits of a multiplicative hash (as `Lookups::hpart`).
     #[inline]
     fn slot(&self, k: u64) -> usize {
-        ((k.wrapping_mul(0x9e37_79b9_7f4a_7c15) & self.hmask) >> self.shift) as usize
+        ((k.wrapping_mul(PART_MULTIPLIER) & self.hmask) >> self.shift) as usize
     }
 
     /// Insert a key that isn't in the table yet.
@@ -499,20 +502,26 @@ struct Interner {
     tab: Vec<(u64, u32)>,
     keys: Vec<u64>,
     mask: usize,
+    shift: u32,
+    probe_mask: usize,
 }
 
 impl Interner {
-    fn reset(&mut self, n: usize) {
+    fn reset(&mut self, n: usize, partitions: usize, hmask: u64) {
         let cap = (2 * n).next_power_of_two().max(16);
         self.tab.clear();
         self.tab.resize(cap, (0, 0));
         self.mask = cap - 1;
+        // The outer partition consumes the high bits. Use the next bits of
+        // the stored product for the local home slot.
+        self.shift = 64u32.saturating_sub(partitions.next_power_of_two().trailing_zeros() + cap.trailing_zeros());
+        self.probe_mask = (hmask >> self.shift) as usize & self.mask;
         self.keys.clear();
     }
 
     #[inline]
-    fn intern(&mut self, k: u64, hmask: u64) -> u32 {
-        let mut s = (mix(k) & hmask) as usize & self.mask;
+    fn intern(&mut self, k: u64) -> u32 {
+        let mut s = (k >> self.shift) as usize & self.probe_mask;
         loop {
             let e = &mut self.tab[s];
             if e.0 == k {
@@ -529,8 +538,8 @@ impl Interner {
     }
 
     #[inline]
-    fn get(&self, k: u64, hmask: u64) -> Option<u32> {
-        let mut s = (mix(k) & hmask) as usize & self.mask;
+    fn get(&self, k: u64) -> Option<u32> {
+        let mut s = (k >> self.shift) as usize & self.probe_mask;
         loop {
             let e = &self.tab[s];
             if e.0 == k {
@@ -1300,12 +1309,11 @@ struct Lookups<'a> {
 
 impl<'a> Lookups<'a> {
     /// Partition hash of a key (for `bucket`): one multiply, whose high bits depend on
-    /// every bit of `k`. Independent of the low bits of `mix`, which index the tables
-    /// inside a partition. Masked by the same debug knob. The link table's home slot uses the same
-    /// high bits; it's a separate table, so that doesn't cluster anything.
+    /// every bit of `k`. Masked by the same debug knob. The link table's home slot
+    /// uses the same high bits; it's a separate table.
     #[inline]
     fn hpart(&self, k: u64) -> u64 {
-        k.wrapping_mul(0x9e37_79b9_7f4a_7c15) & self.hmask
+        k.wrapping_mul(PART_MULTIPLIER) & self.hmask
     }
 
     #[inline]
@@ -1580,9 +1588,9 @@ impl<L: Layout> EvOut<L> {
         let np = std::mem::take(&mut self.np);
         for x in &self.pend[..np] {
             let (mut row, user) = (x.row, x.row.person());
-            let person = lk.links.get_at(user, x.slot);
+            let person = lk.links.get_at(user, x.slot).wrapping_mul(PART_MULTIPLIER);
             row.set_person(person);
-            let d = bucket(lk.hpart(person), nb);
+            let d = bucket(person & lk.hmask, nb);
             let q = bucket(lk.hpart(x.eid), nb);
             // SAFETY: bucket(_, nb) < nb == self.r.len() == self.e.len() == self.rf.len()
             let (r, e, rf) = unsafe { (self.r.get_unchecked_mut(d), self.e.get_unchecked_mut(q), self.rf.get_unchecked_mut(q)) };
@@ -1672,8 +1680,8 @@ impl CkOut {
         let nb = self.b.len();
         let np = std::mem::take(&mut self.np);
         for &(mut c, slot) in &self.pend[..np] {
-            c.person = lk.links.get_at(c.person, slot);
-            let d = bucket(lk.hpart(c.person), nb);
+            c.person = lk.links.get_at(c.person, slot).wrapping_mul(PART_MULTIPLIER);
+            let d = bucket(c.person & lk.hmask, nb);
             // SAFETY: bucket(_, nb) < nb == self.b.len()
             unsafe { self.b.get_unchecked_mut(d) }.push(c);
         }
@@ -1823,7 +1831,7 @@ fn process_part<L: Layout>(
         }
     }
     // pass 1: intern persons and count each one's rows
-    sc.persons.reset(n);
+    sc.persons.reset(n, ev[0].r.len(), hmask);
     sc.locs.clear();
     sc.starts.clear();
     let mut b = 0usize;
@@ -1834,7 +1842,7 @@ fn process_part<L: Layout>(
             if gone {
                 continue;
             }
-            let loc = sc.persons.intern(r.person(), hmask);
+            let loc = sc.persons.intern(r.person());
             if loc as usize == sc.starts.len() {
                 sc.starts.push(0);
             }
@@ -1880,7 +1888,7 @@ fn process_part<L: Layout>(
     sc.cks.clear();
     for part in ck {
         for c in &part[p] {
-            if let Some(loc) = sc.persons.get(c.person, hmask) {
+            if let Some(loc) = sc.persons.get(c.person) {
                 let k = if wide { loc as u64 } else { (loc as u64) << 40 | (c.ts - ctx.base) as u64 };
                 sc.cks.push(PCk { k, ts: c.ts, cid: c.cid, camp: c.camp });
             }
@@ -1895,7 +1903,7 @@ fn process_part<L: Layout>(
     let mut i = 0usize;
     for (loc, &j) in starts.iter().enumerate() {
         let j = j as usize;
-        let person = persons.keys[loc];
+        let person = persons.keys[loc].wrapping_mul(PART_INVERSE);
         // Every stored click has a person in starts, and the sort groups those
         // people in the same order. The cursor advances once per click.
         let mut cj = ci;
