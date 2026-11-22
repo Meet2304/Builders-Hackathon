@@ -3331,11 +3331,17 @@ fn pipeline<'a, L: Layout>(
     lap(&format!("events deduped ({ndrops} dropped rows)"));
 
 
-    (0..nb)
+    // Campaign totals are per worker thread, not per fold accumulator: rayon makes
+    // hundreds of accumulators at 20M (208 at NCPU=8), and each one zeroed and the
+    // main thread then summed a (ncamp + 1) x ndays array. Integer sums: exact in any order.
+    let camp_len = (ncamp + 1) * ndays;
+    let camps: Vec<Mutex<Vec<[i64; 4]>>> =
+        (0..rayon::current_num_threads()).map(|_| Mutex::new(Vec::new())).collect();
+    let mut accs: Vec<Acc> = (0..nb)
         .into_par_iter()
         .fold(
             || {
-                let acc = Acc { users: Vec::new(), camp: vec![[0i64; 4]; (ncamp + 1) * ndays] };
+                let acc = Acc { users: Vec::new(), camp: Vec::new() };
                 let sc = Scratch {
                     persons: Interner::default(),
                     off: Vec::new(),
@@ -3353,12 +3359,38 @@ fn pipeline<'a, L: Layout>(
                 (acc, sc)
             },
             |(mut acc, mut sc), p| {
-                process_part(ctx, &mut acc, &mut sc, &ev_out, &ck_out, &drops_by[p], p);
+                // Borrow this thread's totals for the partition. If they are taken (a
+                // nested steal on this thread), the accumulator keeps a private array.
+                let slot = rayon::current_thread_index().and_then(|t| camps.get(t)).and_then(|m| m.try_lock().ok());
+                match slot {
+                    Some(mut g) => {
+                        if g.is_empty() {
+                            *g = vec![[0i64; 4]; camp_len];
+                        }
+                        std::mem::swap(&mut acc.camp, &mut *g);
+                        process_part(ctx, &mut acc, &mut sc, &ev_out, &ck_out, &drops_by[p], p);
+                        std::mem::swap(&mut acc.camp, &mut *g);
+                    }
+                    None => {
+                        if acc.camp.is_empty() {
+                            acc.camp = vec![[0i64; 4]; camp_len];
+                        }
+                        process_part(ctx, &mut acc, &mut sc, &ev_out, &ck_out, &drops_by[p], p);
+                    }
+                }
                 (acc, sc)
             },
         )
         .map(|(acc, _)| acc)
-        .collect()
+        .collect();
+    // The per-thread totals ride along as accumulators with no user rows.
+    for m in camps {
+        let camp = m.into_inner().unwrap();
+        if !camp.is_empty() {
+            accs.push(Acc { users: Vec::new(), camp });
+        }
+    }
+    accs
 }
 
 fn main() {
