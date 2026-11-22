@@ -2,24 +2,27 @@ import json, re, sys, statistics as st, collections as C
 rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
 by = C.OrderedDict()
 for r in rows: by.setdefault(r["cfg"], []).append(r)
+LOGS = sys.argv[2] if len(sys.argv) > 2 else "logs"
 LAP = re.compile(r"^\[\s*([\d.]+)s\] (.+?) \((.*)\)\s*$")
 def laps(cfg, rep):
     out = []
-    try: lines = open(f"logs/{cfg}.{rep}.err").read().splitlines()
+    try: lines = open(f"{LOGS}/{cfg}.{rep}.err").read().splitlines()
     except OSError: return out
     for l in lines:
         m = LAP.match(l)
         if not m: continue
         kv = dict(re.findall(r"(\w+)=([\d.]+)", m.group(3)))
-        out.append((m.group(2).split(" ")[0].rstrip(":,"), float(m.group(1)), float(kv.get("cpu", 0)), int(float(kv.get("minflt", 0))), float(kv.get("maxrss", 0))))
+        out.append((m.group(2), float(m.group(1)), float(kv.get("cpu", 0)), int(float(kv.get("minflt", 0))), float(kv.get("maxrss", 0))))
     return out
-ref = next((r["hash"] for r in rows if r["cfg"] == "v8-runc"), "")
-print("## Wall (s): median [min..max] over reps\n\n| cfg | median | min | max | engine last lap | overhead | rc | out hash == v8-runc |\n|---|---|---|---|---|---|---|---|")
+ref = next((r["hash"] for r in rows if r["cfg"].startswith("v15") and r["hash"]), "")
+print("## Wall (s): median [min..max] over reps\n\n| cfg | median | min | max | engine last lap | overhead | rc | hash match |\n|---|---|---|---|---|---|---|---|")
 for cfg, rs in by.items():
     w = [r["wall"] for r in rs]
     eng = [laps(cfg, r["rep"]) for r in rs]; eng = [e[-1][1] for e in eng if e]
     em = st.median(eng) if eng else float("nan")
-    print(f"| {cfg} | {st.median(w):.3f} | {min(w):.3f} | {max(w):.3f} | {em:.3f} | {st.median(w)-em:.3f} | {','.join(str(r['rc']) for r in rs)} | {'' if not rs[0]['hash'] else ('yes' if rs[0]['hash']==ref else 'NO '+rs[0]['hash'])} |")
+    h = rs[0]["hash"]
+    hm = "" if not h else ("ref" if h == ref else f"≠ {h}")
+    print(f"| {cfg} | {st.median(w):.3f} | {min(w):.3f} | {max(w):.3f} | {em:.3f} | {st.median(w)-em:.3f} | {','.join(str(r['rc']) for r in rs)} | {hm} |")
 print("\n## Phases: mean wall ms per phase (cpu-s in parens, minflt k) \n")
 cfgs = [c for c in by if not c.startswith("true-")]
 phase = C.OrderedDict(); data = {}
