@@ -531,9 +531,13 @@ fn classify_simd(p: &[u8; 64]) -> [u64; 3] {
 }
 
 /// Call `f` with the N fields of every well-formed line of buf[start..end] (`end` is
-/// buf.len() or just past a '\n'). Exactly what for_each_line + split_fields accept:
-/// a line with no '"' and exactly N-1 commas is sliced from the classifier's bitmasks;
-/// every other line goes through split_fields.
+/// buf.len() or just past a '\n'). Exactly what for_each_line + split_fields accept.
+///
+/// Fast path, from the classifier's bitmasks: a line with exactly N-1 commas whose every
+/// '"' is accounted for by fields quoted end to end (a field starting with '"' of length
+/// >= 2 that ends with '"' accounts for 2). split_fields splits on every comma and then
+/// requires exactly that of each field containing a quote, so the fast path accepts the
+/// same lines with the same (stripped) fields. Every other line goes to split_fields.
 #[inline]
 fn for_each_record<'a, const N: usize>(buf: &'a [u8], start: usize, end: usize, scan: Scan, mut f: impl FnMut(&[&'a [u8]; N])) {
     let mut out = [&[][..]; N];
@@ -547,18 +551,37 @@ fn for_each_record<'a, const N: usize>(buf: &'a [u8], start: usize, end: usize, 
     }
     let mut commas = [0usize; N];
     let mut ncomma = 0usize;
-    let mut quoted = false;
+    let mut nquote = 0u32;
     let mut ls = start;
-    let mut emit = |ls: usize, le: usize, commas: &[usize; N], ncomma: usize, quoted: bool| {
-        if !quoted && ncomma == N - 1 {
+    let mut emit = |ls: usize, le: usize, commas: &[usize; N], ncomma: usize, nquote: u32| {
+        if ncomma == N - 1 {
             let mut s = ls;
-            for i in 0..N - 1 {
-                out[i] = &buf[s..commas[i]];
-                s = commas[i] + 1;
+            if nquote == 0 {
+                for i in 0..N - 1 {
+                    out[i] = &buf[s..commas[i]];
+                    s = commas[i] + 1;
+                }
+                out[N - 1] = &buf[s..le];
+                f(&out);
+                return;
             }
-            out[N - 1] = &buf[s..le];
-            f(&out);
-        } else if split_fields(&buf[ls..le], &mut out) {
+            let mut counted = 0u32;
+            for i in 0..N {
+                let e = if i < N - 1 { commas[i] } else { le };
+                let mut fld = &buf[s..e];
+                if fld.len() >= 2 && fld[0] == b'"' && fld[fld.len() - 1] == b'"' {
+                    fld = &fld[1..fld.len() - 1];
+                    counted += 2;
+                }
+                out[i] = fld;
+                s = e + 1;
+            }
+            if counted == nquote {
+                f(&out);
+                return;
+            }
+        }
+        if split_fields(&buf[ls..le], &mut out) {
             f(&out);
         }
     };
@@ -572,7 +595,9 @@ fn for_each_record<'a, const N: usize>(buf: &'a [u8], start: usize, end: usize, 
             blk[..end - base].copy_from_slice(&buf[base..end]);
             if scan == Scan::Simd { classify_simd(&blk) } else { classify_swar(&blk) }
         };
-        let mut bits = m[0] | m[1] | m[2];
+        // quotes are only counted, per line, by popcount of the bits before each newline
+        let mut quotes = m[2];
+        let mut bits = m[0] | m[1];
         while bits != 0 {
             let b = bits.trailing_zeros();
             bits &= bits - 1;
@@ -582,19 +607,21 @@ fn for_each_record<'a, const N: usize>(buf: &'a [u8], start: usize, end: usize, 
                     commas[ncomma] = pos;
                 }
                 ncomma += 1;
-            } else if m[0] >> b & 1 != 0 {
-                emit(ls, pos, &commas, ncomma, quoted);
+            } else {
+                let below = (1u64 << b) - 1;
+                nquote += (quotes & below).count_ones();
+                quotes &= !below;
+                emit(ls, pos, &commas, ncomma, nquote);
                 ls = pos + 1;
                 ncomma = 0;
-                quoted = false;
-            } else {
-                quoted = true;
+                nquote = 0;
             }
         }
+        nquote += quotes.count_ones();
         base += 64;
     }
     if ls < end {
-        emit(ls, end, &commas, ncomma, quoted);
+        emit(ls, end, &commas, ncomma, nquote);
     }
 }
 
@@ -1960,8 +1987,8 @@ mod tests {
     #[test]
     fn record_scan_matches_split_fields() {
         let mut x = 0x1234_5678_9abc_def1u64;
-        let pieces: [&[u8]; 9] = [b"ab", b",", b",", b"\"q\"", b"\"", b"\n", b"\n", b"x\r", b""];
-        for _ in 0..3000 {
+        let pieces: [&[u8]; 12] = [b"ab", b",", b",", b"\"q\"", b"\"", b"\n", b"\n", b"x\r", b"", b"\"\"", b"\"a,b\"", b" "];
+        for _ in 0..20_000 {
             let mut buf = Vec::new();
             let len = (x % 400) as usize;
             while buf.len() < len {
@@ -2021,5 +2048,63 @@ mod tests {
                 assert_eq!(dec.parse(c), parse_ts(c), "{:?}", String::from_utf8_lossy(c));
             }
         }
+    }
+
+    /// Analyst's G1 test: >= 10^6 random lines over {a , " \r space} with N-1..N+1 commas,
+    /// the fast path against split_fields, for N = 2, 4 and 7.
+    #[test]
+    fn quote_fast_path_matches_split_fields() {
+        fn run<const N: usize>(seed: u64, lines: usize) {
+            let mut x = seed;
+            let mut next = || {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x
+            };
+            let alpha: &[u8] = b"a,,\"\"\r ";
+            let mut buf = Vec::new();
+            for _ in 0..lines {
+                let fields = N - 1 + (next() % 3) as usize; // N-1, N or N+1 fields
+                for k in 0..fields {
+                    if k > 0 {
+                        buf.push(b',');
+                    }
+                    match next() % 4 {
+                        0 => {
+                            // whole-field quotes: the case the fast path must take
+                            buf.push(b'"');
+                            for _ in 0..next() % 5 {
+                                buf.push(b'a');
+                            }
+                            buf.push(b'"');
+                        }
+                        1 => {} // empty
+                        _ => {
+                            for _ in 0..next() % 6 {
+                                buf.push(alpha[(next() % alpha.len() as u64) as usize]);
+                            }
+                        }
+                    }
+                }
+                buf.push(b'\n');
+            }
+            let mut want: Vec<Vec<Vec<u8>>> = Vec::new();
+            for_each_line(&buf, 0, buf.len(), |line| {
+                let mut o = [&[][..]; N];
+                if split_fields(line, &mut o) {
+                    want.push(o.iter().map(|f| f.to_vec()).collect());
+                }
+            });
+            for scan in [Scan::Simd, Scan::Swar] {
+                let mut got: Vec<Vec<Vec<u8>>> = Vec::new();
+                for_each_record(&buf, 0, buf.len(), scan, |o: &[&[u8]; N]| got.push(o.iter().map(|f| f.to_vec()).collect()));
+                assert_eq!(got.len(), want.len());
+                assert!(got == want, "N={N}");
+            }
+        }
+        run::<2>(0x9e37_79b9_7f4a_7c15, 400_000);
+        run::<4>(0x2545_f491_4f6c_dd1d, 400_000);
+        run::<7>(0x1234_5678_9abc_def1, 400_000);
     }
 }
