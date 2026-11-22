@@ -630,3 +630,15 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Scorer Lab's GitHub Actions run `45028709603` failed at checkout** (short SHAs). The Orchestrator fixed the workflow on `lab/scorer` (refs → `v15`, `v16`, `explore/v14-pgo`; `fetch-depth: 0`) and re-triggered it: **run `45029231821`**. It covers v15, v16 and PGO on/off at 20M and 60M on a real x86 runner. The Orchestrator reads the results with `gh`; no thread is needed.
   - **PGO deferred:** if the old-profile PGO A/B wins clearly on real x86, the Orchestrator will regenerate the profile on v17 (`scripts/pgo-gen.sh`, about 5 min).
 - **08:48 (clock correction):** the Orchestrator's 09:00–09:12 timestamps in the last few entries were wrong; the real time was about 08:40–08:48. Scorer-lab run `45029231821`: all builds succeeded (v15, v16, both v3 variants, PGO on/off); bench running.
+- **08:55: real-x86 results** (scorer-lab run `45029231821`: GitHub runner with 4 CPUs, AVX-512, cascadelake binary, runc, 13 GB):
+
+  | Comparison | Result |
+  | --- | --- |
+  | v15 vs v16, 20M | 1.426 vs **1.386 s** (−2.8%) |
+  | v15 vs v16, 60M | 4.16 vs **4.05 s** (−2.6%) |
+  | PGO on/off (old profile) | 1.517 vs 1.524: **no effect, dropped** |
+  | v16 NCPU 2× | 1.43 s: **worse** |
+  | `SESSIONS_FREE` 0 / 3 | no gain on 20M |
+
+  - **v16 20M per-phase on x86:** lookups 0.08, **events parse 0.66 s (57%)**, clicks 0.10, dedup 0.06, sessions 0.21, write 0.04. In-process wall 1.16 s vs container wall 1.386 s, so about 0.23 s is runner and docker overhead.
+  - Minor faults are only about 16k, so the floor is **events-parse memory stalls** (IPC about 1.4), not faults. Events and Neon threads redirected accordingly.
