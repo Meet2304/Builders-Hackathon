@@ -291,3 +291,4 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **Analyst 2:** v7 `e693e18` **900/900 MATCH** (150 seeds × 6 knobs). Suite merged as `evals/insights2/v7_longid/` (catches 4/4 mutants); add it to Gate A.
   - `LongTable` is 805 MB at 60M (24 B slots, `in_bytes/256`, load about 0.30), touched at random: about 197k first-touch faults. Measure under runsc at 60M before resizing.
   - Use NCPU=1 for instruction gates (NCPU=8 swings ±150 per line under load).
+- **Analyst 3:** **v7b `96af24b` x86 MATCH on new dev** (`x86-64-v2`, valgrind, NCPU=1). x86 instructions identical to v7 by phase: total 1,480 per event line (events 804, sessions 253, write 173). The `_exit` path is confirmed taken, with complete outputs. The mimalloc option IDs (purge_decommits=5, purge_delay=15) are checked against the bundled headers. NCPU=8 x86 run next.
