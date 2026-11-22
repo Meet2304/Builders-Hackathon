@@ -1,14 +1,14 @@
 dataset data/dev: events 1,071,894 clicks 255,147 links 44,906 lines
 
-| phase | 5b7bcc2 ARM | 5b7bcc2 x86 raw | 5b7bcc2 x86 corr | x86/ARM | 3671aeb ARM | 3671aeb x86 raw | 3671aeb x86 corr | x86/ARM |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| lookups | 119 | 55 | 52 | 0.43 | 118 | 53 | 50 | 0.43 |
-| events | 829 | 816 | 813 | 0.98 | 823 | 809 | 806 | 0.98 |
-| clicks | 171 | 163 | 162 | 0.95 | 154 | 146 | 145 | 0.94 |
-| dedup | 39 | 107 | 49 | 1.23 | 39 | 107 | 49 | 1.25 |
-| sessions | 302 | 356 | 333 | 1.10 | 244 | 277 | 254 | 1.04 |
-| write | 181 | 184 | 171 | 0.95 | 95 | 89 | 71 | 0.75 |
-| **total** | 1,642 | 1,680 | 1,579 | 0.96 | 1,473 | 1,481 | 1,375 | 0.93 |
+| phase | 5b7bcc2 ARM | 5b7bcc2 x86 raw | 5b7bcc2 x86 corr | x86/ARM | 3671aeb ARM | 3671aeb x86 raw | 3671aeb x86 corr | x86/ARM | e693e18 ARM | e693e18 x86 raw | e693e18 x86 corr | x86/ARM |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| lookups | 119 | 55 | 52 | 0.43 | 118 | 53 | 50 | 0.43 | 121 | 54 | 51 | 0.42 |
+| events | 829 | 816 | 813 | 0.98 | 823 | 809 | 806 | 0.98 | 768 | 804 | 804 | 1.05 |
+| clicks | 171 | 163 | 162 | 0.95 | 154 | 146 | 145 | 0.94 | 148 | 150 | 150 | 1.01 |
+| dedup | 39 | 107 | 49 | 1.23 | 39 | 107 | 49 | 1.25 | 40 | 106 | 49 | 1.20 |
+| sessions | 302 | 356 | 333 | 1.10 | 244 | 277 | 254 | 1.04 | 244 | 277 | 253 | 1.04 |
+| write | 181 | 184 | 171 | 0.95 | 95 | 89 | 71 | 0.75 | 179 | 186 | 174 | 0.97 |
+| **total** | 1,642 | 1,680 | 1,579 | 0.96 | 1,473 | 1,481 | 1,375 | 0.93 | 1,501 | 1,577 | 1,480 | 0.99 |
 
 (all per event line; own-line rates: events/event line, clicks/click line)
 
@@ -28,3 +28,10 @@ dataset data/dev: events 1,071,894 clicks 255,147 links 44,906 lines
    sessions: Ids::bytes 193,080 Ir incl (3,502 calls from user_batch)
    write: Ids::bytes 8,014,524 Ir incl (118,107 calls from user_batch)
    rep-string bytes counted as Ir: lookups 3.3M, events 3.6M, clicks 0.7M, dedup 64.3M, sessions 25.5M, write 19.7M
+e693e18: events/event-line x86 804 (ARM 768); clicks/click-line x86 628 (ARM 621)
+   lookups: Ids::intern 7 calls, 3,423 Ir incl = 489/call, 0.0 per event line; of which HashMap entry 5,472,145, rehash 906
+   events: Ids::intern 3 calls, 1,581 Ir incl = 527/call, 0.0 per event line; of which HashMap entry 798, rehash 453
+   lookups: Ids::bytes 2,400,383 Ir incl (18,562 calls from user_batch)
+   sessions: Ids::bytes 255,929 Ir incl (1,978 calls from user_batch)
+   write: Ids::bytes 10,547,668 Ir incl (118,107 calls from user_batch)
+   rep-string bytes counted as Ir: lookups 3.3M, events 0.3M, clicks 0.4M, dedup 64.0M, sessions 25.8M, write 13.8M

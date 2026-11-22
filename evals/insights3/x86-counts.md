@@ -1,5 +1,12 @@
 # x86 instruction counts (callgrind, x86-64-v2) vs ARM
 
+## Headline (01:35 ET)
+
+1. **The ARM rankings hold on x86 for v5.** Per phase, x86 is 0.94–1.10× ARM, and total instructions are 4% *lower* on x86. The SSSE3 packer and the SSE2 classify run, and no scalar fallback is taken.
+2. **v7 `e693e18` has one x86-specific weak spot: `hex32()`.** It's a scalar 16-iteration table-and-shift-or loop costing **256 Ir per long ID** on x86, about 2× ARM, because x86 has no shifted-operand `orr`. It eats most of the `Ids::intern` saving on x86: events go **813 → 804 per line on x86, against 829 → 768 on ARM**. Fix: use the SSSE3 `digits()` kernel from `explore/gemini-hex32`, about 30 instructions. That's worth about **−70 per event line on x86** (events −56, clicks −14).
+3. **`method/v8` @ `aca7078` is DIFFER on dev.** It writes 133,891 user_daily rows against 118,107, with 5,266 duplicate keys. Its parent `8bb8d43` is MATCH. This was flagged to the orchestrator at 01:33.
+4. **Contention, not instructions, is what v7 fixes.** v5 makes 58,192 futex calls in events parse at 20M (8 threads), against 541 on dev, so the growth is superlinear. Ir barely moves (intern was 89 per event line on x86), but each of those futex calls is a sandbox round trip under gVisor.
+
 Analyst 3, 2026-11-22. **New-generator data only** (1 in 8 IDs is 33 bytes). Dev = `data/dev` (1,071,894 event / 255,147 click / 44,906 link lines). Everything here is `NCPU=1`. The one exception is the futex section.
 
 ## Method (reproducible)
@@ -32,6 +39,26 @@ Valgrind counts every iteration of `rep stosb` (glibc `memset-vec-unaligned-erms
 Raw callgrind therefore shows dedup at 107 per line on x86 against 39 on ARM. That gap is not a real x86 weakness. The corrected figure is 49.
 
 ## Per-phase table, dev, instructions per event line, NCPU=1
+
+v7 `e693e18` against v5 (`results/dev-table-v5-v7.md`):
+
+| phase | v5 ARM | v5 x86 corr | v7 ARM | v7 x86 raw | v7 x86 corr | v7 x86/ARM |
+|---|---:|---:|---:|---:|---:|---:|
+| lookups | 119 | 52 | 121 | 54 | 51 | 0.42* |
+| events | 829 | 813 | **768** | 804 | **804** | **1.05** |
+| clicks | 171 | 162 | 148 | 150 | 150 | 1.01 |
+| dedup | 39 | 49 | 40 | 106 | 49 | 1.20 |
+| sessions | 302 | 333 | 244 | 277 | 253 | 1.04 |
+| write | 181 | 171 | 179 | 186 | 174 | 0.97 |
+| **total** | **1,642** | **1,579** | **1,501** | 1,577 | **1,480** | **0.99** |
+
+What changed in v7's events phase on x86, by self Ir (v7 − v5):
+- added: `hex32` +66.7M (**256 per call**), `LongTable::slot` +6.2M (24 per call), `Ids::long_key` +4.7M (18 per call)
+- removed: foldhash −21.9M, hashbrown −20.8M, xxh3 −11.5M, `Ids::intern` −4.6M
+
+The net is −13M on x86. On ARM it's −65M. Clicks show the same pattern: `hex32` +16.0M. `Ids::bytes` per output row goes from 68 to 89 Ir, because long keys are decoded with scalar code. That's small, about 2.4 per line.
+
+v5 against v7-base `3671aeb` (before move 6, with move 4's writer):
 
 | phase | v5 `5b7bcc2` ARM | v5 x86 raw | v5 x86 corr | x86/ARM | v7-base `3671aeb` ARM | x86 raw | x86 corr | x86/ARM |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -96,11 +123,15 @@ Rust's std `Mutex` enters the kernel only when contended (`FUTEX_WAIT_BITSET` / 
 
 ## Predictions, 20M board
 
-Pending the full seed-42 callgrind; see below. The dev per-line figures give:
+From the dev per-line figures. A full 20M callgrind takes about 25 min per commit under emulation and wasn't run. Intern Ir per call is flat in N apart from amortized rehash, so dev per line is representative for Ir.
 
 | commit | x86 corr / event line (dev) | old model (28.77 G/s, no constant) | board fit 1.70 s + 0.000318 × instr/row |
 | --- | ---: | ---: | ---: |
 | v5 `5b7bcc2` | 1,579 | 1.18 s | 2.20 s (actual **2.146 s**) |
 | v7-base `3671aeb` | 1,375 | 1.03 s | 2.14 s |
+| v7 `e693e18` | 1,480 | 1.11 s | 2.17 s; not valid for v7 (below) |
+| v7 + SSSE3 hex32 (est.) | ~1,410 | ~1.05 s | – |
+
+The board fit's 1.70 s constant is mostly the intern contention under gVisor, and v7 removes exactly that. So the fit can't price v7. Use Eval's gVisor 20M run (`lib/gvisor.py`).
 
 The old instruction-only model is dead (see `evals/insights/board-fit.md`). x86 counts don't rescue it: x86 retires about 4–7% *fewer* instructions than ARM for the same work, so it predicts slightly faster times, not slower. The gap to the board is contention plus sandbox cost, which Ir can't see. Use the gVisor reproduction for the board. Use these counts to rank pure-compute moves only.
