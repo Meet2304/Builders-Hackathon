@@ -658,3 +658,19 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - 20M, 5 interleaved reps: v16, write, levers-default, and levers with huge, pf8, chunk 128K, chunk 1M, parts 64, parts 1024, pop1.
   - 60M: v16 vs write.
 - **09:03: lab round 2 (`45030152141`) INVALID.** The runner had no AVX-512, so every cascadelake binary hit SIGILL (rc 132, no output). Re-run as **round 2b, `45030685392`, with x86-64-v3 builds**. (Round 1 landed on an AVX-512 runner. The scorer has AVX-512, so cascadelake stays the shipping target.)
+- **09:05: Neon levers final `0eae3e0`** (adds `PF_SCATTER`, `PIN`; defaults = v16; every gate passes for every switch).
+  - arm64 Linux container, 20M, n=8 (noisy, no SMT):
+
+    | Lever | Δ vs default |
+    | --- | --- |
+    | `POPULATE=1` | **−6.9%** |
+    | `PARTS=64` | −4.2% |
+    | `PARTS=64` + `PF_SCATTER=128` | **−5.9%** |
+    | `HUGE` | −2.5% |
+    | `PF_SCATTER=128` | −1.0% |
+    | `PIN` 8 | +5% |
+    | `CHUNK` 128K | **+87%** (rejected) |
+    | `CHUNK` 1M | +14% |
+
+  - Gemini Neon's top idea (a 64-way staged scatter with NT stores) wasn't built; too big to gate in time.
+  - **Asked for `explore/v17-levers-on`:** defaults flipped to `POPULATE=1`, `PARTS=64`, `PF_SCATTER=128`, `HUGE=1`, each env-overridable, gated plus a Linux A/B, by 09:40. Real-x86 round 2b decides each lever.
