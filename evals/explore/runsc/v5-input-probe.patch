@@ -1,0 +1,62 @@
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -162,6 +162,7 @@
+     if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) } != 0 {
+         return 0.0;
+     }
++    eprintln!("faults min={} maj={}", ru.ru_minflt, ru.ru_majflt);
+     let tv = |t: libc::timeval| t.tv_sec as f64 + t.tv_usec as f64 * 1e-6;
+     tv(ru.ru_utime) + tv(ru.ru_stime)
+ }
+@@ -813,16 +814,26 @@
+             Err(_) => Vec::new(),
+         };
+         paths.sort();
+-        let maps = paths
+-            .iter()
+-            .filter_map(|p| {
+-                let f = File::open(p).expect("open csv");
+-                if f.metadata().map(|m| m.len()).unwrap_or(0) == 0 {
+-                    return None;
++        let mode = env::var("CRIT_INPUT").unwrap_or_default();
++        let maps = paths.par_iter().filter_map(|p| {
++            use std::io::Read;
++            let mut f = File::open(p).expect("open csv");
++            let len = f.metadata().unwrap().len() as usize;
++            if len == 0 { return None; }
++            let m = match mode.as_str() {
++                "read" | "read-huge" => {
++                    let mut m = memmap2::MmapMut::map_anon(len).expect("map input buffer");
++                    if mode == "read-huge" {
++                        m.advise(memmap2::Advice::HugePage).expect("MADV_HUGEPAGE");
++                    }
++                    f.read_exact(&mut m).expect("read whole csv");
++                    m.make_read_only().unwrap()
+                 }
+-                Some(unsafe { Mmap::map(&f).expect("mmap csv") })
+-            })
+-            .collect();
++                "populate" => unsafe { memmap2::MmapOptions::new().populate().map(&f).unwrap() },
++                _ => unsafe { Mmap::map(&f).unwrap() },
++            };
++            Some(m)
++        }).collect();
+         Input { maps }
+     }
+ 
+@@ -2251,6 +2262,7 @@
+             _ => eprintln!("[{wall:>7.3}s] {what} (cpu={cpu:.3}s{ins})"),
+         }
+     };
++    lap("rayon ready");
+     let knobs = Knobs::from_env();
+     STATS_ON.store(env::var_os("SESSIONS_DEBUG_STATS").is_some(), Relaxed);
+     let hmask = knobs.hmask;
+@@ -2268,6 +2280,7 @@
+     let events_in = Input::open(&data.join("events"));
+     let clicks_in = Input::open(&data.join("clicks"));
+ 
++    lap("inputs opened");
+     let (products, mut cat_names) = load_products(&products_buf, knobs.no_fast != 1);
+     let unknown_cat = cat_names.len() as u32;
+     cat_names.push(b"unknown".to_vec());
