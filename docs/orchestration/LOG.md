@@ -164,3 +164,11 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **Orchestrator:** warned Sol (dedup-subdivide must split on the dedup key, with a cross-user test) and told Explorer 3 that uncompressed Parquet is legal. Analyst 2 is now the independent verifier for v5 candidates (`75f9993`, dedup keying and dedup-subdivide, the fused and sort branches).
 - **Method:** `method/v5` has move 1, a cheaper link lookup and row emit (`37bb046`), and move 2, Sol's paired timestamps cherry-picked (`2cbdb2b`). Method is still running gates, then click parsing.
 - **Sol:** dedup subdivided on extra bits of the full event-ID hash (`6da0cd2`) is **negative**. +21 dedup instructions per line, whole-process cycles flat (40.656B → 40.719B), and Linux won 2 of 5 pairs. A cross-user collapse test was added at `4c68681`. **Flat dedup stays.** Sol is re-tasked to the sessions phase apart from the sort (person interning, the click prologue, the day flush) on `explore/sol-sessions`.
+- **Method:** v5 moves 1–2 pass every gate (`method/v5` @ `5b7bcc2`; its tree is identical to `2cbdb2b`).
+  - Dev, one thread, clean rebuilds with binary hashes, events / clicks per line: `20b8e79` 823 / 667 → move 1 (`37bb046`) 797.5 / 656 → move 2 (`5b7bcc2`) **709.6 / 632**.
+  - At 20M against `a019739`: events 912 → 795 and clicks 739 → 634, through move 1.
+  - **Move 1 came in small:** the link + row path was about 110 per line, not 235. Getting it to about 50 needs a merged dedup entry and back-reference layout.
+  - All 3,300 fuzz cases MATCH.
+- **Explorer 2:** the fused per-column decoder is **negative** (`2e22d43`). The cursor walk drops the NEON classify (824 → 1,243), and decoding from the comma mask saves only 21. Every column can be quoted, about 20% each. Re-tasked to **bitmask quote validation and stripping** (simdjson-style) on `explore/gemini-quotemask`. Quote stripping is about 150 of the roughly 300 scan instructions per line.
+- **Eval:** the `20b8e79` quick profile (`v5-pre1`) and the cascadelake disassembly are done. **Redirected to the full eval of `5b7bcc2` as v5** (submission candidate, gated against v4).
+- **Method:** on to move 3, click parsing. Move 4 (merged dedup entry) is conditional.
