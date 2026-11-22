@@ -45,6 +45,8 @@
 //!   SESSIONS_PARQUET=v4         v4's Parquet writer (dictionaries + statistics); the
 //!                               default writes PLAIN columns without statistics
 
+#[allow(dead_code)]
+mod hex32;
 mod links;
 
 use links::load_links;
