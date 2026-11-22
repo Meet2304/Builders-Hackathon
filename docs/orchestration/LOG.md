@@ -288,3 +288,6 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - The Orchestrator built the current `method/v8` head `2b9aecd`: **new dev MATCH**.
   - v7 `e693e18` MATCHes on x86. Method is asked for the root cause and full gates on the v8 head. **Never ship an intermediate commit.**
 - **Analyst 3 x86 perf:** the scalar `hex32()` costs 256 Ir per long ID on x86 (about 2× ARM). Events on x86 go only 813 → 804 per line (ARM 829 → 768). Method is wiring the SIMD `digits()` kernel (`2b9aecd`) in v8, worth about 70 per event line on x86.
+- **Analyst 2:** v7 `e693e18` **900/900 MATCH** (150 seeds × 6 knobs). Suite merged as `evals/insights2/v7_longid/` (catches 4/4 mutants); add it to Gate A.
+  - `LongTable` is 805 MB at 60M (24 B slots, `in_bytes/256`, load about 0.30), touched at random: about 197k first-touch faults. Measure under runsc at 60M before resizing.
+  - Use NCPU=1 for instruction gates (NCPU=8 swings ±150 per line under load).
