@@ -115,7 +115,7 @@
       <div class="ss-tile">
         <span class="ss-lab">Submitted</span>
         <span class="ss-big" data-draw="val" data-source="headline" data-field="submitted" data-row="0" data-fmt="int">—</span>
-        <span class="ss-muted">best board time <span data-draw="val" data-source="headline" data-field="best_board_s" data-row="0" data-fmt="s3">—</span></span>
+        <span class="ss-muted">best board time <span data-draw="val" data-from="headline" data-field="best_board_s" data-row="0" data-fmt="s3">—</span></span>
       </div>
     </div>
 
@@ -326,8 +326,9 @@
   });
 
   // One value from one row of a calc.
+  // data-from instead of data-source: same drawing, unmarked (for a field that may not exist yet).
   dash.draw('val', (el) => {
-    const d = dash.data(el.dataset.source);
+    const d = dash.data(el.dataset.source || el.dataset.from);
     if (d.status !== 'ok') { el.textContent = ssFailed(d) ? 'n/a' : '—'; return; }
     const row = (d.data || [])[Number(el.dataset.row || 0)];
     const v = row ? row[el.dataset.field] : undefined;
