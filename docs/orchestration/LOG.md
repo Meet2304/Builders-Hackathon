@@ -292,3 +292,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - `LongTable` is 805 MB at 60M (24 B slots, `in_bytes/256`, load about 0.30), touched at random: about 197k first-touch faults. Measure under runsc at 60M before resizing.
   - Use NCPU=1 for instruction gates (NCPU=8 swings ±150 per line under load).
 - **Analyst 3:** **v7b `96af24b` x86 MATCH on new dev** (`x86-64-v2`, valgrind, NCPU=1). x86 instructions identical to v7 by phase: total 1,480 per event line (events 804, sessions 253, write 173). The `_exit` path is confirmed taken, with complete outputs. The mimalloc option IDs (purge_decommits=5, purge_delay=15) are checked against the bundled headers. NCPU=8 x86 run next.
+- **Analyst 3** (`4ab2a6b`, merged):
+  - **v7b x86 MATCH at NCPU=8** (valgrind fair-sched, plus 2× under Rosetta).
+  - **v8 head `2b9aecd` x86 MATCH** on new dev.
+  - x86 instructions per event line: v7 and v7b 1,480; **v8 1,384 (−96)**. Events 804 → 753 (the SSSE3 hex kernel is about 48 Ir per long ID, against 256 scalar); clicks 150 → 106. No x86 regressions.
