@@ -866,12 +866,14 @@ unsafe fn line_tail<'a, const SHORT: bool>(
 
         let kind = Column::open(p);
         let k = kind.bytes.words().0;
-        let (kind_len, purchase, valid_type) = if k == u64::from_le_bytes(*b"purchase") {
-            (8, true, true)
-        } else if k as u32 == u32::from_le_bytes(*b"view")
+        // Most frequent first. "purc" is neither "view" nor "cart", so the
+        // order does not change which branch a value takes.
+        let (kind_len, purchase, valid_type) = if k as u32 == u32::from_le_bytes(*b"view")
             || k as u32 == u32::from_le_bytes(*b"cart")
         {
             (4, false, true)
+        } else if k == u64::from_le_bytes(*b"purchase") {
+            (8, true, true)
         } else {
             (kind.bytes.special_len::<false>(), false, false)
         };
