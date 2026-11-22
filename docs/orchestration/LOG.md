@@ -423,3 +423,10 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Lookups −56 ms (links-par), clicks −67 ms (clicks-fault), written −8 ms, sessions −10 ms, plus about −100 ms at exit/unmap (RSS 11.61 → 11.35 GiB).
   - **v10 full eval started** (baseline v8, `suite.json` reference → v8); ETA about 07:20–07:40.
 - **05:48: Codex back.** Red Team → v10 adversarial (report by 07:15). Sol → v11 = dedup-mem rebased onto v10, no LongTable (gated by 07:15). Explorer 5 stays parked (Eval does the timing).
+- **05:55, user: faster tests; no Astra; Neon threads as Opus-medium drivers; use Sol on Codex and Codex-Andrew.**
+  - v10's full eval was killed by a T3 restart 9 min in; Eval restarted it at 05:51. **Then switched to a fast gate:** correctness only, long-ID suite split across 8 parallel processes, amd64 and cascadelake builds, and no timed stages. Gate C comes from the standalone paired gVisor A/B. ETA about 06:20. Eval will make this the default `--profile gate`.
+  - **Analyst 2** → Opus medium on claudeAgent plus Gemini Neon in the browser (already signed in): spec and memory-model review of v10 (packed click ts+campaign u64 ordering, the write path); PASS/FAIL by 06:45.
+  - **Explorer 5** → Codex 6.2 Sol: v11a = v10 + footprint pread (halves RSS); gVisor A/B at 60M vs v10. Exit/unmap cost scales with RSS (−100 ms from −0.26 GiB in v10). Numbers by 07:10.
+  - **Explorer 4** → Codex-Andrew 6.1 Sol (6.2 isn't supported there): v11b = fewer output files (about 205 → a few), if the spec allows. Numbers by 07:10.
+  - On Codex: Red Team (v10 adversarial, 07:15) and Sol (v11 dedup-mem rebased, 07:15).
+  - Gemini Neon is already signed in; Opus capacity is only claudeAgent until claude_master resets at 07:20.
