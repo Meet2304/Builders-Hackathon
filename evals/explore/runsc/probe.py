@@ -12,7 +12,6 @@ from pathlib import Path
 import re
 import signal
 import subprocess
-import sys
 import time
 import uuid
 
@@ -62,7 +61,20 @@ def main():
                     command = ["/gv/runsc","--ignore-cgroups","--rootless","--network=none",
                                "do","-volume","/data:/data","-volume","/output:/output",*command]
                 # The outer Linux clock includes runsc create and destroy, excluding Docker launch.
-                script = 's=$(date +%s%N); "$@"; rc=$?; e=$(date +%s%N); echo outer_ns=$((e-s)); exit $rc'
+                script = """
+                    counters() {
+                        awk '/^(pgfault|pgmajfault) / {print $1, $2}' /sys/fs/cgroup/memory.stat
+                        awk '/^(usage_usec|throttled_usec) / {print $1, $2}' /sys/fs/cgroup/cpu.stat
+                    }
+                    counters
+                    s=$(date +%s%N)
+                    "$@"
+                    rc=$?
+                    e=$(date +%s%N)
+                    echo outer_ns=$((e-s))
+                    counters
+                    exit "$rc"
+                """
                 run = subprocess.run(["docker",*flags,args.image,"sh","-c",script,"sh",*command],
                                      capture_output=True,text=True,timeout=90)
                 output = run.stdout + run.stderr
@@ -70,11 +82,16 @@ def main():
                 if run.returncode or not sample:
                     raise RuntimeError(output)
                 wall,user,kernel,minor,major,rc = sample.groups()
+                counters = {}
+                for key in ("pgfault", "pgmajfault", "usage_usec", "throttled_usec"):
+                    values = re.findall(rf"^{key} (\d+)$",run.stdout,re.M)
+                    if len(values) == 2:
+                        counters[key] = int(values[1]) - int(values[0])
                 print(json.dumps(dict(iteration=i,mode=mode,sha256=sha,image=args.image,
                                       dataset=args.data.name,wall_s=float(wall),user_s=float(user),
                                       system_s=float(kernel),minor=int(minor),major=int(major),
                                       outer_s=int(re.search(r"outer_ns=(\d+)",output)[1])/1e9,
-                                      stderr=run.stderr,env=args.env)),flush=True)
+                                      stderr=run.stderr,env=args.env,cgroup=counters)),flush=True)
     finally:
         subprocess.run(["docker","rm","-f",token],capture_output=True)
         subprocess.run(["docker","volume","rm",token],capture_output=True)
