@@ -482,3 +482,9 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Residual: v7b beat its Ir (−0.21 s), because the futex contention fix (58k → 79) isn't visible at NCPU=1. Contention cuts count on the board; fault and syscall cuts don't.
   - v3 and v4 counts running for a 6-point fit; then `--profile screen` is committed with baseline v8.
   - Builders told: Sol owns events (584.5), Explorer 4 owns sessions (279) and write (187). Small, separately gated commits, x86 count each.
+- **Eval: six-point board vs x86 instructions per event line** (all 6 binaries MATCH dev under x86): v3 2,977.8/2.529; v4 1,985.9/2.198; v5 1,680.0/2.146; v7b 1,576.9/1.5275; v8 1,315.7/1.0844; v10.1 1,316.2/1.0852.
+  - Fits: all 6, R² 0.73; **without v3, R² 0.87 (b = 1.81 ms per Ir/line)**; 4 recent, R² 0.91.
+  - **v5 outlier: +0.35–0.49 s from 8-thread futex contention**, invisible at NCPU=1. The slope is steeper near today's code.
+  - **Screen:** the 5-point fit, ≥ 5% Ir trigger.
+  - **New Gate C (Orchestrator-approved):** x86 Ir ≥ 3% lower than v8, plus no contention regression (native NCPU=8 20M paired A/B + futex count), plus no gVisor 60M regression > 3% as a sanity check.
+- **Gemini Neon restarted:** Neon Detective on the main Codex account (6.2 Sol, medium) drives Gemini 4 Neon in the browser to propose x86 instruction cuts; top 3 sent to Sol (events) and Explorer 4 (sessions/write) by 07:15. (No thread had used Neon since the 06:26 Codex-Andrew stop.)
