@@ -529,3 +529,16 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   | Sol | `explore/v14-clicks` | #3 plus clicks phase | ≥ 2% |
   | Explorer 4 | `explore/v13.2-write` | #2, falling back to stacking small cuts | ≥ 1.5% |
 - **Tooling:** every x86 count must use a private cargo target volume. Sol's "1,235.76" matches the contaminated v13 count, so treat it as suspect.
+
+### 07:13 — v13 released (`cdae2f6`, tag v13); push for 0.45 s
+- **Eval verdict on v13 `ce45d97`:** computed HOLD; my decision is SHIP.
+  - Every correctness gate passes, including x86 seed-42 and 300 fuzz seeds.
+  - x86 Ir −13.5% vs v8.
+  - **Paired A/B vs v8:** gVisor 20M 0.894 (−10.6%, significant); native 20M NCPU=8 0.935 (median 0.895); futex 441 vs 410.
+  - **The only failure:** gVisor 60M at 1.152. That run was on the ARM build, where the x86-only SSSE3 event decode isn't used, during a noisy VM session.
+- **Released:** main `cdae2f6`, src from `ce45d97`. Fixtures 36/36 and dev MATCH on main. Pushed `integ/v13` and `integ/v13.1`.
+- **User:** the leaders are at 0.4 s, so be much better fast.
+- **New work:**
+  - **PGO** (claude, `explore/v14-pgo`). Scout found Epsilon −20% from PGO and crypto-kidz committing an x86 profdata; we have no PGO. Plan: pin the toolchain, `scripts/pgo-gen.sh`, `pgo/x86.profdata`, profile-use on amd64.
+  - **Bins** (`explore/v14-bins`): 30-minute-bin sessionization replacing the per-person sort, worth about 40–60 Ir/line. claude_master is capped until 07:20, so it relaunches at 07:21.
+  - **Neon:** `0e57f01`'s dedup cut is mostly the rep-stos artifact (corrected about −1.1%). Redirected to Scout's 2-bit prefilter.
