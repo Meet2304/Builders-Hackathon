@@ -571,3 +571,18 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Bins:** relaunched on claude_master, from `c9b6fa6`.
   - Sol (clicks) and Explorer 4 (write) continue.
   - Integration target: about 09:00. Freeze: 09:30.
+
+### 08:05 — v15 integrated; Early-free launched
+- **Ready branches:**
+  - Bins `c4a3412`: −3.4% x86 Ir; fuzz 2000/2000.
+  - Explorer 4 direct Parquet writer `ab399cb`: −5.6% x86 Ir; 18,400 fuzz runs.
+  - Sol click cuts `1f8f344`/`6e453d4`/`4bb1d21`: −0.9%.
+- **Orchestrator integrated v15 = `integ/v15` @ `361a9cd`:** `c9b6fa6` (v14n) + bins + writer + clicks, all clean.
+  - Fixtures 36/36.
+  - New dev MATCH under `NO_FAST` 0–3; seed-42 MATCH.
+  - **Long-ID 600/600** (100 seeds).
+  - **Bins fuzz 1000/1000** (200 seeds × 5 modes; it covers Sol's tag-3 click keys vs the bins tie fix-up).
+  - seed-535 at `PARTS=4096`, NCPU=8: 10/10.
+  - Eval's untimed full gate (1000 fuzz under every knob, arm64 and amd64 containers) is running.
+- **PGO `8142d5e` not taken:** −0.53% x86 Ir with no wall gain, the profile was taken on old code, and the image pin is risky.
+- **Early-free** (claude_master, `explore/v16-free` from v15): release dead input mmaps and buffers off the critical path to cut 60M exit teardown (about 135 ms per another team's measurement). Due 09:10.
