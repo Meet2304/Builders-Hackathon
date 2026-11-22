@@ -2575,12 +2575,16 @@ impl ActiveSet {
 
 // ------------------------------------------------------------------ output
 
+/// Encode the whole file in memory, then create it with one `write`: an unbuffered
+/// `File` sink costs ~13 writes per file (Thrift headers, footer pieces), and every
+/// syscall is a sentry round trip under gVisor. Same writer properties, same bytes.
 fn write_parquet(path: &Path, batch: RecordBatch) {
-    let file = File::create(path).expect("create parquet file");
     let props = WriterProperties::builder().set_compression(Compression::UNCOMPRESSED).build();
-    let mut w = ArrowWriter::try_new(file, batch.schema(), Some(props)).expect("parquet writer");
+    let cap = batch.get_array_memory_size() + (64 << 10);
+    let mut w = ArrowWriter::try_new(Vec::with_capacity(cap), batch.schema(), Some(props)).expect("parquet writer");
     w.write(&batch).expect("write batch");
-    w.close().expect("close parquet");
+    let buf = w.into_inner().expect("close parquet");
+    fs::write(path, buf).expect("write parquet file");
 }
 
 fn utf8(b: &[u8]) -> Cow<'_, str> {
@@ -2866,13 +2870,18 @@ fn main() {
         }
     }
     let nonempty: Vec<&Acc> = accs.iter().filter(|a| !a.users.is_empty()).collect();
-    nonempty.par_iter().enumerate().for_each(|(i, a)| {
-        write_parquet(&ud_dir.join(format!("part-{i:05}.parquet")), user_batch(&a.users, &lk));
-    });
-    if nonempty.is_empty() {
-        write_parquet(&ud_dir.join("part-00000.parquet"), user_batch(&[], &lk));
-    }
-    write_parquet(&cd_dir.join("part-00000.parquet"), campaign_batch(&camp_total, &ctx));
+    // Both tables at once: the campaign file no longer waits for the user_daily tail.
+    rayon::join(
+        || {
+            nonempty.par_iter().enumerate().for_each(|(i, a)| {
+                write_parquet(&ud_dir.join(format!("part-{i:05}.parquet")), user_batch(&a.users, &lk));
+            });
+            if nonempty.is_empty() {
+                write_parquet(&ud_dir.join("part-00000.parquet"), user_batch(&[], &lk));
+            }
+        },
+        || write_parquet(&cd_dir.join("part-00000.parquet"), campaign_batch(&camp_total, &ctx)),
+    );
     let rows: usize = accs.iter().map(|a| a.users.len()).sum();
     lap(&format!("written ({rows} user_daily rows)"));
     if STATS_ON.load(Relaxed) {
@@ -2881,8 +2890,8 @@ fn main() {
             eprintln!("stats: {what} lines fast={f} split_fields={sl} ({:.1}% fast)", 100.0 * f as f64 / (f + sl).max(1) as f64);
         }
     }
-    // Every Parquet writer is closed (ArrowWriter::close flushed it, and its File was
-    // dropped inside write_parquet), so nothing is left to flush. Skip the teardown.
+    // Every Parquet file is complete (write_parquet's fs::write wrote the whole encoded
+    // buffer and closed the file), so nothing is left to flush. Skip the teardown.
     if insn_probe() {
         let (n, insn) = (CLICK_N.load(Relaxed), CLICK_INSN.load(Relaxed));
         eprintln!(
@@ -2909,8 +2918,8 @@ fn main() {
             CK_BUCKET[4].load(Relaxed)
         );
     }
-    // Every Parquet file is closed: write_parquet returns only after ArrowWriter::close
-    // succeeded and its File was dropped, and stderr is unbuffered. So skip atexit
+    // Every Parquet file is closed: write_parquet returns only after fs::write wrote the
+    // whole encoded buffer and closed the file, and stderr is unbuffered. So skip atexit
     // handlers and the allocator's teardown (Explorer 5: about -464 ms under gVisor).
     // SESSIONS_EXIT=normal exits through std::process::exit for A/B.
     if env::var_os("SESSIONS_EXIT").is_some_and(|v| v == "normal") {
