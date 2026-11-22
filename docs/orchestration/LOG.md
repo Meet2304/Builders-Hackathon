@@ -16,7 +16,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 | Thread | Role | Branch / worktree | Status |
 | --- | --- | --- | --- |
 | Orchestrator | coordination, merges, log | main / project root | active |
-| [Eval: framework + scoring](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:89ba2159fefcb9d132aac87119da7af32599350130f935c6869fa5fd8158d759) | evaluation framework | eval/framework (worktree from origin/main @ 7f27b6a) | running (Codex sol): framework v1.2 (Analyst v2 §requests: Linux A/B Gate C, madvise THP, fault anatomy, contamination guard) |
+| [Eval: framework + scoring](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:89ba2159fefcb9d132aac87119da7af32599350130f935c6869fa5fd8158d759) | evaluation framework (Cursor grok-4.7 + Gemini 4 Neon in browser) | eval/framework (worktree from origin/main @ 7f27b6a) | running (Codex sol): framework v1.2 (Analyst v2 §requests: Linux A/B Gate C, madvise THP, fault anatomy, contamination guard) |
 | [Dashboard (simple, static)](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/thread:delegated-task:command%3Amcp%3A02321fc3-e973-4332-85f8-fdaccde89f88%3Adelegate-task%3Adashboard-sol-1) | dashboard (Codex gpt-6.2-sol) | t3/build-progress-dashboard, merged (8807552) | done |
 | [Analyst: insights](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:4bb2f427ec0d090bb0b1d04656a70cbb5677caeda85f78ddb59f299ee7c58728) | insights | analysis (worktree from origin/main @ 54be3ad) | running (claude_andrew): correctness review of method/v3 |
 | [Method: next version](t3-thread://v2/555287a9-b949-4858-929b-ee0115137bee/mcp:launch:12abc78a5e772d60f60bfee203e923ca14d54c88168f046f78565586a6182097) | pipeline versions | method/v2 (worktree from origin/main @ e695855) | running (Claude): v3 on method/v3 (packed IDs, dedup routing, direct-index lookups, SIMD scan); no big timings until cleared |
@@ -92,3 +92,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Superlinear from 20M to 60M: dedup ×4.2, sessions ×3.6, links ×4.0. With the partition count fixed at 256, partitions outgrow L2.
   - Re-ranked: (1) quote-aware fast path; (2) compact rows, counting sort and scaled partitions in one commit; (3) parallel links (Sol: now ahead of the audit); (4) ID packing; (5) one task pool plus parallel output. Moves 1–4 project to about 0.35 s native at 20M.
   - Asked the Analyst to re-anchor on the 1.9424 s board point.
+- **Eval:** framework v1.3 at `8a507ee`, merged into main as `d96eaae`.
+  - Calibration: 1 point, ratio fit, slope 3.103. Added an instructions-per-row predictor.
+  - v3 amendment: review suites 120/120, windows fuzz 227/227, amd64 SWAR path 36/36 + dev, Linux A/B +74%.
+  - "wait 141 ms" isn't defined anywhere in the docs.
+- **User request:** run Eval on Gemini Neon in the browser instead of Claude. **Orchestrator** switched Eval to Cursor `grok-4.7` as the driver, with Gemini 4 Neon in its own browser tab as analysis and design partner. Eval keeps ownership of the verdicts. Its tasks are to prepare v4 evals (lead with predicted board time and instructions per row) and to cover the Analyst's open requests: per-phase instructions, fast-path share counter, partition skew, 60M/20M growth.
