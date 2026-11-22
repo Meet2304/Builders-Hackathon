@@ -8,7 +8,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ref | d170ffe | main | 236 s (1 thread) | n/a | 17 GB at 20M | oracle | no | n/a |
 | v1 | 3e48662 | main (tag v1) | 1.550 s (5 runs, sd 0.03) | 5.79 s (3 runs) | 11.46 GB footprint (16.6 GB RSS incl. page cache) | **SUBMIT-READY** | no | n/a |
-| v3 | 29b64bf | main (tag v3) | **0.626 s** (interleaved vs v1 1.609 s, +61.1%) | 1.97 s | 5.62 GB footprint (11.6 GB RSS) | **SUBMIT-READY** | no (asked user) | n/a |
+| v3 | 29b64bf | main (tag v3) | **0.626 s** (interleaved vs v1 1.609 s, +61.1%) | 1.97 s | 5.62 GB footprint (11.6 GB RSS) | **SUBMIT-READY** | **yes (BB-93D28A6B, Sat 19:23 ET)** | **1.9424 s** (wait 141 ms; entered in final as best) |
 | v2 | 953af43 | method/v2 | 1.661 s (interleaved 1.610 vs v1 1.659) | 5.367 s | 11.41 GB footprint (17.76 GB RSS) | HOLD (Gate C: only 2.94% faster, needs 5%) | no | n/a |
 
 ## Thread registry
@@ -75,3 +75,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Gap list: (1) quote-aware fast path; (2) 16 B rows and a counting sort; (3) a faster ID packer, with category lookup only for purchases; (4) the same for clicks; (5) a smaller dedup entry and L2-sized partitions; (6) largest-first partition scheduling for whale users.
   - Beating 0.28 s needs all six. It's incremental on v3, not a rewrite.
 - **Explorer 2 (Grok + Gemini):** counting sort on the dense person ID, with LSD radix as the fallback (Gemini's design), on `explore/gemini-radix` `c99960e`. Fixtures 36/36, dev MATCH, and a unit test against the comparison order. Not yet timed.
+- **USER SUBMITTED v3** (`29b64bf`): board **1.9424 s** (BB-93D28A6B, "wait 141 ms"). It's our best score and is entered in the final. Rank is around 250th; the leaders are at 0.28 s.
+  - **Calibration (1 point):** board / local = 1.9424 / 0.626 = **3.10×**.
+  - Per row: v3 runs 2,598 instructions per row at 20M (IPC 3.17 on M5). On the scorer that is 97 ns per row, about 26.7 G instructions/s effective, which matches the Analyst's model of about 25 G/s across 8 cascadelake vCPUs.
+  - **What 0.28 s needs:** about 14 ns per row, i.e. **≤ ~300–375 instructions per row including fixed costs**, or about 0.09 s local wall at the 3.1× ratio. Local wall time is a poor proxy because the M5 Pro has much higher IPC. **Instructions per row (and the predicted board time) becomes the primary metric.**
