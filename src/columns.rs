@@ -491,12 +491,7 @@ unsafe fn click_line<'a>(
             .filter(|_| {
                 !cid.is_empty() && !person.is_empty() && ts >= w.start - WEEK_MS && ts < w.end
             })
-            .map(|camp| Ck {
-                cid: cid.key(&lk.ids),
-                person: person.key(&lk.ids),
-                camp,
-                ts,
-            });
+            .map(|camp| Ck::new(person.key(&lk.ids), cid.key(&lk.ids), ts, camp, w));
         Some((next, row))
     }
 }
@@ -585,6 +580,7 @@ pub(super) fn clicks<'a>(
     }
 }
 
+#[allow(dead_code)]
 pub(super) fn links<'a>(
     buf: &'a [u8],
     start: usize,
@@ -592,13 +588,23 @@ pub(super) fn links<'a>(
     ids: &Ids<'a>,
     out: &mut Vec<(u64, u64)>,
 ) {
+    links_for_each(buf, start, end, ids, |pair| out.push(pair));
+}
+
+pub(super) fn links_for_each<'a>(
+    buf: &'a [u8],
+    start: usize,
+    end: usize,
+    ids: &Ids<'a>,
+    mut emit: impl FnMut((u64, u64)),
+) {
     let (fast, fallback) = for_each_decoded::<2, LINK_GUARD, _>(
         buf,
         start,
         end,
         |p| unsafe { link_line(p, ids) },
         |f| decode_link(f, ids),
-        |pair| out.push(pair),
+        |pair| emit(pair),
     );
     if STATS_ON.load(Relaxed) {
         STATS[2][0].fetch_add(fast, Relaxed);
@@ -632,6 +638,8 @@ mod tests {
         Win {
             start,
             end,
+            ck_base: start.saturating_sub(crate::WEEK_MS),
+            ckb: 16,
             decoder: Some(TimestampDecoder::new(start, end)),
         }
     }

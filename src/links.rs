@@ -1,98 +1,77 @@
 use std::cmp::Ordering;
-use std::sync::atomic::{
-    AtomicU32, AtomicU64,
-    Ordering::{AcqRel, Acquire, Relaxed},
-};
+use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed};
 
 use rayon::prelude::*;
 
-use super::{Ids, Input, LinkTable, Scan, for_each_record, mix};
+use super::{Ids, Input, LinkTable, Scan, for_each_record};
 
-/// A hash slot is also the node index. The key stays immutable once published.
-struct Components {
-    keys: Vec<AtomicU64>,
-    parents: Vec<AtomicU32>,
-    mask: usize,
-}
-
-impl Components {
-    fn new(edges: usize) -> Self {
-        // At most two distinct IDs per edge, so the table stays at most 2/3 full.
-        let cap = (3 * edges).next_power_of_two().max(16);
-        assert!(u32::try_from(cap - 1).is_ok(), "too many link slots");
-        let (keys, parents) = rayon::join(
-            || vec_init(cap, |_| AtomicU64::new(0)),
-            || vec_init(cap, |i| AtomicU32::new(i as u32)),
-        );
-        Self {
-            keys,
-            parents,
-            mask: cap - 1,
-        }
-    }
-
+impl LinkTable {
+    #[inline(always)]
     fn intern(&self, key: u64) -> u32 {
-        let mut slot = mix(key) as usize & self.mask;
+        let mut s = self.slot(key);
         loop {
-            let cell = &self.keys[slot];
-            match cell.load(Acquire) {
-                existing if existing == key => return slot as u32,
-                0 => match cell.compare_exchange(0, key, AcqRel, Acquire) {
-                    Ok(_) => return slot as u32,
-                    Err(existing) if existing == key => return slot as u32,
-                    Err(_) => {}
-                },
-                _ => {}
+            let cell = unsafe { self.slots.get_unchecked(s) };
+            let k = cell[0].load(Acquire);
+            if k == key {
+                return s as u32;
             }
-            slot = (slot + 1) & self.mask;
+            if k == 0 {
+                match cell[0].compare_exchange(0, key, AcqRel, Acquire) {
+                    Ok(_) => return s as u32,
+                    Err(existing) if existing == key => return s as u32,
+                    Err(_) => {}
+                }
+            }
+            s = (s + 1) & self.mask;
         }
     }
 
+    #[inline(always)]
     fn root(&self, mut i: u32) -> u32 {
         loop {
-            let cell = &self.parents[i as usize];
-            let p = cell.load(Acquire);
-            if p == i {
+            let cell = unsafe { self.slots.get_unchecked(i as usize) };
+            let p_raw = cell[1].load(Acquire) as u32;
+            if p_raw == 0 || p_raw == i + 1 {
                 return i;
             }
-            let grandparent = self.parents[p as usize].load(Acquire);
-            if grandparent == p {
+            let p = p_raw - 1;
+            let gp_raw = unsafe { self.slots.get_unchecked(p as usize)[1].load(Acquire) as u32 };
+            let gp = if gp_raw == 0 { p } else { gp_raw - 1 };
+            if gp == p {
                 return p;
             }
-            // Shorten a path only if the observed edge is still present.
-            let _ = cell.compare_exchange_weak(p, grandparent, AcqRel, Acquire);
-            i = grandparent;
+            let _ = cell[1].compare_exchange_weak(p_raw as u64, (gp + 1) as u64, AcqRel, Acquire);
+            i = gp;
         }
     }
 
+    #[inline(always)]
     fn union(&self, a: u32, b: u32, ids: &Ids<'_>) {
         loop {
             let (ra, rb) = (self.root(a), self.root(b));
             if ra == rb {
                 return;
             }
-            let ka = self.keys[ra as usize].load(Acquire);
-            let kb = self.keys[rb as usize].load(Acquire);
+            let ka = unsafe { self.slots.get_unchecked(ra as usize)[0].load(Acquire) };
+            let kb = unsafe { self.slots.get_unchecked(rb as usize)[0].load(Acquire) };
             let (smaller, larger) = if ids.cmp(ka, kb) == Ordering::Less {
                 (ra, rb)
             } else {
                 (rb, ra)
             };
-            // Every edge points to a strictly smaller ID, so a concurrent move
-            // of the smaller root cannot make a cycle. Retry if the larger
-            // root moved. The remaining root is the component's smallest ID.
-            if self.parents[larger as usize]
-                .compare_exchange(larger, smaller, AcqRel, Acquire)
-                .is_ok()
-            {
-                return;
+            let cell = unsafe { self.slots.get_unchecked(larger as usize) };
+            let cur = cell[1].load(Acquire) as u32;
+            if cur == 0 {
+                if cell[1].compare_exchange(0, (smaller + 1) as u64, AcqRel, Acquire).is_ok() {
+                    return;
+                }
+            } else if cur == larger + 1 {
+                if cell[1].compare_exchange((larger + 1) as u64, (smaller + 1) as u64, AcqRel, Acquire).is_ok() {
+                    return;
+                }
             }
         }
     }
-}
-
-fn vec_init<T: Send>(cap: usize, f: impl Fn(usize) -> T + Send + Sync) -> Vec<T> {
-    (0..cap).into_par_iter().with_min_len(4096).map(f).collect()
 }
 
 #[inline]
@@ -110,63 +89,75 @@ pub(super) fn load_links<'a>(
     ids: &Ids<'a>,
     hmask: u64,
 ) -> (LinkTable, usize) {
-    let pairs: Vec<Vec<_>> = input
+    let in_bytes: usize = input.maps.iter().map(|m| m.len()).sum();
+    let cap = if in_bytes < 1_048_576 {
+        in_bytes.next_power_of_two().max(16)
+    } else {
+        (in_bytes / 9).next_power_of_two().max(16)
+    };
+    let table = LinkTable::new_with_cap(cap, hmask);
+
+    input
         .chunks(chunk.min(256 << 10))
         .par_iter()
-        .map(|&(fi, s, e)| {
+        .for_each(|&(fi, s, e)| {
             let buf: &'a [u8] = &input.maps[fi];
-            let mut pairs = Vec::new();
             #[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
             if scan == Scan::Simd && ids.simd_pack {
-                super::columns::links(buf, s, e, ids, &mut pairs);
-                return pairs;
+                super::columns::links_for_each(buf, s, e, ids, |(a, b)| {
+                    let sa = table.intern(a);
+                    let sb = table.intern(b);
+                    table.union(sa, sb, ids);
+                });
+                return;
             }
             for_each_record(buf, s, e, scan, |fields| {
-                if let Some(pair) = decode_link(fields, ids) {
-                    pairs.push(pair);
+                if let Some((a, b)) = decode_link(fields, ids) {
+                    let sa = table.intern(a);
+                    let sb = table.intern(b);
+                    table.union(sa, sb, ids);
                 }
             });
-            pairs
-        })
-        .collect();
+        });
 
-    let components = Components::new(pairs.iter().map(Vec::len).sum());
-    pairs.into_par_iter().for_each(|pairs| {
-        for (a, b) in pairs {
-            let (a, b) = (components.intern(a), components.intern(b));
-            components.union(a, b, ids);
-        }
-    });
-
-    let pieces: Vec<_> = components
-        .keys
+    // Pass 1: path compression so every node points directly to its root.
+    table.slots
         .par_chunks(4096)
         .enumerate()
-        .map(|(part, keys)| {
-            let mut records = Vec::new();
-            let mut linked = 0;
-            for (offset, key) in keys.iter().enumerate() {
-                let key = key.load(Relaxed);
-                if key != 0 {
-                    linked += 1;
-                    let i = (part * 4096 + offset) as u32;
-                    let root = components.root(i);
-                    if i != root {
-                        records.push((key, components.keys[root as usize].load(Relaxed)));
+        .for_each(|(chunk_idx, chunk)| {
+            for (offset, slot) in chunk.iter().enumerate() {
+                if slot[0].load(Relaxed) != 0 {
+                    let i = (chunk_idx * 4096 + offset) as u32;
+                    let p_raw = slot[1].load(Relaxed) as u32;
+                    if p_raw != 0 && p_raw != i + 1 {
+                        let root = table.root(i);
+                        slot[1].store((root + 1) as u64, Relaxed);
                     }
                 }
             }
-            (records, linked)
+        });
+
+    // Pass 2: resolve person and count distinct linked IDs.
+    let linked: usize = table.slots
+        .par_chunks(4096)
+        .enumerate()
+        .map(|(chunk_idx, chunk)| {
+            let mut count = 0;
+            for (offset, slot) in chunk.iter().enumerate() {
+                let key = slot[0].load(Relaxed);
+                if key != 0 {
+                    count += 1;
+                    let i = (chunk_idx * 4096 + offset) as u32;
+                    let p_raw = slot[1].load(Relaxed) as u32;
+                    let root = if p_raw == 0 || p_raw == i + 1 { i } else { p_raw - 1 };
+                    let person = table.slots[root as usize][0].load(Relaxed);
+                    slot[1].store(person, Relaxed);
+                }
+            }
+            count
         })
-        .collect();
-    let linked = pieces.iter().map(|(_, n)| n).sum();
-    let remapped = pieces.iter().map(|(records, _)| records.len()).sum();
-    let table = LinkTable::new(remapped, hmask);
-    pieces.into_par_iter().for_each(|(records, _)| {
-        for (key, person) in records {
-            table.insert(key, person);
-        }
-    });
+        .sum();
+
     (table, linked)
 }
 

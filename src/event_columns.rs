@@ -768,6 +768,8 @@ mod tests {
         Win {
             start,
             end,
+            ck_base: start.saturating_sub(crate::WEEK_MS),
+            ckb: 16,
             decoder: Some(TimestampDecoder::new(start, end)),
         }
     }

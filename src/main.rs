@@ -188,6 +188,16 @@ fn instructions() -> Option<u64> {
     None
 }
 
+/// Minor page faults so far and peak RSS in bytes.
+fn faults_rss() -> (i64, i64) {
+    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) } != 0 {
+        return (0, 0);
+    }
+    let rss = if cfg!(target_os = "macos") { ru.ru_maxrss as i64 } else { ru.ru_maxrss as i64 * 1024 };
+    (ru.ru_minflt as i64, rss)
+}
+
 /// Process CPU time so far (user + sys, all threads), in seconds.
 fn cpu_secs() -> f64 {
     let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
@@ -636,44 +646,41 @@ impl<'a> Ids<'a> {
 }
 
 /// Open-addressing map u64 -> u64 (key 0 = empty slot), safe to fill from many threads.
-struct LinkTable {
-    slots: Vec<[AtomicU64; 2]>,
-    mask: usize,
-    shift: u32, // 64 - log2(slots.len())
-    hmask: u64,
+pub(crate) struct LinkTable {
+    pub(crate) slots: Vec<[AtomicU64; 2]>,
+    pub(crate) mask: usize,
+    pub(crate) shift: u32, // 64 - log2(slots.len())
+    pub(crate) hmask: u64,
 }
 
 impl LinkTable {
-    fn new(n: usize, hmask: u64) -> Self {
-        let cap = (2 * n).next_power_of_two().max(16);
-        let slots = (0..cap).map(|_| [AtomicU64::new(0), AtomicU64::new(0)]).collect();
+    pub(crate) fn new_with_cap(cap: usize, hmask: u64) -> Self {
+        let cap = cap.next_power_of_two().max(16);
+        let layout = std::alloc::Layout::array::<[AtomicU64; 2]>(cap).unwrap();
+        let ptr = unsafe { std::alloc::alloc_zeroed(layout) as *mut [AtomicU64; 2] };
+        if ptr.is_null() {
+            std::alloc::handle_alloc_error(layout);
+        }
+        let slots = unsafe { Vec::from_raw_parts(ptr, cap, cap) };
         LinkTable { slots, mask: cap - 1, shift: 64 - cap.trailing_zeros(), hmask }
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn new(n: usize, hmask: u64) -> Self {
+        Self::new_with_cap((2 * n).max(16), hmask)
+    }
+
     /// Home slot: the high bits of a multiplicative hash (as `Lookups::hpart`).
-    #[inline]
-    fn slot(&self, k: u64) -> usize {
+    #[inline(always)]
+    pub(crate) fn slot(&self, k: u64) -> usize {
         ((k.wrapping_mul(PART_MULTIPLIER) & self.hmask) >> self.shift) as usize
     }
 
-    /// Insert a key that isn't in the table yet.
-    fn insert(&self, k: u64, v: u64) {
-        let mut s = self.slot(k);
-        loop {
-            let e = &self.slots[s];
-            if e[0].compare_exchange(0, k, Relaxed, Relaxed).is_ok() {
-                e[1].store(v, Relaxed);
-                return;
-            }
-            s = (s + 1) & self.mask;
-        }
-    }
-
     /// The person of user key `k` (itself when it isn't linked to a smaller ID).
-    #[inline]
-    fn get_at(&self, k: u64, mut s: usize) -> u64 {
+    #[inline(always)]
+    pub(crate) fn get_at(&self, k: u64, mut s: usize) -> u64 {
         loop {
-            let e = &self.slots[s];
+            let e = unsafe { self.slots.get_unchecked(s) };
             let kk = e[0].load(Relaxed);
             if kk == k {
                 return e[1].load(Relaxed);
@@ -1034,23 +1041,32 @@ impl Input {
         let mut paths: Vec<PathBuf> = match fs::read_dir(dir) {
             Ok(rd) => rd
                 .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map_or(false, |t| t.is_file() || t.is_symlink()))
                 .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|x| x == "csv") && p.is_file())
+                .filter(|p| p.extension().is_some_and(|x| x == "csv"))
                 .collect(),
             Err(_) => Vec::new(),
         };
         paths.sort();
-        let maps = paths
-            .iter()
-            .filter_map(|p| {
+        let maps: Vec<Option<Mmap>> = paths
+            .par_iter()
+            .map(|p| {
                 let f = File::open(p).expect("open csv");
-                if f.metadata().map(|m| m.len()).unwrap_or(0) == 0 {
+                let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+                if len == 0 {
                     return None;
                 }
-                Some(unsafe { Mmap::map(&f).expect("mmap csv") })
+                Some(unsafe {
+                    memmap2::MmapOptions::new()
+                        .len(len as usize)
+                        .map(&f)
+                        .expect("mmap csv")
+                })
             })
             .collect();
-        Input { maps }
+        Input {
+            maps: maps.into_iter().flatten().collect(),
+        }
     }
 
     /// (file index, start, end) chunks covering every data line (headers skipped).
@@ -1721,14 +1737,32 @@ fn radix_u64<T: Copy, F: Fn(&T) -> u64>(data: &mut [T], scratch: &mut [T], key: 
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 struct Ck {
     person: u64,
-    ts: i64,
     cid: u64,
-    camp: u32,
+    tc: u64, // (ts - base) << ckb | camp: 24 B rows, 25% fewer fresh pages than 32 B
+}
+
+impl Ck {
+    #[inline(always)]
+    fn new(person: u64, cid: u64, ts: i64, camp: u32, w: &Win) -> Ck {
+        Ck { person, cid, tc: ((ts - w.ck_base) as u64) << w.ckb | camp as u64 }
+    }
+
+    #[inline(always)]
+    fn ts(&self, ctx: &Ctx) -> i64 {
+        (self.tc >> ctx.ckb) as i64 + ctx.base
+    }
+
+    #[inline(always)]
+    fn camp(&self, ctx: &Ctx) -> u32 {
+        (self.tc & ((1u64 << ctx.ckb) - 1)) as u32
+    }
 }
 
 struct Win {
     start: i64,
     end: i64,
+    ck_base: i64, // == Ctx::base
+    ckb: u32,     // == Ctx::ckb
     decoder: Option<TimestampDecoder>, // None under SESSIONS_DEBUG_NO_FAST=1
 }
 
@@ -1898,16 +1932,66 @@ fn parse_event<'a, L: Layout>(f: &[&'a [u8]; 7], lk: &Lookups<'a>, w: &Win, o: &
 
 /// One parse task's output for clicks: valid clicks by person partition, with the same
 /// batched link lookup as events.
+/// Rows go to `flat` (a per-worker buffer reused across tasks) in parse order; `finish`
+/// then scatters them, stably, into one exact-size allocation per task. Fresh pages are
+/// just the rows, with no per-partition headroom or tails, and no 256 Vecs per task.
 struct CkOut {
-    b: Vec<Vec<Ck>>,
+    flat: Vec<Ck>,
+    nb: usize,
     pend: [(Ck, usize); BATCH], // `person` holds the user key; the user's link slot
     np: usize,
 }
 
+/// One task's valid clicks, grouped by person partition: partition p is
+/// rows[off[p]..off[p + 1]], in parse order.
+struct CkPart {
+    rows: Vec<Ck>,
+    off: Vec<u32>,
+}
+
+impl std::ops::Index<usize> for CkPart {
+    type Output = [Ck];
+    #[inline]
+    fn index(&self, p: usize) -> &[Ck] {
+        &self.rows[self.off[p] as usize..self.off[p + 1] as usize]
+    }
+}
+
 impl CkOut {
-    fn new(nb: usize, bytes: usize) -> Self {
-        let c = Ck { person: 0, ts: 0, cid: 0, camp: 0 };
-        CkOut { b: buckets_with(nb, bytes / 60 / nb * 5 / 4 + 16), pend: [(c, 0); BATCH], np: 0 }
+    fn new(nb: usize, mut flat: Vec<Ck>) -> Self {
+        flat.clear();
+        let c = Ck { person: 0, cid: 0, tc: 0 };
+        CkOut { flat, nb, pend: [(c, 0); BATCH], np: 0 }
+    }
+
+    /// Flushes, then the counting scatter by partition. Returns the buffer for reuse.
+    fn finish(mut self, lk: &Lookups) -> (CkPart, Vec<Ck>) {
+        self.flush(lk);
+        let nb = self.nb;
+        let n = self.flat.len();
+        assert!(n < u32::MAX as usize);
+        let mut off = vec![0u32; nb + 1];
+        for c in &self.flat {
+            off[bucket(c.person & lk.hmask, nb) + 1] += 1;
+        }
+        for i in 0..nb {
+            off[i + 1] += off[i];
+        }
+        let mut at = off.clone();
+        let mut rows: Vec<Ck> = Vec::with_capacity(n);
+        let dst = rows.as_mut_ptr();
+        for c in &self.flat {
+            let d = bucket(c.person & lk.hmask, nb);
+            // SAFETY: d < nb; at[d] < off[d + 1] <= n == rows.capacity(), each slot written once
+            unsafe {
+                let i = at.get_unchecked_mut(d);
+                dst.add(*i as usize).write(*c);
+                *i += 1;
+            }
+        }
+        // SAFETY: all n slots were written: the counts sum to n
+        unsafe { rows.set_len(n) };
+        (CkPart { rows, off }, self.flat)
     }
 
     #[inline(always)]
@@ -1923,13 +2007,10 @@ impl CkOut {
 
     #[inline]
     fn flush(&mut self, lk: &Lookups) {
-        let nb = self.b.len();
         let np = std::mem::take(&mut self.np);
         for &(mut c, slot) in &self.pend[..np] {
             c.person = lk.links.get_at(c.person, slot).wrapping_mul(PART_MULTIPLIER);
-            let d = bucket(c.person & lk.hmask, nb);
-            // SAFETY: bucket(_, nb) < nb == self.b.len()
-            unsafe { self.b.get_unchecked_mut(d) }.push(c);
+            self.flat.push(c);
         }
     }
 }
@@ -1945,7 +2026,7 @@ fn decode_click<'a>(f: &[&'a [u8]; 4], lk: &Lookups<'a>, w: &Win) -> Option<Ck> 
     if ts < w.start - WEEK_MS || ts >= w.end {
         return None;
     }
-    Some(Ck { person: lk.ids.key(f[1]), ts, cid: lk.ids.key(f[0]), camp })
+    Some(Ck::new(lk.ids.key(f[1]), lk.ids.key(f[0]), ts, camp, w))
 }
 
 /// Group consecutive chunks into rayon tasks: one chunk per task by default; a tiny debug
@@ -2023,6 +2104,7 @@ struct Ctx<'a, 'l> {
     ncamp: usize, // organic == ncamp
     base: i64,    // window_start - 7 days: the smallest ts of any kept row
     wide: bool,   // ts - base may not fit 40 bits: sort on (person, ts) pairs
+    ckb: u32,     // low bits of Ck::tc holding the campaign index
 }
 
 #[derive(Clone, Copy)]
@@ -2169,13 +2251,14 @@ fn tally_clicks(run: &[PCk], ids: &Ids) {
 }
 
 /// v5's sort: one `sort_unstable_by` over every click in the partition.
-fn sort_clicks_old<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[Vec<Vec<Ck>>], p: usize, wide: bool) {
+fn sort_clicks_old<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[CkPart], p: usize, wide: bool) {
     sc.cks.clear();
     for part in ck {
         for c in &part[p] {
             if let Some(loc) = sc.persons.get(c.person) {
-                let k = if wide { loc as u64 } else { (loc as u64) << 40 | (c.ts - ctx.base) as u64 };
-                sc.cks.push(PCk { k, ts: c.ts, cid: c.cid, camp: c.camp });
+                let ts = c.ts(ctx);
+                let k = if wide { loc as u64 } else { (loc as u64) << 40 | (ts - ctx.base) as u64 };
+                sc.cks.push(PCk { k, ts, cid: c.cid, camp: c.camp(ctx) });
             }
         }
     }
@@ -2184,14 +2267,14 @@ fn sort_clicks_old<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::Elem>
 
 /// Counting sort by the dense person id, then a per-person sort by (ts, click_id desc).
 /// The person id is resolved once. The counting sort then runs on that flat list.
-fn sort_clicks_counted<L: Layout>(lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[Vec<Vec<Ck>>], p: usize, wide: bool) {
+fn sort_clicks_counted<L: Layout>(ctx: &Ctx, lk: &Lookups, sc: &mut Scratch<L::Elem>, ck: &[CkPart], p: usize, wide: bool) {
     let shift = if wide { 0 } else { 40 };
     sc.cks.clear();
     for part in ck {
         for c in &part[p] {
             if let Some(loc) = sc.persons.get(c.person) {
                 let k = if wide { loc as u64 } else { (loc as u64) << 40 };
-                sc.cks.push(PCk { k, ts: c.ts, cid: c.cid, camp: c.camp });
+                sc.cks.push(PCk { k, ts: c.ts(ctx), cid: c.cid, camp: c.camp(ctx) });
             }
         }
     }
@@ -2235,7 +2318,7 @@ fn process_part<L: Layout>(
     acc: &mut Acc,
     sc: &mut Scratch<L::Elem>,
     ev: &[EvOut<L>],
-    ck: &[Vec<Vec<Ck>>],
+    ck: &[CkPart],
     drops: &[u64],
     p: usize,
 ) {
@@ -2318,7 +2401,7 @@ fn process_part<L: Layout>(
     if env_flags().2 {
         sort_clicks_old::<L>(ctx, lk, sc, ck, p, wide);
     } else {
-        sort_clicks_counted::<L>(lk, sc, ck, p, wide);
+        sort_clicks_counted::<L>(ctx, lk, sc, ck, p, wide);
     }
     if let Some(t0) = click_t0 {
         CLICK_INSN.fetch_add(hwi().wrapping_sub(t0), Relaxed);
@@ -2569,12 +2652,16 @@ impl ActiveSet {
 
 // ------------------------------------------------------------------ output
 
+/// Encode the whole file in memory, then create it with one `write`: an unbuffered
+/// `File` sink costs ~13 writes per file (Thrift headers, footer pieces), and every
+/// syscall is a sentry round trip under gVisor. Same writer properties, same bytes.
 fn write_parquet(path: &Path, batch: RecordBatch) {
-    let file = File::create(path).expect("create parquet file");
     let props = WriterProperties::builder().set_compression(Compression::UNCOMPRESSED).build();
-    let mut w = ArrowWriter::try_new(file, batch.schema(), Some(props)).expect("parquet writer");
+    let cap = batch.get_array_memory_size() + (64 << 10);
+    let mut w = ArrowWriter::try_new(Vec::with_capacity(cap), batch.schema(), Some(props)).expect("parquet writer");
     w.write(&batch).expect("write batch");
-    w.close().expect("close parquet");
+    let buf = w.into_inner().expect("close parquet");
+    fs::write(path, buf).expect("write parquet file");
 }
 
 fn utf8(b: &[u8]) -> Cow<'_, str> {
@@ -2692,11 +2779,13 @@ fn pipeline<'a, L: Layout>(
 
     // clicks: parse + validate + scatter by person
     let ck_chunks = clicks_in.chunks(knobs.chunk);
-    let ck_out: Vec<Vec<Vec<Ck>>> = ck_chunks
+    let ck_out: Vec<CkPart> = ck_chunks
         .par_chunks(task_group(ck_chunks.len(), nb, knobs.chunk))
-        .map(|task| {
+        .map_init(Vec::new, |flat, task| {
             let bytes: usize = task.iter().map(|&(_, s, e)| e - s).sum();
-            let mut o = CkOut::new(nb, bytes);
+            let mut buf = std::mem::take(flat);
+            buf.reserve(bytes / 40); // > lines per task (~53 B each); virtual until touched
+            let mut o = CkOut::new(nb, buf);
             for &(fi, s, e) in task {
                 let buf: &[u8] = &clicks_in.maps[fi];
                 #[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
@@ -2710,8 +2799,9 @@ fn pipeline<'a, L: Layout>(
                     }
                 });
             }
-            o.flush(lk);
-            o.b
+            let (part, buf) = o.finish(lk);
+            *flat = buf;
+            part
         })
         .collect();
     lap("clicks parsed");
@@ -2771,13 +2861,23 @@ fn main() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get()));
-    rayon::ThreadPoolBuilder::new().num_threads(ncpu).build_global().ok();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(ncpu)
+        .stack_size(8 << 20) // 8 MiB: nested rayon joins overflowed 256 KiB (Red Team seed 535, PARTS=4096); pages are touched only when used
+        .build_global()
+        .ok();
     // `[  1.234s] phase (detail, cpu=X.XXXs)`: wall since start, then the process's
     // cumulative user+sys CPU, inside the parentheses so the Eval phase key is unchanged.
     // On macOS also the cumulative instructions retired: `, instr=1.234G`.
+    // SESSIONS_DEBUG_FAULTS=1: also the cumulative minor faults and peak RSS per lap.
+    let show_faults = env::var_os("SESSIONS_DEBUG_FAULTS").is_some();
     let lap = |what: &str| {
         let (wall, cpu) = (t0.elapsed().as_secs_f64(), cpu_secs());
-        let ins = instructions().map_or(String::new(), |i| format!(", instr={:.4}G", i as f64 / 1e9));
+        let mut ins = instructions().map_or(String::new(), |i| format!(", instr={:.4}G", i as f64 / 1e9));
+        if show_faults {
+            let (flt, rss) = faults_rss();
+            ins += &format!(", minflt={flt}, maxrss={:.1}M", rss as f64 / 1048576.0);
+        }
         match what.strip_suffix(')') {
             Some(head) if head.contains(" (") => eprintln!("[{wall:>7.3}s] {head}, cpu={cpu:.3}s{ins})"),
             _ => eprintln!("[{wall:>7.3}s] {what} (cpu={cpu:.3}s{ins})"),
@@ -2793,7 +2893,7 @@ fn main() {
     let mts = |k: &str| parse_ts(manifest[k].as_str().expect("manifest key").as_bytes()).expect("manifest ts");
     let (start, end) = (mts("window_start"), mts("window_end"));
     let decoder = (knobs.no_fast != 1).then(|| TimestampDecoder::new(start, end));
-    let win = Win { start, end, decoder };
+    let mut win = Win { start, end, ck_base: 0, ckb: 0, decoder };
 
     let products_buf = read_small(&data.join("products.csv"));
     let campaigns_buf = read_small(&data.join("campaigns.csv"));
@@ -2831,7 +2931,12 @@ fn main() {
     let ncamp = lk.camp_ids.len();
     let base = win.start.saturating_sub(WEEK_MS);
     let wide = !(0..1i64 << 40).contains(&win.end.saturating_sub(base));
-    let ctx = Ctx { lk: &lk, first_day, ndays, ncamp, base, wide };
+    // click rows pack (ts - base) above the campaign index's bits
+    let ckb = (u64::BITS - (ncamp as u64).leading_zeros()).max(1);
+    assert!((win.end.saturating_sub(base) as u64) >> (64 - ckb) == 0, "click window too wide to pack");
+    win.ck_base = base;
+    win.ckb = ckb;
+    let ctx = Ctx { lk: &lk, first_day, ndays, ncamp, base, wide, ckb };
     let ncat = lk.cat_names.len();
     // 16 B rows unless a ts offset (ms) or a category index wouldn't fit them
     let compact = knobs.no_fast != 1 && win.end.saturating_sub(base) < 1i64 << 32 && ncat <= 256;
@@ -2856,13 +2961,18 @@ fn main() {
         }
     }
     let nonempty: Vec<&Acc> = accs.iter().filter(|a| !a.users.is_empty()).collect();
-    nonempty.par_iter().enumerate().for_each(|(i, a)| {
-        write_parquet(&ud_dir.join(format!("part-{i:05}.parquet")), user_batch(&a.users, &lk));
-    });
-    if nonempty.is_empty() {
-        write_parquet(&ud_dir.join("part-00000.parquet"), user_batch(&[], &lk));
-    }
-    write_parquet(&cd_dir.join("part-00000.parquet"), campaign_batch(&camp_total, &ctx));
+    // Both tables at once: the campaign file no longer waits for the user_daily tail.
+    rayon::join(
+        || {
+            nonempty.par_iter().enumerate().for_each(|(i, a)| {
+                write_parquet(&ud_dir.join(format!("part-{i:05}.parquet")), user_batch(&a.users, &lk));
+            });
+            if nonempty.is_empty() {
+                write_parquet(&ud_dir.join("part-00000.parquet"), user_batch(&[], &lk));
+            }
+        },
+        || write_parquet(&cd_dir.join("part-00000.parquet"), campaign_batch(&camp_total, &ctx)),
+    );
     let rows: usize = accs.iter().map(|a| a.users.len()).sum();
     lap(&format!("written ({rows} user_daily rows)"));
     if STATS_ON.load(Relaxed) {
@@ -2871,8 +2981,8 @@ fn main() {
             eprintln!("stats: {what} lines fast={f} split_fields={sl} ({:.1}% fast)", 100.0 * f as f64 / (f + sl).max(1) as f64);
         }
     }
-    // Every Parquet writer is closed (ArrowWriter::close flushed it, and its File was
-    // dropped inside write_parquet), so nothing is left to flush. Skip the teardown.
+    // Every Parquet file is complete (write_parquet's fs::write wrote the whole encoded
+    // buffer and closed the file), so nothing is left to flush. Skip the teardown.
     if insn_probe() {
         let (n, insn) = (CLICK_N.load(Relaxed), CLICK_INSN.load(Relaxed));
         eprintln!(
@@ -2899,8 +3009,8 @@ fn main() {
             CK_BUCKET[4].load(Relaxed)
         );
     }
-    // Every Parquet file is closed: write_parquet returns only after ArrowWriter::close
-    // succeeded and its File was dropped, and stderr is unbuffered. So skip atexit
+    // Every Parquet file is closed: write_parquet returns only after fs::write wrote the
+    // whole encoded buffer and closed the file, and stderr is unbuffered. So skip atexit
     // handlers and the allocator's teardown (Explorer 5: about -464 ms under gVisor).
     // SESSIONS_EXIT=normal exits through std::process::exit for A/B.
     if env::var_os("SESSIONS_EXIT").is_some_and(|v| v == "normal") {
