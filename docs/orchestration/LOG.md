@@ -508,3 +508,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **Explorer 4 `c348600`** (PLAIN counters): only −0.6% extra Ir, but output 3.3× larger. Not taken.
 - Neon Architect `5bc0d25` (control-byte dedup): raw −4.8%, but **rep-stos corrected −0.74%**. HOLD. Gemini Neon High's v14 plan is still pending.
 - **v13.1 `1262b3e` Orchestrator native gates all PASS:** fixtures 36/36, dev `NO_FAST` 0–3, seed-42, long-ID 240/240, seed-535 ×10. Queued at Eval after v13 (screen, x86 checks, Gate C). Explorer 4 is stacking small cuts as v13.2 on `1262b3e` (≥ 1.5% extra bar, by 08:45).
+- **Eval: v13 `ce45d97` screen = PROMOTE.**
+  - **x86 Ir/line 1,138.2 vs v8 1,315.7 (−13.5%)**; rep-corrected −13.6%. Events 533.3 (−54.5), sessions 239.4 (−37.2), write 99.9 (−86.0).
+  - x86 dev MATCH; gVisor 20M sanity ratio 0.906. **Model board ≈ 0.81 s** (extrapolated).
+  - Untimed gate all MATCH (fuzz 1000, knobs, long-ID 900, window fuzz). x86 container seed-42 NCPU=8 and 300 fuzz seeds MATCH. Timed gate (containers, contention A/B, futex, gVisor 60M) holds the lock from 06:57; ETA 07:08.
+  - **Tooling bug:** the shared `insights3-target` cargo volume races between concurrent builds, so a count can belong to the wrong binary (Eval's first v13 count, 1,235.8, was contaminated). `lib/x86.py` now uses a private volume. Builders warned to re-verify.
