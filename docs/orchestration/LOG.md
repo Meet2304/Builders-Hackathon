@@ -507,3 +507,4 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **v13.1 = `integ/v13.1` @ `1262b3e`** = `ce45d97` + `8b70641`. Native gates: fixtures 36/36, dev `NO_FAST` 0–3, seed-42 MATCH; long-ID and seed-535 running. Plan: submit v13 first, then v13.1 via the fast screen.
 - **Explorer 4 `c348600`** (PLAIN counters): only −0.6% extra Ir, but output 3.3× larger. Not taken.
 - Neon Architect `5bc0d25` (control-byte dedup): raw −4.8%, but **rep-stos corrected −0.74%**. HOLD. Gemini Neon High's v14 plan is still pending.
+- **v13.1 `1262b3e` Orchestrator native gates all PASS:** fixtures 36/36, dev `NO_FAST` 0–3, seed-42, long-ID 240/240, seed-535 ×10. Queued at Eval after v13 (screen, x86 checks, Gate C). Explorer 4 is stacking small cuts as v13.2 on `1262b3e` (≥ 1.5% extra bar, by 08:45).
