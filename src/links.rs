@@ -95,6 +95,14 @@ fn vec_init<T: Send>(cap: usize, f: impl Fn(usize) -> T + Send + Sync) -> Vec<T>
     (0..cap).into_par_iter().with_min_len(4096).map(f).collect()
 }
 
+#[inline]
+pub(super) fn decode_link<'a>(fields: &[&'a [u8]; 2], ids: &Ids<'a>) -> Option<(u64, u64)> {
+    if fields[0].is_empty() || fields[1].is_empty() {
+        return None;
+    }
+    Some((ids.key(fields[0]), ids.key(fields[1])))
+}
+
 pub(super) fn load_links<'a>(
     input: &'a Input,
     chunk: usize,
@@ -108,9 +116,14 @@ pub(super) fn load_links<'a>(
         .map(|&(fi, s, e)| {
             let buf: &'a [u8] = &input.maps[fi];
             let mut pairs = Vec::new();
-            for_each_record(buf, s, e, scan, |fields: &[&'a [u8]; 2]| {
-                if !fields[0].is_empty() && !fields[1].is_empty() {
-                    pairs.push((ids.key(fields[0]), ids.key(fields[1])));
+            #[cfg(any(target_arch = "aarch64", all(target_arch = "x86_64", target_feature = "ssse3")))]
+            if scan == Scan::Simd && ids.simd_pack {
+                super::columns::links(buf, s, e, ids, &mut pairs);
+                return pairs;
+            }
+            for_each_record(buf, s, e, scan, |fields| {
+                if let Some(pair) = decode_link(fields, ids) {
+                    pairs.push(pair);
                 }
             });
             pairs
