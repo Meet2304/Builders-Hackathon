@@ -104,7 +104,6 @@ def compare(A: dict, B: dict) -> list[tuple[str, list]]:
         row(rows, "wall min", sa.get("wall_s", {}), sb.get("wall_s", {}), stat="min")
         row(rows, "wall p90", sa.get("wall_s", {}), sb.get("wall_s", {}), stat="p90")
         row(rows, "user", sa.get("user_s", {}), sb.get("user_s", {}))
-        row(rows, "sys", sa.get("sys_s", {}), sb.get("sys_s", {}))
         row(rows, "cpu util", sa.get("cpu_util", {}), sb.get("cpu_util", {}), unit="x")
         row(rows, "peak footprint", sa.get("peak_footprint_bytes", {}), sb.get("peak_footprint_bytes", {}), "GiB", "max")
         row(rows, "max RSS", sa.get("max_rss_bytes", {}), sb.get("max_rss_bytes", {}), "GiB", "max")
@@ -112,6 +111,8 @@ def compare(A: dict, B: dict) -> list[tuple[str, list]]:
         row(rows, "invol ctx sw", sa.get("ivcsw", {}), sb.get("ivcsw", {}), "n")
         row(rows, "instructions", sa.get("instructions", {}), sb.get("instructions", {}), "n")
         row(rows, "instructions/row", sa.get("instructions_per_row"), sb.get("instructions_per_row"), "n")
+        row(rows, "sys CPU", sa.get("sys_s"), sb.get("sys_s"))
+        row(rows, "minor faults (page reclaims)", sa.get("page_reclaims"), sb.get("page_reclaims"), "n")
         row(rows, "cycles/row", sa.get("cycles_per_row"), sb.get("cycles_per_row"), "n")
         row(rows, "IPC", sa.get("ipc"), sb.get("ipc"), "x", lower_is_better=False)
         ta, tb = pa.get(role, {}).get("throughput", {}), pb.get(role, {}).get("throughput", {})
@@ -141,13 +142,23 @@ def compare(A: dict, B: dict) -> list[tuple[str, list]]:
     oa = A["perf"].get("container_overhead", {}).get("dev_overhead_s")
     ob = B["perf"].get("container_overhead", {}).get("dev_overhead_s")
     row(rows, "container overhead (dev)", oa, ob)
-    row(rows, "estimated board 20M", A.get("calibration", {}).get("estimated_scorer_20m_s"),
+    row(rows, "predicted board 20M (instructions, primary)",
+        A.get("calibration", {}).get("estimated_scorer_20m_instr_s"),
+        B.get("calibration", {}).get("estimated_scorer_20m_instr_s"))
+    row(rows, "predicted board 20M (local wall)", A.get("calibration", {}).get("estimated_scorer_20m_s"),
         B.get("calibration", {}).get("estimated_scorer_20m_s"))
     sections.append(("Resources and sizes", rows))
     linux_a, linux_b = (r["perf"].get("linux_timing", {}).get("summary", {}) for r in (A, B))
     if linux_a or linux_b:
         rows = []
         for key, label, unit in (("process_wall_s", "inside-container wall", "s"),
+                                 ("sys_s", "sys CPU", "s"),
+                                 ("minor_faults", "minor faults", "n"),
+                                 ("exit_tail_s", "exit tail", "s"),
+                                 ("peak_anon_bytes", "peak sampled anonymous", "GiB"),
+                                 ("peak_anon_huge_bytes", "peak sampled anonymous huge pages", "GiB"),
+                                 ("thp_fault_alloc", "THP allocations (VM)", "n"),
+                                 ("thp_fault_fallback", "THP fallbacks (VM)", "n"),
                                  ("minor_faults_per_row", "minor faults / row", "x"),
                                  ("major_faults_per_row", "major faults / row", "x")):
             row(rows, label, linux_a.get(key), linux_b.get(key), unit)

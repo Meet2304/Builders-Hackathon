@@ -12,5 +12,9 @@
     "seed-42": {"kind": "oracle", "seed": 42, "events": 20000000, "clicks": 5000000,  "role": "perf-20M"},
     "seed-62-20m": {"kind": "oracle", "seed": 62, "events": 20000000, "clicks": 5000000, "note": "window holds Feb 29 2028"},
     "seed-43": {"kind": "consistency", "seed": 43, "events": 60000000, "clicks": 15000000, "role": "perf-60M"}
-  }
+  },
+  "review_suites": [
+    {"name": "v3-review", "runner": "evals/insights/v3_review/run.py", "cases": ["cases.py", "cases_ts.py"],
+     "owner": "Analyst", "note": "evals/insights/v3-review.md: packed-ID, dedup, lookup, scan and timestamp-decoder boundaries, each under 10 debug knobs"}
+  ]
 }

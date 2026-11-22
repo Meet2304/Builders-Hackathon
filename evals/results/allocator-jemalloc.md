@@ -10,6 +10,17 @@
 - Gate B: threads < 1000 not run
 - Gate B: writes only to output/scratch (read-only container run) not run
 - Gate B: image builds from clean not run
+- predicted board 20M: 3.181s from 4,255 instr/row (26.8 G/s + 0.000s fixed); 4.963s from local wall (×3.10). Target: 0.28 s ⇒ 14 ns/row ⇒ ≤ 308–375 instructions/row (fixed 0.05–0.00 s, 26.8 G instr/s effective)
+
+## Predicted board time (20M practice)
+
+| Predictor | Predicted board | Input | Model |
+| --- | --- | --- | --- |
+| instructions (primary) | **3.181 s** | 4,255 instr/row | 0.000 s + instr/row × 20M / 26.75 G/s (rate, 1 point(s)) |
+| local wall | 4.963 s | 20M median | 0.000 s + 3.103 × local (ratio, 1 point(s)) |
+
+Target: 0.28 s ⇒ 14 ns/row ⇒ ≤ 308–375 instructions/row (fixed 0.05–0.00 s, 26.8 G instr/s effective).
+Primary prediction is above the 0.28 s target.
 
 Run 2026-11-21T18:39:28-0500 → 2026-11-21T18:41:57-0500, 149.0 s. Host: Apple M5 Pro, 15 CPUs. Evaluator e93a363c8f45+dirty.
 
@@ -38,7 +49,7 @@ Run 2026-11-21T18:39:28-0500 → 2026-11-21T18:41:57-0500, 149.0 s. Host: Apple 
 | B | repo < 50 MB, no data | PASS | 0.52 MB tracked |
 | C | >= 5% faster than v1 (submit-ready) | PASS | 1.606s vs 1.706s = +5.8% (local, interleaved A/B in this eval) |
 | C | > 2x pooled stdev | FAIL | delta 0.0996s vs 2sd 0.2008s |
-| C | Linux 20M secondary signal | SUPPORTS | 1.5580s vs 1.8709s (+16.7%, 5 pairs) |
+| C | Linux 20M A/B | SUPPORTS | 1.5580s vs 1.8709s (+16.7%, 5 pairs) |
 
 ## Correctness
 
@@ -100,6 +111,17 @@ Hardware counters (median): instructions/row 4,255.00, cycles/row 2,064.54, IPC 
 | Native | v1 | 5 | 1.706s | 1.604s | n/a | n/a |
 
 Named volume, 8 CPUs, 24 GiB cgroup limit, THP always, page size 4096 B.
+
+| Linux metric | Candidate median | Baseline median |
+| --- | --- | --- |
+| Minor faults | 29,960 | 814,613 |
+| Major faults | 0 | 0 |
+| System CPU (s) | n/a | n/a |
+| Exit tail (s) | n/a | n/a |
+| VM THP allocations | n/a | n/a |
+| VM THP fallbacks | n/a | n/a |
+| Peak sampled anonymous (GiB) | n/a | n/a |
+| Peak sampled anonymous huge pages (GiB) | n/a | n/a |
 
 ## Constraints and sizes
 

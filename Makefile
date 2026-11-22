@@ -108,10 +108,14 @@ dashboard-watch: ## Regenerate the progress dashboard every 30 seconds
 VERSION ?=
 REV     ?= HEAD
 PROFILE ?= quick
-.PHONY: eval eval-compare eval-cache-ref eval-selftest eval-calibrate
+.PHONY: eval eval-amend eval-compare eval-cache-ref eval-selftest eval-calibrate
 eval:            ## Evaluate a candidate: make eval VERSION=v2 REV=method/v2 PROFILE=quick|full|linux
 	@test -n "$(VERSION)" || (echo "VERSION=... is required" && exit 2)
 	$(PY) evals/run.py --version $(VERSION) --rev $(REV) --profile $(PROFILE)
+
+eval-amend:      ## Add stages to an existing result: make eval-amend VERSION=v3 REV=29b64bf STAGES=review,windows
+	@test -n "$(VERSION)" -a -n "$(STAGES)" || (echo "VERSION=... and STAGES=... are required" && exit 2)
+	$(PY) evals/run.py --version $(VERSION) --rev $(REV) --amend $(STAGES)
 
 eval-compare:    ## Per-metric deltas with significance: make eval-compare A=v1 B=v2
 	$(PY) evals/compare.py $(A) $(B)
@@ -122,5 +126,5 @@ eval-cache-ref:  ## One-time: cache the reference's output for every oracle data
 eval-selftest:   ## Mutation self-test: how many reference mutants do fixtures and fuzz kill
 	$(PY) evals/fuzz/selftest.py
 
-eval-calibrate:  ## Recompute the local-to-scorer fit from evals/calibration.json points
+eval-calibrate:  ## Fit both board predictors (wall, instructions) from evals/calibration.json and refresh results + ledger
 	$(PY) evals/calibrate.py
