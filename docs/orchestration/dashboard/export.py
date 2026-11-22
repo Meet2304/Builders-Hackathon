@@ -247,16 +247,19 @@ def load_versions(root, log):
             if bt is not None and (v.get("board_time_s") is None or bt < v["board_time_s"]):
                 v["board_time_s"] = bt
             v["submitted_at"] = s.get("submitted_at")
-    for name, v in versions.items():
-        v.setdefault("submitted", "no")
-        v["order"] = version_order(name)
+    # Chronological order: eval date first (experiments such as "window-timestamps" sit between
+    # the vN they were measured against), version number as the tie-break.
+    ranked = sorted(versions, key=lambda n: (versions[n].get("date") or "9999", version_order(n), n))
+    for i, name in enumerate(ranked):
+        versions[name].setdefault("submitted", "no")
+        versions[name]["order"] = i
     return versions
 
 
 # ---------------------------------------------------------------- other parts
 def load_phases(root, versions):
     """Phase medians at 20M for the newest version that has them."""
-    for name in sorted(versions, key=version_order, reverse=True):
+    for name in sorted(versions, key=lambda n: versions[n]["order"], reverse=True):
         r = read_json(root / f"evals/results/{name}.json")
         phases = get(r, "perf", "datasets", "perf-20M", "summary", "phases")
         wall = get(r, "perf", "datasets", "perf-20M", "summary", "wall_s", "median")

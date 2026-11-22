@@ -1,8 +1,16 @@
 # Live dashboard sync
 
-**Artifact (one stable URL, never create another):** https://claude.ai/artifact/BeFsRwhCxaqqo3KRDhdWM5
-(also in `ARTIFACT_URL`). It is a claude.ai "Data" dashboard owned by the `claude_andrew` account.
-The earlier artifact `WtswJrVasZtzDdyXH1Ci82` belonged to the old account. It can't be reached from this one, so don't use it.
+**Artifact (one stable URL, never create another):** https://claude.ai/artifact/WtswJrVasZtzDdyXH1Ci82
+(also in `ARTIFACT_URL`). It is a claude.ai "Data" dashboard owned by the main claude.ai account
+(the one this project's threads normally run on).
+
+**Account caveat.** An artifact can only be written by an account that can edit it. While the threads ran on the
+`claude_andrew` account for a while, that account got its own copy,
+https://claude.ai/artifact/BeFsRwhCxaqqo3KRDhdWM5. It is frozen and stale: don't sync to it, and never make a
+third. If a sync fails with "no such artifact ... or no access", the thread is on an account that can't edit
+the main dashboard. Skip that sync and say so in the log. The next sync from the main account brings everything
+up to date, because a sync always writes the full current state. To make every account work, the user can share
+the main dashboard with edit access to the other account from its Share menu.
 
 The page (`files/index.html` in the store, source `page.html` here) never changes on a sync.
 A sync is only data writes, with the `ArtifactData` tool, to the collection `data/board/rows`.
@@ -12,11 +20,13 @@ Each row has a `kind`: `headline`, `version` (one per eval version), `phase`, `t
 
 Run them from the repo checkout whose `evals/` and `LOG.md` are current (normally the main checkout).
 `D` = `<checkout>/docs/orchestration/dashboard`.
+Until `dashboard/live` is merged, run step 2 from the dashboard worktree but read the main checkout:
+`python3 docs/orchestration/dashboard/export.py --root "<main checkout>" --plan docs/orchestration/dashboard/existing > docs/orchestration/dashboard/existing/plan.json`.
 
 1. **Read the store's current rows and versions.**
    First run `rm -rf $D/existing`. Then call:
    ```
-   ArtifactData action=list url=https://claude.ai/artifact/BeFsRwhCxaqqo3KRDhdWM5
+   ArtifactData action=list url=https://claude.ai/artifact/WtswJrVasZtzDdyXH1Ci82
      collection=data/board/rows query={"limit":1000} out_dir=$D/existing
    ```
    The result text has one line per document: `- "git"  1164 bytes  version 2  "..."`.
