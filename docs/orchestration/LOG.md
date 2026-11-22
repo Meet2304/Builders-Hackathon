@@ -172,3 +172,18 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **Explorer 2:** the fused per-column decoder is **negative** (`2e22d43`). The cursor walk drops the NEON classify (824 → 1,243), and decoding from the comma mask saves only 21. Every column can be quoted, about 20% each. Re-tasked to **bitmask quote validation and stripping** (simdjson-style) on `explore/gemini-quotemask`. Quote stripping is about 150 of the roughly 300 scan instructions per line.
 - **Eval:** the `20b8e79` quick profile (`v5-pre1`) and the cascadelake disassembly are done. **Redirected to the full eval of `5b7bcc2` as v5** (submission candidate, gated against v4).
 - **Method:** on to move 3, click parsing. Move 4 (merged dedup entry) is conditional.
+- **DEADLINE: 11:00 ET on 2026-11-22. Code freeze at 08:00 ET** (Analyst's v5 plan). Anything not gated by 08:00 is dropped.
+- **Analyst** v5 plan (`63b9f05`, merged):
+  - Floor about 350 per line (≈ 0.78 s on the final). Head `20b8e79` is 1,468 per line at 20M on one thread, about 3.5 s on the final. Everything ranked tonight would reach about 670 per line (≈ 1.5 s).
+  - **Corrections:** the event sort is 44 per line in v4, not 310 (that was v3). The click sort is 89 per line (377 per click).
+  - Partitions: Sol is right that more global partitions lose; the fix is sub-buckets inside event-ID partitions. Sol tried that and it was neutral.
+  - Clean-room rewrite: no.
+  - Its top move, a fused decoder (−0.86 s), predates Explorer 2's negative measurement. The Analyst has been asked to reconcile.
+- **Explorer 3** (`3b31648`):
+  - Each person's events arrive in random order (0.2% already sorted, 15 runs per person), so **the current per-person sort stays**.
+  - **Writer with dictionaries and statistics off: 128.6 → 60.5 per kept row**, seed-42 MATCH. The Analyst's independent patch gets 112 → 56.
+- **Orchestrator:**
+  - Explorer 3 → the **click sort** (`explore/gemini3-clicksort`).
+  - Method → port the writer settings as a v5 move after clicks.
+  - Eval → a Linux A/B of the writer after the v5 eval (files grow 4×).
+  - Analyst → reconcile the fused-decoder spec with Explorer 2's 1,243 result.
