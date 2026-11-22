@@ -10,6 +10,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 | v1 | 3e48662 | main (tag v1) | 1.550 s (5 runs, sd 0.03) | 5.79 s (3 runs) | 11.46 GB footprint (16.6 GB RSS incl. page cache) | **SUBMIT-READY** | no | n/a |
 | v3 | 29b64bf | main (tag v3) | **0.626 s** (interleaved vs v1 1.609 s, +61.1%) | 1.97 s | 5.62 GB footprint (11.6 GB RSS) | **SUBMIT-READY** | **yes (BB-93D28A6B, Sat 19:23 ET)** | **1.9424 s** (wait 141 ms; entered in final as best) |
 | v2 | 953af43 | method/v2 | 1.661 s (interleaved 1.610 vs v1 1.659) | 5.367 s | 11.41 GB footprint (17.76 GB RSS) | HOLD (Gate C: only 2.94% faster, needs 5%) | no | n/a |
+| v7b | 96af24b → main ddbf1a3 (tag v7b) | method/v7b | gVisor 20M **1.360 s** (v5 1.910 s, same session); native 0.545 s; 1,359 instr/row | predicted board 60M 3.06 s | 11.54 GB RSS | HOLD → **SUBMIT-READY (Orchestrator override; Gate C noise)** | asked user 02:47 | pending |
 
 ## Thread registry
 
@@ -327,3 +328,7 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Explorer Sol and Explorer 4 go back to Codex Sol after 05:47 (user request).
   - Method and Analyst couldn't switch providers (background commands still held in their sessions); they resume at 05:00 on claudeAgent.
   - **The Orchestrator fast-forwarded `method/v8` → `2bfb034`** (v8 release candidate; Eval's full run re-gates everything).
+- **Orchestrator, 02:44: v7b full eval done** (1,278 s): **HOLD.** Gates A and B pass: 10 oracles, 1000 fuzz under every knob, and the `HASH_BITS=4` dev run now MATCHes (no timeout, thanks to the lock-free long-ID path). Gate C failed only because 3+3 runs gave 2sd 0.653 s against a 0.55 s gain. gVisor 20M is 1.360 s vs v5's 1.910 s (+28.8%); predicted board 60M 3.06 s.
+  - **Override → SUBMIT-READY.** The mechanism is known (futex 58k → 79), a submission is free (best counts), and it gives a calibration point.
+  - Released as `ddbf1a3` (src identical to `96af24b`); fixtures 36/36 and dev MATCH on main; tag `v7b` pushed; **user asked to submit.**
+  - Eval told to use ≥ 7 interleaved pairs (or a paired-ratio test) for the gVisor Gate C, then to run v8 full against the v7b baseline.
