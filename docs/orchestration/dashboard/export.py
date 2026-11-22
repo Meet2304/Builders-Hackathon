@@ -138,6 +138,68 @@ def match(block):
     return "MATCH" if block["match"] is True else "DIFF"
 
 
+# ---------------------------------------------------------------- evals overlay
+EVALS_DIR = None  # set by --evals-ref: a merged copy of evals/ from the checkout plus git refs
+
+
+def evals_dir(root):
+    return EVALS_DIR or (root / "evals")
+
+
+def git_show(root, ref, path):
+    try:
+        out = subprocess.run(["git", "-C", str(root), "show", f"{ref}:{path}"], capture_output=True, timeout=20)
+        return out.stdout.decode("utf-8", "replace") if out.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def merge_evals(root, refs):
+    """Results committed on a branch (e.g. eval/framework) before they reach main.
+
+    Copies the checkout's evals/{results/*.json, ledger.md, submissions.json} to a temp dir, then for
+    each ref adds result files that are missing or newer (by `finished`), and takes the ledger and
+    submissions with more rows."""
+    import tempfile
+    out = Path(tempfile.mkdtemp(prefix="dash-evals-"))
+    (out / "results").mkdir()
+    src = root / "evals"
+    for p in (src / "results").glob("*.json") if (src / "results").is_dir() else []:
+        (out / "results" / p.name).write_text(read(p))
+    for name in ("ledger.md", "submissions.json"):
+        if (src / name).is_file():
+            (out / name).write_text(read(src / name))
+
+    def finished(text):
+        try:
+            return str(json.loads(text).get("finished") or "")
+        except (ValueError, AttributeError):
+            return ""
+
+    def subs_count(text):
+        try:
+            return len(json.loads(text).get("submissions") or [])
+        except (ValueError, AttributeError):
+            return -1
+    for ref in refs:
+        names = git(root, "ls-tree", "--name-only", f"{ref}:evals/results").splitlines()
+        for n in names:
+            if not n.endswith(".json"):
+                continue
+            text = git_show(root, ref, f"evals/results/{n}")
+            mine = out / "results" / n
+            if text and (not mine.is_file() or finished(text) > finished(read(mine))):
+                mine.write_text(text)
+                print(f"evals: {n} from {ref}", file=sys.stderr)
+        led = git_show(root, ref, "evals/ledger.md")
+        if led and len(list(md_rows(led))) > len(list(md_rows(read(out / "ledger.md")))):
+            (out / "ledger.md").write_text(led)
+        sub = git_show(root, ref, "evals/submissions.json")
+        if sub and subs_count(sub) > subs_count(read(out / "submissions.json")):
+            (out / "submissions.json").write_text(sub)
+    return out
+
+
 # ---------------------------------------------------------------- versions
 def from_result(r):
     c = r.get("correctness") or {}
@@ -170,7 +232,12 @@ def from_result(r):
         "fuzz": f"{int(fz_ok)}/{int(fz_tot)}" if fz_tot else None,
         "deterministic": ("yes" if all(det) else "no") if det else None,
         "median_1m_s": med("1M"),
-        "median_20m_s": med("20M"),
+        # The gate's number: the interleaved A/B median when the eval ran one (quiet-machine pairs
+        # against the baseline), else the timed block's median.
+        "median_20m_s": rnd(get(r, "baseline", "ab_candidate_wall_s", "median")) or med("20M"),
+        "median_20m_basis": "interleaved A/B" if num(get(r, "baseline", "ab_candidate_wall_s", "median")) else
+                            ("timed block" if med("20M") is not None else None),
+        "median_20m_block_s": med("20M"),
         "median_60m_s": med("60M"),
         "sd_20m_s": rnd(get(ds, "perf-20M", "summary", "wall_s", "stdev")),
         "runs_20m": get(ds, "perf-20M", "summary", "wall_s", "n"),
@@ -228,17 +295,17 @@ def load_versions(root, log):
             if v is not None and cur.get(k) is None:
                 cur[k] = v
     # Highest-fidelity source first; later ones only fill gaps.
-    for p in sorted((root / "evals/results").glob("*.json")):
+    for p in sorted((evals_dir(root) / "results").glob("*.json")):
         r = read_json(p)
         if isinstance(r, dict) and r.get("version"):
             merge(from_result(r))
-    ledger = list(md_rows(read(root / "evals/ledger.md")))
+    ledger = list(md_rows(read(evals_dir(root) / "ledger.md")))
     for row in reversed(ledger):  # newest row wins
         merge(from_ledger_row(row))
     for row in md_rows(section(log, "Version ledger")):
         merge(from_log_row(row))
 
-    subs = get(read_json(root / "evals/submissions.json"), "submissions") or []
+    subs = get(read_json(evals_dir(root) / "submissions.json"), "submissions") or []
     for s in subs if isinstance(subs, list) else []:
         if isinstance(s, dict) and s.get("version") in versions:
             v = versions[s["version"]]
@@ -260,7 +327,7 @@ def load_versions(root, log):
 def load_phases(root, versions):
     """Phase medians at 20M for the newest version that has them."""
     for name in sorted(versions, key=lambda n: versions[n]["order"], reverse=True):
-        r = read_json(root / f"evals/results/{name}.json")
+        r = read_json(evals_dir(root) / "results" / f"{name}.json")
         phases = get(r, "perf", "datasets", "perf-20M", "summary", "phases")
         wall = get(r, "perf", "datasets", "perf-20M", "summary", "wall_s", "median")
         if isinstance(phases, dict) and phases:
@@ -370,7 +437,8 @@ def headline(versions, target, now, git_info):
         basis = est if est is not None else m20(best)
         out.update({"best_version": best["version"], "best_verdict": best.get("verdict"),
                     "best_median_20m_s": m20(best), "best_est_scorer_20m_s": est,
-                    "basis": "estimated scorer time" if est is not None else "local 20M median",
+                    "basis": "estimated scorer time" if est is not None else
+                    "local 20M median" + (f", {best['median_20m_basis']}" if best.get("median_20m_basis") else ""),
                     "gap_s": round(basis - target, 4), "gap_x": round(basis / target, 2)})
         out["status"] = "ahead of target" if basis < target else "behind target"
     if latest:
@@ -479,8 +547,14 @@ def main():
                     help="print ArtifactData batch writes; DIR = out_dir of a list of the store (omit DIR for a first sync)")
     ap.add_argument("--listing", type=Path, default=HERE / "existing" / "listing.txt",
                     help="text of the ArtifactData list result (ids + versions); renamed to *.used after use")
+    ap.add_argument("--evals-ref", action="append", default=[], metavar="REF",
+                    help="also read evals results/ledger/submissions committed on this git ref (repeatable), "
+                         "newest result wins; e.g. --evals-ref eval/framework")
     a = ap.parse_args()
     root = a.root.resolve()
+    global EVALS_DIR
+    if a.evals_ref:
+        EVALS_DIR = merge_evals(root, a.evals_ref)
     docs = build(root)
     out_json, snap_dir = HERE / "snapshot.json", HERE / "snapshot"
     write_snapshot(docs, out_json, snap_dir)

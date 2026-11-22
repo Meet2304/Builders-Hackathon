@@ -33,6 +33,10 @@ Until `dashboard/live` is merged, run step 2 from the dashboard worktree but rea
    **Save that whole result text** with the Write tool to `$D/existing/listing.txt`.
    The JSON files carry no version, and every write to an existing row needs `if_version`.
 2. **Export and plan:** `make dashboard-snapshot > $D/existing/plan.json`.
+   Results that Eval has committed on `eval/framework` but not yet merged to main: add
+   `--evals-ref eval/framework` (run `export.py` directly). A result there that is newer by `finished` wins.
+   The 20M median is the interleaved A/B median when the eval ran one; otherwise it is the timed block's
+   median. `median_20m_basis` says which.
    This writes `snapshot.json` and `snapshot/<id>.json`, and prints
    `{"url", "batches": [[write, ...], ...]}`. Each write is a `set` (with `file_path` and `if_version`) for a new or changed row, or a `delete` for a row no longer exported.
    Unchanged rows are skipped. `headline` is always written, and written last.
