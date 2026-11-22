@@ -1598,6 +1598,11 @@ trait Layout: Copy + Send + Sync {
     fn cat(e: Self::Elem) -> u32;
     /// Sort one person's run by ts (ties in any order).
     fn sort_run(run: &mut [Self::Elem], spare: &mut Vec<Self::Elem>);
+    /// The layout guarantees ts - base < 2^32, cat < 256 and price < 2^24, so a run can
+    /// be sessionized through 30-minute bins instead of sorted (`walk_bins`).
+    const BINS: bool;
+    /// ts - base, when BINS.
+    fn off(e: Self::Elem) -> u32;
 }
 
 /// 16 B: ts_off = ts - base (window_start - 7 d) in ms, price:24 | cat:8.
@@ -1637,6 +1642,11 @@ impl Layout for Row16 {
     #[inline]
     fn cat(e: u64) -> u32 {
         e as u32 & 0xff
+    }
+    const BINS: bool = true;
+    #[inline(always)]
+    fn off(e: u64) -> u32 {
+        (e >> 32) as u32
     }
     #[inline]
     fn sort_run(run: &mut [u64], spare: &mut Vec<u64>) {
@@ -1690,6 +1700,10 @@ impl Layout for Row24 {
     #[inline]
     fn cat(e: (i64, u32, u32)) -> u32 {
         e.2
+    }
+    const BINS: bool = false;
+    fn off(_e: (i64, u32, u32)) -> u32 {
+        unreachable!("Row24 runs are sorted, never binned")
     }
     #[inline]
     fn sort_run(run: &mut [(i64, u32, u32)], _spare: &mut Vec<(i64, u32, u32)>) {
@@ -2174,6 +2188,7 @@ struct Scratch<E> {
     ck_at: Vec<u32>, // counting sort: per-person click-run end
     active: ActiveSet,
     category_sales: CategorySales,
+    bins: Bins,
 }
 
 fn hwi() -> u64 {
@@ -2431,11 +2446,17 @@ fn process_part<L: Layout>(
     // The counts cover exactly the kept rows, and the same rows are visited
     // here in the same order. Every slot in the prefix-summed runs is written.
     unsafe { sc.evs.set_len(kept) };
-    // Each scatter cursor now points past its person's run.
+    // Each scatter cursor now points past its person's run. Runs of at least
+    // `bins_min` rows skip the sort: `walk_bins` sessionizes them unsorted.
+    let bins_min = if L::BINS { bins_min() } else { usize::MAX };
+    if bins_min != usize::MAX && sc.bins.bits.is_empty() {
+        sc.bins.bits = vec![0; NBINS.div_ceil(64)];
+        sc.bins.slot = vec![EMPTY_BIN; NBINS];
+    }
     let mut s0 = 0usize;
     for &e in &sc.persons.counts {
         let e = e as usize;
-        if e - s0 > 1 {
+        if e - s0 > 1 && e - s0 < bins_min {
             L::sort_run(&mut sc.evs[s0..e], &mut sc.spare);
         }
         s0 = e;
@@ -2447,7 +2468,7 @@ fn process_part<L: Layout>(
         CLICK_N.fetch_add(sc.cks.len() as u64, Relaxed);
     }
 
-    let Scratch { persons, evs, cks, ck_at, active, category_sales, .. } = sc;
+    let Scratch { persons, evs, cks, ck_at, active, category_sales, bins, .. } = sc;
     let mut ci = 0usize;
     let mut i = 0usize;
     for (loc, &j) in persons.counts.iter().enumerate() {
@@ -2455,7 +2476,13 @@ fn process_part<L: Layout>(
         let person = persons.keys[loc].wrapping_mul(PART_INVERSE);
         let cj = ck_at[loc] as usize;
         let clicks = &cks[ci..cj];
-        if clicks.is_empty() {
+        if j - i >= bins_min {
+            if clicks.is_empty() {
+                walk_bins::<L, false>(ctx, acc, person, &evs[i..j], clicks, active, category_sales, bins);
+            } else {
+                walk_bins::<L, true>(ctx, acc, person, &evs[i..j], clicks, active, category_sales, bins);
+            }
+        } else if clicks.is_empty() {
             walk_person::<L, false>(ctx, acc, person, &evs[i..j], clicks, active, category_sales);
         } else {
             walk_person::<L, true>(ctx, acc, person, &evs[i..j], clicks, active, category_sales);
@@ -2589,6 +2616,181 @@ fn walk_person<L: Layout, const HAS_CLICKS: bool>(
     flush_day::<HAS_CLICKS>(ctx, acc, person, day, day_index, daily, sales);
     if HAS_CLICKS {
         // Past this person's last session the multiplicities have no consumer.
+        for campaign in active.list.drain(..) {
+            active.cnt[campaign as usize] = 0;
+        }
+    }
+}
+
+/// Bins are GAP_MS wide on the ts - base lattice. Two events in one bin are at most
+/// GAP_MS - 1 apart, so they never split; occupied bins two or more apart always
+/// split; adjacent bins split iff min(next) - max(prev) > GAP_MS. So a session is a
+/// maximal chain of occupied bins, and its start is its first bin's min.
+const NBINS: usize = (u32::MAX as usize) / (GAP_MS as usize) + 1;
+
+#[derive(Clone, Copy)]
+struct BinAgg {
+    mn: u32,
+    mx: u32,
+    cnt: u32,
+}
+
+const EMPTY_BIN: BinAgg = BinAgg { mn: u32::MAX, mx: 0, cnt: 0 };
+
+/// Per-worker bin scratch: always all-zero bits and EMPTY_BIN slots between runs.
+#[derive(Default)]
+struct Bins {
+    bits: Vec<u64>,
+    slot: Vec<BinAgg>,
+    buys: Vec<u64>, // bin << 32 | cat << 24 | price, one per purchase
+}
+
+static BINS_MIN: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+
+/// Runs this long or longer take `walk_bins` (SESSIONS_BINS_MIN, 0 = never).
+fn bins_min() -> usize {
+    *BINS_MIN.get_or_init(|| match env::var("SESSIONS_BINS_MIN") {
+        Err(_) => DEFAULT_BINS_MIN,
+        Ok(v) => match v.trim().parse::<usize>() {
+            Ok(0) => usize::MAX,
+            Ok(n) => n.max(1),
+            Err(_) => panic!("SESSIONS_BINS_MIN={v}: not a number"),
+        },
+    })
+}
+
+const DEFAULT_BINS_MIN: usize = 2;
+
+/// One finished session: the day and campaign tallies `walk_person` makes per session.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+fn close_session<const HAS_CLICKS: bool>(
+    ctx: &Ctx,
+    acc: &mut Acc,
+    clicks: &[PCk],
+    active: &mut ActiveSet,
+    cursors: &mut (usize, usize),
+    start: i64,
+    day_index: usize,
+    daily: &mut DayTotals,
+    events: i64,
+    revenue: i64,
+) {
+    let purchased = i64::from(revenue > 0);
+    daily.sessions += 1;
+    daily.events += events;
+    daily.revenue += revenue;
+    if HAS_CLICKS {
+        let (lo, hi) = cursors;
+        while *hi < clicks.len() && clicks[*hi].ts <= start {
+            active.add(clicks[*hi].camp);
+            *hi += 1;
+        }
+        while *lo < *hi && clicks[*lo].ts < start - WEEK_MS {
+            active.remove(clicks[*lo].camp);
+            *lo += 1;
+        }
+        let credited = if *lo < *hi { clicks[*hi - 1].camp as usize } else { ctx.ncamp };
+        let stride = ctx.ncamp + 1;
+        let offset = day_index * stride;
+        let day_camp = &mut acc.camp[offset..offset + stride];
+        let credit = &mut day_camp[credited];
+        credit[0] += 1;
+        credit[1] += purchased;
+        credit[2] += revenue;
+        for &campaign in &active.list {
+            day_camp[campaign as usize][3] += 1;
+        }
+    } else {
+        daily.purchasing += purchased;
+    }
+}
+
+/// `walk_person` for an unsorted run (L::BINS layouts only).
+#[allow(clippy::too_many_arguments)]
+fn walk_bins<L: Layout, const HAS_CLICKS: bool>(
+    ctx: &Ctx,
+    acc: &mut Acc,
+    person: u64,
+    events: &[L::Elem],
+    clicks: &[PCk],
+    active: &mut ActiveSet,
+    sales: &mut CategorySales,
+    bins: &mut Bins,
+) {
+    debug_assert!(L::BINS && !events.is_empty());
+    let base = ctx.base;
+    let Bins { bits, slot, buys } = bins;
+    assert!(bits.len() == NBINS.div_ceil(64) && slot.len() == NBINS);
+    let (mut blo, mut bhi) = (u32::MAX, 0u32);
+    for &e in events {
+        let t = L::off(e);
+        let b = t / GAP_MS as u32;
+        // b <= u32::MAX / GAP_MS < NBINS, and the lengths were asserted above.
+        let s = unsafe { slot.get_unchecked_mut(b as usize) };
+        s.mn = s.mn.min(t);
+        s.mx = s.mx.max(t);
+        s.cnt += 1;
+        unsafe { *bits.get_unchecked_mut((b >> 6) as usize) |= 1u64 << (b & 63) };
+        blo = blo.min(b);
+        bhi = bhi.max(b);
+        let price = L::price(e);
+        if price > 0 {
+            buys.push((b as u64) << 32 | (L::cat(e) as u64) << 24 | price as u64);
+        }
+    }
+    if buys.len() > 1 {
+        buys.sort_unstable();
+    }
+    let mut bi = 0usize;
+    let mut cursors = (0usize, 0usize);
+    let mut daily = DayTotals::default();
+    let (mut day, mut next_day, mut day_index) = (0i64, i64::MIN, 0usize);
+    let (mut start, mut sess_events, mut revenue) = (0i64, 0i64, 0i64);
+    let (mut prev_b, mut prev_mx) = (0u32, 0u32);
+    let mut open = false;
+    for wi in (blo >> 6) as usize..=(bhi >> 6) as usize {
+        let mut w = std::mem::take(&mut bits[wi]);
+        while w != 0 {
+            let b = (wi as u32) << 6 | w.trailing_zeros();
+            w &= w - 1;
+            let s = std::mem::replace(&mut slot[b as usize], EMPTY_BIN);
+            if !open || b > prev_b + 1 || s.mn - prev_mx > GAP_MS as u32 {
+                if open {
+                    close_session::<HAS_CLICKS>(
+                        ctx, acc, clicks, active, &mut cursors, start, day_index, &mut daily, sess_events, revenue,
+                    );
+                }
+                start = base + s.mn as i64;
+                if start >= next_day {
+                    if open {
+                        flush_day::<HAS_CLICKS>(ctx, acc, person, day, day_index, std::mem::take(&mut daily), sales);
+                    }
+                    day = start.div_euclid(DAY_MS);
+                    next_day = (day + 1).saturating_mul(DAY_MS);
+                    day_index = (day - ctx.first_day) as usize;
+                }
+                open = true;
+                sess_events = 0;
+                revenue = 0;
+            }
+            sess_events += s.cnt as i64;
+            prev_b = b;
+            prev_mx = s.mx;
+            while bi < buys.len() && (buys[bi] >> 32) as u32 == b {
+                let k = buys[bi];
+                let price = (k & 0xff_ffff) as i64;
+                sales.add((k >> 24) as u32 & 0xff, price);
+                revenue += price;
+                bi += 1;
+            }
+        }
+    }
+    debug_assert!(open && bi == buys.len());
+    buys.clear();
+    close_session::<HAS_CLICKS>(ctx, acc, clicks, active, &mut cursors, start, day_index, &mut daily, sess_events, revenue);
+    flush_day::<HAS_CLICKS>(ctx, acc, person, day, day_index, daily, sales);
+    if HAS_CLICKS {
         for campaign in active.list.drain(..) {
             active.cnt[campaign as usize] = 0;
         }
@@ -2915,6 +3117,7 @@ fn pipeline<'a, L: Layout>(
                     ck_at: Vec::new(),
                     active: ActiveSet::new(ncamp),
                     category_sales: CategorySales { totals: vec![0i64; ncat], touched: Vec::new() },
+                    bins: Bins::default(),
                 };
                 (acc, sc)
             },
