@@ -2186,6 +2186,7 @@ struct Scratch<E> {
     cks: Vec<PCk>,
     ck_spare: Vec<PCk>,
     ck_at: Vec<u32>, // counting sort: per-person click-run end
+    ck_keys: Vec<u64>,
     active: ActiveSet,
     category_sales: CategorySales,
     bins: Bins,
@@ -2282,6 +2283,31 @@ fn sort_click_run(run: &mut [PCk], ids: &Ids) {
     }
 }
 
+/// `sort_click_run` of `src` into `dst`: sort by ts through u64 keys, then order each
+/// rare group of equal ts by click_ord (larger click_id first).
+fn sort_click_keys(src: &[PCk], dst: &mut [PCk], keys: &mut Vec<u64>, base: i64, ids: &Ids) {
+    let n = src.len();
+    keys.clear();
+    keys.extend(src.iter().enumerate().map(|(i, c)| ((c.ts - base) as u64) << 32 | i as u64));
+    keys.sort_unstable();
+    for (d, &k) in dst.iter_mut().zip(keys.iter()) {
+        *d = src[k as u32 as usize];
+    }
+    let mut i = 0;
+    while i + 1 < n {
+        if dst[i].ts != dst[i + 1].ts {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 1;
+        while j + 1 < n && dst[j + 1].ts == dst[i].ts {
+            j += 1;
+        }
+        insertion_clicks(&mut dst[i..=j], ids);
+        i = j + 1;
+    }
+}
+
 fn tally_clicks(run: &[PCk], ids: &Ids) {
     let n = run.len();
     if n == 0 {
@@ -2357,6 +2383,23 @@ fn sort_clicks<L: Layout>(ctx: &Ctx, sc: &mut Scratch<L::Elem>, ck: &[CkPart], p
     unsafe { sc.ck_spare.set_len(nclicks) };
     std::mem::swap(&mut sc.cks, &mut sc.ck_spare);
     let tally = sorted_probe();
+    if L::BINS && !tally {
+        // Click ts - base < 2^32 here too (the Row16 window bound), so runs sort as
+        // u64 (ts << 32 | position) keys, gathered into the spare array.
+        let Scratch { cks, ck_spare, ck_keys, ck_at, .. } = sc;
+        let mut s0 = 0usize;
+        for &e in ck_at.iter() {
+            let e = e as usize;
+            if e - s0 == 1 {
+                ck_spare[s0] = cks[s0];
+            } else if e > s0 {
+                sort_click_keys(&cks[s0..e], &mut ck_spare[s0..e], ck_keys, ctx.base, ids);
+            }
+            s0 = e;
+        }
+        std::mem::swap(cks, ck_spare);
+        return;
+    }
     let mut s0 = 0usize;
     for &e in &sc.ck_at {
         let e = e as usize;
@@ -2659,7 +2702,7 @@ fn bins_min() -> usize {
     })
 }
 
-const DEFAULT_BINS_MIN: usize = 2;
+const DEFAULT_BINS_MIN: usize = 16;
 
 /// One finished session: the day and campaign tallies `walk_person` makes per session.
 #[allow(clippy::too_many_arguments)]
@@ -3115,6 +3158,7 @@ fn pipeline<'a, L: Layout>(
                     cks: Vec::new(),
                     ck_spare: Vec::new(),
                     ck_at: Vec::new(),
+                    ck_keys: Vec::new(),
                     active: ActiveSet::new(ncamp),
                     category_sales: CategorySales { totals: vec![0i64; ncat], touched: Vec::new() },
                     bins: Bins::default(),
