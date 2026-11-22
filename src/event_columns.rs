@@ -358,6 +358,63 @@ unsafe fn other_id_pair<'a>(p: *const u8) -> Option<(FieldId<'a>, FieldId<'a>, *
     }
 }
 
+/// Consume a non-purchase's product and price together when both fit a load.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn ignored_tail(p: *const u8) -> Option<(bool, *const u8)> {
+    unsafe {
+        let bytes = Bytes::load(p).0;
+        let newlines = _mm_movemask_epi8(_mm_cmpeq_epi8(bytes, _mm_set1_epi8(b'\n' as i8))) as u32;
+        let end = newlines & newlines.wrapping_neg();
+        if end == 0 {
+            return ignored_tail_slow(p);
+        }
+        let before_end = end - 1;
+        let commas = _mm_movemask_epi8(_mm_cmpeq_epi8(bytes, _mm_set1_epi8(b',' as i8))) as u32;
+        let comma = commas & before_end;
+        if !comma.is_power_of_two() {
+            return None;
+        }
+        let quotes = _mm_movemask_epi8(_mm_cmpeq_epi8(bytes, _mm_set1_epi8(b'"' as i8))) as u32 & before_end;
+        let mut product = comma != 1;
+        if quotes != 0 {
+            let product_quotes = quotes & (comma - 1);
+            if product_quotes != 0 {
+                if comma < 4 || product_quotes != 1 | (comma >> 1) {
+                    return None;
+                }
+                product = comma != 4; // `""` is empty.
+            }
+            let price_quotes = quotes & !(comma - 1);
+            if price_quotes != 0 && (end < comma << 3 || price_quotes != (comma << 1) | (end >> 1)) {
+                return None;
+            }
+        }
+        Some((product, p.add(end.trailing_zeros() as usize + 1)))
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[cold]
+#[inline(never)]
+unsafe fn ignored_tail_slow(p: *const u8) -> Option<(bool, *const u8)> {
+    unsafe {
+        let (product, p) = skip_ignored::<b','>(p)?;
+        let (_, next) = skip_ignored::<b'\n'>(p)?;
+        Some((product, next))
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+unsafe fn ignored_tail(p: *const u8) -> Option<(bool, *const u8)> {
+    unsafe {
+        let (product, p) = skip_ignored::<b','>(p)?;
+        let (_, next) = skip_ignored::<b'\n'>(p)?;
+        Some((product, next))
+    }
+}
+
 impl Column {
     #[inline(always)]
     unsafe fn open(p: *const u8) -> Self {
@@ -816,8 +873,7 @@ unsafe fn try_line<'a>(
             });
             (next, row)
         } else {
-            let (product, p) = skip_ignored::<b','>(p)?;
-            let (_, next) = skip_ignored::<b'\n'>(p)?;
+            let (product, next) = ignored_tail(p)?;
             let row = (valid_time_user && valid_type && product).then(|| EventValues {
                 user: user.key(&lk.ids),
                 ts,
