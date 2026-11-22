@@ -1580,6 +1580,7 @@ impl<'a> Lookups<'a> {
 struct EidEnt {
     eid: u64,
     ingest: i64,
+    rf: u32, // dest << 20 | seq of the row this copy produced, or INVALID
 }
 
 /// A valid event row in its person's partition, and the per-person sort element it
@@ -1801,7 +1802,6 @@ impl Win {
 /// One parse task's output for events.
 struct EvOut<L> {
     e: Vec<Vec<EidEnt>>, // by eid partition
-    rf: Vec<Vec<u32>>,   // parallel to e: dest << 20 | seq, or INVALID
     r: Vec<Vec<L>>,      // by person partition
     pend: [PendEv<L>; BATCH], // valid rows waiting on their (prefetched) link lookup
     np: usize,                // rows in `pend`
@@ -1830,7 +1830,7 @@ impl<L: Layout> EvOut<L> {
         // ~75 bytes per line; reserve 25% headroom (virtual memory only until touched)
         let per = bytes / 75 / nb * 5 / 4 + 16;
         let pend = [PendEv { row: L::row(0, base, 0, 0, base), eid: 0, ingest: 0, slot: 0 }; BATCH];
-        EvOut { e: buckets_with(nb, per), rf: buckets_with(nb, per), r: buckets_with(nb, per), pend, np: 0, base }
+        EvOut { e: buckets_with(nb, per), r: buckets_with(nb, per), pend, np: 0, base }
     }
 
     /// Queue a valid row (person = user key): its link slot is prefetched now and probed
@@ -1857,14 +1857,13 @@ impl<L: Layout> EvOut<L> {
             row.set_person(person);
             let d = bucket(person & lk.hmask, nb);
             let q = bucket(lk.hpart(x.eid), nb);
-            // SAFETY: bucket(_, nb) < nb == self.r.len() == self.e.len() == self.rf.len()
-            let (r, e, rf) = unsafe { (self.r.get_unchecked_mut(d), self.e.get_unchecked_mut(q), self.rf.get_unchecked_mut(q)) };
+            // SAFETY: bucket(_, nb) < nb == self.r.len() == self.e.len()
+            let (r, e) = unsafe { (self.r.get_unchecked_mut(d), self.e.get_unchecked_mut(q)) };
             let seq = r.len();
             // MAX_TASK_BYTES keeps this far below 2^20; fail loudly rather than corrupt
             assert!(seq < 1 << 20, "rows per (task, partition) overflow the 20-bit ref");
             r.push(row);
-            e.push(EidEnt { eid: x.eid, ingest: x.ingest });
-            rf.push((d as u32) << 20 | seq as u32);
+            e.push(EidEnt { eid: x.eid, ingest: x.ingest, rf: (d as u32) << 20 | seq as u32 });
         }
     }
 }
@@ -1928,11 +1927,8 @@ fn emit_event<L: Layout>(rec: EvRec, lk: &Lookups, o: &mut EvOut<L>) {
         Some(EventValues { user, ts, price, cat }) => o.queue(L::row(user, ts, price, cat, o.base), eid, ingest, lk),
         None => {
             let q = bucket(lk.hpart(eid), o.e.len());
-            // SAFETY: q < nb == o.e.len() == o.rf.len()
-            unsafe {
-                o.e.get_unchecked_mut(q).push(EidEnt { eid, ingest });
-                o.rf.get_unchecked_mut(q).push(INVALID);
-            }
+            // SAFETY: q < nb == o.e.len()
+            unsafe { o.e.get_unchecked_mut(q).push(EidEnt { eid, ingest, rf: INVALID }) };
         }
     }
 }
@@ -2051,44 +2047,81 @@ fn task_group(nchunks: usize, nb: usize, chunk: usize) -> usize {
     nchunks.div_ceil(max_tasks).min((MAX_TASK_BYTES / chunk).max(1)).max(1)
 }
 
+/// The high 16 bits of each locator identify the current partition generation.
+const _: () = assert!(std::mem::size_of::<(u64, u64)>() == 16); // dedup_part's byte offsets
+#[derive(Default)]
+struct DedupScratch {
+    generation: u16,
+    slots: Vec<(u64, u64)>,
+}
+
 /// Dedup one eid partition: returns the drops (dest:16 | t:24 | seq:24) of every losing
 /// copy that produced a row.
-fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, tab: &mut Vec<(u64, u64)>) -> Vec<u64> {
+fn dedup_part<L>(ev: &[EvOut<L>], q: usize, hmask: u64, scratch: &mut DedupScratch) -> Vec<u64> {
     let n: usize = ev.iter().map(|o| o.e[q].len()).sum();
-    let mut drops = Vec::new();
     if n == 0 {
-        return drops;
+        return Vec::new();
     }
+    // 2 to 4% of events are duplicated copies; reserve for 1 in 16 to avoid regrowth.
+    let mut drops = Vec::with_capacity(n / 16 + 16);
     let cap = (2 * n).next_power_of_two();
-    tab.clear();
-    tab.resize(cap, (0, 0));
+    // Grow only: untouched slots have generation zero. Reusing a table for a
+    // smaller partition must not discard the generations of its unused tail.
+    if scratch.slots.len() < cap {
+        // A fresh zeroed allocation (calloc: no memset on fresh pages, no realloc
+        // copy of the old slots). Generation zero is empty, so restart at zero.
+        scratch.slots = vec![(0, 0); cap];
+        scratch.generation = 0;
+    }
+    if scratch.generation == u16::MAX {
+        scratch.slots.fill((0, 0));
+        scratch.generation = 0;
+    }
+    scratch.generation += 1;
+    let tag = (scratch.generation as u64) << 48;
+    assert!(ev.len() < 1 << 24, "dedup task index exceeds 24 bits");
     let m = cap - 1;
+    // Byte offsets into the table: (rot32(h) & hmask & m) << 4 == rot36(h) & hash_mask,
+    // since hash_mask's low 4 bits are zero. Probing walks the whole table (m), as before.
+    let hash_mask = ((m as u64) & hmask) << 4;
+    let probe_mask = m << 4;
+    let base = scratch.slots.as_mut_ptr().cast::<u8>();
     for (t, o) in ev.iter().enumerate() {
-        for (i, en) in o.e[q].iter().enumerate() {
-            let mut s = (mix(en.eid) & hmask) as usize & m;
+        let es = &o.e[q];
+        assert!(es.len() < 1 << 24, "dedup entry index exceeds 24 bits");
+        // locator of es[i] is tag | t << 24 | i: advance it with the entry
+        let mut loc = tag | (t as u64) << 24;
+        for en in es {
+            // Partition routing consumes the top hash bits; use middle bits
+            // of a multiplicative hash for this partition-local table. Full
+            // eid equality still resolves every collision exactly.
+            let mut off = (en.eid.wrapping_mul(PART_MULTIPLIER).rotate_left(36) & hash_mask) as usize;
             loop {
-                let slot = &mut tab[s];
-                if slot.0 == 0 {
-                    *slot = (en.eid, (t as u64) << 32 | i as u64);
+                // SAFETY: off = 16 * s with s <= cap - 1, and slots.len() >= cap, so this is
+                // slot s. All slots are initialized; an older generation is logically empty.
+                let slot = unsafe { &mut *base.add(off).cast::<(u64, u64)>() };
+                if slot.1 < tag {
+                    *slot = (en.eid, loc);
                     break;
                 }
                 if slot.0 == en.eid {
-                    let (wt, wi) = ((slot.1 >> 32) as usize, slot.1 as u32 as usize);
+                    let (wt, wi) = (((slot.1 >> 24) & 0xff_ffff) as usize, (slot.1 & 0xff_ffff) as usize);
                     // strictly smaller ingest wins; on a tie the first copy stays
-                    let (lt, li) = if en.ingest < ev[wt].e[q][wi].ingest {
-                        slot.1 = (t as u64) << 32 | i as u64;
-                        (wt, wi)
+                    let w = &ev[wt].e[q][wi];
+                    let (lt, rf) = if en.ingest < w.ingest {
+                        slot.1 = loc;
+                        (wt, w.rf)
                     } else {
-                        (t, i)
+                        (t, en.rf)
                     };
-                    let rf = ev[lt].rf[q][li];
                     if rf != INVALID {
                         drops.push(((rf >> 20) as u64) << 48 | (lt as u64) << 24 | (rf & 0xf_ffff) as u64);
                     }
                     break;
                 }
-                s = (s + 1) & m;
+                off = (off + 16) & probe_mask;
             }
+            loc += 1;
         }
     }
     drops
@@ -2849,15 +2882,18 @@ fn pipeline<'a, L: Layout>(
 
     // dedup per eid partition; the losers' drops go to their person partitions
     let drops: Vec<Vec<u64>> =
-        (0..nb).into_par_iter().map_init(Vec::new, |tab, q| dedup_part(&ev_out, q, hmask, tab)).collect();
-    let mut drops_by: Vec<Vec<u64>> = (0..nb).map(|_| Vec::new()).collect();
+        (0..nb).into_par_iter().map_init(DedupScratch::default, |tab, q| dedup_part(&ev_out, q, hmask, tab)).collect();
+    let mut per = vec![0usize; nb];
+    for &d in drops.iter().flatten() {
+        per[(d >> 48) as usize] += 1;
+    }
+    let mut drops_by: Vec<Vec<u64>> = per.iter().map(|&c| Vec::with_capacity(c)).collect();
     for &d in drops.iter().flatten() {
         drops_by[(d >> 48) as usize].push(d);
     }
     let ndrops: usize = drops.iter().map(|d| d.len()).sum();
     ev_out.par_iter_mut().for_each(|o| {
         o.e = Vec::new();
-        o.rf = Vec::new();
     });
     lap(&format!("events deduped ({ndrops} dropped rows)"));
 
@@ -3061,6 +3097,45 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dedup_scratch_reset_preserves_winners() {
+        let mut scratch = DedupScratch::default();
+        for hmask in [0, 3, u64::MAX] {
+            // Force the wrap path while retaining previously occupied slots.
+            scratch.generation = u16::MAX;
+            for n in [128, 0, 1, 17, 257, 2, 128] {
+                let mut ev: Vec<EvOut<Row16>> = (0..3).map(|_| EvOut::new(1, 0, 0)).collect();
+                let mut expected = Vec::new();
+                let mut winners = std::collections::HashMap::<u64, (i64, u64)>::new();
+                for (t, o) in ev.iter_mut().enumerate() {
+                    for i in 0..n {
+                        let eid = (i % 19 + 1) as u64;
+                        let ingest = ((i * 13 + t * 7) % 31) as i64;
+                        let rf = if (i + t) % 5 == 0 { INVALID } else { i as u32 };
+                        o.e[0].push(EidEnt { eid, ingest, rf });
+                        let drop = if rf == INVALID { None } else { Some((t as u64) << 24 | i as u64) };
+                        let encoded = drop.unwrap_or(u64::MAX);
+                        match winners.get_mut(&eid) {
+                            None => { winners.insert(eid, (ingest, encoded)); }
+                            Some(w) => {
+                                let loser = if ingest < w.0 {
+                                    let old = w.1;
+                                    *w = (ingest, encoded);
+                                    old
+                                } else { encoded };
+                                if loser != u64::MAX { expected.push(loser); }
+                            }
+                        }
+                    }
+                }
+                let mut actual = dedup_part(&ev, 0, hmask, &mut scratch);
+                actual.sort_unstable();
+                expected.sort_unstable();
+                assert_eq!(actual, expected, "n={n}, hmask={hmask}");
+            }
+        }
+    }
 
     #[test]
     fn person_interner_keeps_ordinals_through_growth() {
