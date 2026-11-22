@@ -2178,7 +2178,6 @@ struct PCk {
 /// Per-worker scratch, reused across partitions.
 struct Scratch<E> {
     persons: Interner,
-    dropped: Vec<u64>,
     off: Vec<usize>,
     locs: Vec<u32>,   // local person of each source row, or u32::MAX if dropped
     evs: Vec<E>,      // the partition's events, grouped by person, ts-sorted per run
@@ -2429,9 +2428,19 @@ fn process_part<L: Layout>(
         return; // clicks of people with no events never matter
     }
     assert!(u32::try_from(n).is_ok(), "too many events in one partition");
-    sc.dropped.clear();
+    // Pass 1: count rows by person, with one locator per source row. Then
+    // un-count the dropped rows and clear their locators, so scatter can just
+    // zip rows and locators. A person can be left with an empty run.
+    sc.persons.reset(n, ev[0].r.len(), hmask);
+    sc.locs.clear();
+    sc.locs.reserve(n);
+    for x in ev {
+        for r in &x.r[p] {
+            let loc = sc.persons.intern(r.person());
+            sc.locs.push(loc);
+        }
+    }
     if !drops.is_empty() {
-        sc.dropped.resize(n.div_ceil(64), 0);
         sc.off.clear();
         let mut o = 0;
         for x in ev {
@@ -2440,26 +2449,10 @@ fn process_part<L: Layout>(
         }
         for &d in drops {
             let b = sc.off[((d >> 24) & 0xff_ffff) as usize] + (d & 0xff_ffff) as usize;
-            sc.dropped[b >> 6] |= 1 << (b & 63);
-        }
-    }
-    // Pass 1: count kept rows by person, with one locator per source row.
-    // Save the drop decision here so scatter can just zip rows and locators.
-    sc.persons.reset(n, ev[0].r.len(), hmask);
-    sc.locs.clear();
-    sc.locs.reserve(n);
-    let mut b = 0usize;
-    let has_drops = !drops.is_empty();
-    for x in ev {
-        for r in &x.r[p] {
-            let gone = has_drops && sc.dropped[b >> 6] >> (b & 63) & 1 != 0;
-            b += 1;
-            if gone {
-                sc.locs.push(u32::MAX);
-                continue;
+            let loc = std::mem::replace(&mut sc.locs[b], u32::MAX);
+            if loc != u32::MAX {
+                sc.persons.counts[loc as usize] -= 1;
             }
-            let loc = sc.persons.intern(r.person());
-            sc.locs.push(loc);
         }
     }
     let mut sum = 0u32;
@@ -2519,6 +2512,11 @@ fn process_part<L: Layout>(
         let person = persons.keys[loc].wrapping_mul(PART_INVERSE);
         let cj = ck_at[loc] as usize;
         let clicks = &cks[ci..cj];
+        if j == i {
+            // every row of this person was a dropped copy
+            ci = cj;
+            continue;
+        }
         if j - i >= bins_min {
             if clicks.is_empty() {
                 walk_bins::<L, false>(ctx, acc, person, &evs[i..j], clicks, active, category_sales, bins);
@@ -3150,7 +3148,6 @@ fn pipeline<'a, L: Layout>(
                 let acc = Acc { users: Vec::new(), camp: vec![[0i64; 4]; (ncamp + 1) * ndays] };
                 let sc = Scratch {
                     persons: Interner::default(),
-                    dropped: Vec::new(),
                     off: Vec::new(),
                     locs: Vec::new(),
                     evs: Vec::new(),
