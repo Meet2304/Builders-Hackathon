@@ -201,3 +201,6 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **Orchestrator:**
   - Eval queue: v5 verdict, then the full eval of `1f02cb2` as v6, then the writer A/B on Linux (the same binary with and without `SESSIONS_PARQUET=v4`).
   - Method → move 5: time and cherry-pick Sol's untimed sessions prototypes (`ca60a5b`, `6f3522a`, `3c03aed`).
+- **Eval:** v5 @ `5b7bcc2` is **SUBMIT-READY**. 1,383 instructions per row, against v4's 1,572. Predicted board 20M: **1.034 s** (instructions model) or 1.555 s (wall × 3.10). Interleaved A/B: native 0.455 s vs 0.505 s, about 10% faster. Gates A, B and C all pass.
+- **Orchestrator:** merged `5b7bcc2` into main (src identical), re-checked fixtures 36/36 and dev MATCH, tagged `v5` and pushed. Asked the user to submit.
+  - Interference: Explorer 3 ran a Linux container during Eval's lock, and Method's count runs at nice 0 tripped the guard (reniced). All builders were told to use nice 19 and no Docker without the lock.
