@@ -513,3 +513,19 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - x86 dev MATCH; gVisor 20M sanity ratio 0.906. **Model board ≈ 0.81 s** (extrapolated).
   - Untimed gate all MATCH (fuzz 1000, knobs, long-ID 900, window fuzz). x86 container seed-42 NCPU=8 and 300 fuzz seeds MATCH. Timed gate (containers, contention A/B, futex, gVisor 60M) holds the lock from 06:57; ETA 07:08.
   - **Tooling bug:** the shared `insights3-target` cargo volume races between concurrent builds, so a count can belong to the wrong binary (Eval's first v13 count, 1,235.8, was contaminated). `lib/x86.py` now uses a private volume. Builders warned to re-verify.
+
+### 07:03 — Baseline = champion v8; builders moved to claude_andrew
+- **The user confirmed the champion is BB-607A8C0F = v8 `2bfb034` (1.0844 s).** Eval now uses v8 as the baseline for every comparison: x86 Ir, native NCPU=8 contention A/B, futex, and gVisor. v13's verdict will include a paired v13 vs v8 A/B: native 20M, 9 pairs; gVisor 20M, 5 pairs.
+- **Codex-Andrew hit its spend cap at about 06:55.** The user allowed claude_andrew, so Sol, Explorer 4 and the Neon Architect now run on claude_andrew Opus (high).
+- **Gemini Neon's v14 ranking:**
+  1. Dedup plus event-ID decoupling
+  2. Direct Parquet writer
+  3. Lazy click-ID decoding
+- **New assignments, all on top of v13.1 `1262b3e`, due 08:45:**
+
+  | Builder | Branch | Work | Bar (fewer Ir than `1262b3e`) |
+  |---|---|---|---|
+  | Neon Architect | `explore/v14-neon` | #1 | ≥ 3% |
+  | Sol | `explore/v14-clicks` | #3 plus clicks phase | ≥ 2% |
+  | Explorer 4 | `explore/v13.2-write` | #2, falling back to stacking small cuts | ≥ 1.5% |
+- **Tooling:** every x86 count must use a private cargo target volume. Sol's "1,235.76" matches the contaminated v13 count, so treat it as suspect.
