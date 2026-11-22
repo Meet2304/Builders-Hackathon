@@ -1,0 +1,30 @@
+dataset data/dev: events 1,071,894 clicks 255,147 links 44,906 lines
+
+| phase | 5b7bcc2 ARM | 5b7bcc2 x86 raw | 5b7bcc2 x86 corr | x86/ARM | 3671aeb ARM | 3671aeb x86 raw | 3671aeb x86 corr | x86/ARM |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| lookups | 119 | 55 | 52 | 0.43 | 118 | 53 | 50 | 0.43 |
+| events | 829 | 816 | 813 | 0.98 | 823 | 809 | 806 | 0.98 |
+| clicks | 171 | 163 | 162 | 0.95 | 154 | 146 | 145 | 0.94 |
+| dedup | 39 | 107 | 49 | 1.23 | 39 | 107 | 49 | 1.25 |
+| sessions | 302 | 356 | 333 | 1.10 | 244 | 277 | 254 | 1.04 |
+| write | 181 | 184 | 171 | 0.95 | 95 | 89 | 71 | 0.75 |
+| **total** | 1,642 | 1,680 | 1,579 | 0.96 | 1,473 | 1,481 | 1,375 | 0.93 |
+
+(all per event line; own-line rates: events/event line, clicks/click line)
+
+5b7bcc2: events/event-line x86 813 (ARM 829); clicks/click-line x86 681 (ARM 720)
+   lookups: Ids::intern 11,111 calls, 4,562,857 Ir incl = 411/call, 4.3 per event line; of which HashMap entry 8,343,273, rehash 1,509,834
+   events: Ids::intern 260,402 calls, 95,408,937 Ir incl = 366/call, 89.0 per event line; of which HashMap entry 57,496,844, rehash 23,742,791
+   clicks: Ids::intern 62,428 calls, 16,576,719 Ir incl = 266/call, 15.5 per event line; of which HashMap entry 7,985,584, rehash 0
+   lookups: Ids::bytes 1,177,518 Ir incl (19,924 calls from user_batch)
+   sessions: Ids::bytes 205,160 Ir incl (3,740 calls from user_batch)
+   write: Ids::bytes 8,014,524 Ir incl (118,107 calls from user_batch)
+   rep-string bytes counted as Ir: lookups 3.3M, events 3.6M, clicks 0.7M, dedup 64.3M, sessions 25.6M, write 13.9M
+3671aeb: events/event-line x86 806 (ARM 823); clicks/click-line x86 611 (ARM 648)
+   lookups: Ids::intern 11,111 calls, 4,561,945 Ir incl = 411/call, 4.3 per event line; of which HashMap entry 8,342,629, rehash 1,509,830
+   events: Ids::intern 260,402 calls, 95,366,068 Ir incl = 366/call, 89.0 per event line; of which HashMap entry 57,455,631, rehash 23,707,829
+   clicks: Ids::intern 62,428 calls, 16,576,561 Ir incl = 266/call, 15.5 per event line; of which HashMap entry 7,985,836, rehash 0
+   lookups: Ids::bytes 1,177,518 Ir incl (19,924 calls from user_batch)
+   sessions: Ids::bytes 193,080 Ir incl (3,502 calls from user_batch)
+   write: Ids::bytes 8,014,524 Ir incl (118,107 calls from user_batch)
+   rep-string bytes counted as Ir: lookups 3.3M, events 3.6M, clicks 0.7M, dedup 64.3M, sessions 25.5M, write 19.7M
