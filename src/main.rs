@@ -1627,17 +1627,30 @@ impl<'a> IdIndex<'a> {
         self.map.get(b).copied()
     }
 
+    /// `set`, with the direct slot already decoded by the caller when `direct` is Some.
+    #[inline(always)]
+    fn set_with(&mut self, b: &'a [u8], direct: Option<usize>, val: u32) {
+        debug_assert!(direct.is_none() || direct == self.direct_slot(b));
+        match direct {
+            Some(v) => self.set_slot(v, val),
+            None => self.set(b, val),
+        }
+    }
+
+    #[inline(always)]
+    fn set_slot(&mut self, v: usize, val: u32) {
+        if v >= self.direct.len() {
+            // Amortized growth: absent slots are u32::MAX, and every reader
+            // filters them, so a longer table answers the same.
+            let len = (v + 1).max(2 * self.direct.len()).min(1 << 22);
+            self.direct.resize(len, u32::MAX);
+        }
+        self.direct[v] = val;
+    }
+
     fn set(&mut self, b: &'a [u8], val: u32) {
         match self.direct_slot(b) {
-            Some(v) => {
-                if v >= self.direct.len() {
-                    // Amortized growth: absent slots are u32::MAX, and every reader
-                    // filters them, so a longer table answers the same.
-                    let len = (v + 1).max(2 * self.direct.len()).min(1 << 22);
-                    self.direct.resize(len, u32::MAX);
-                }
-                self.direct[v] = val;
-            }
+            Some(v) => self.set_slot(v, val),
             None => {
                 self.map.insert(b, val);
             }
@@ -2981,6 +2994,30 @@ fn flush_day<const HAS_CLICKS: bool>(
     });
 }
 
+/// First index >= i of a `,`, `"` or `\n` in buf, or buf.len(): eight bytes at a time.
+#[inline(always)]
+fn find_csv_delim(buf: &[u8], mut i: usize) -> usize {
+    const LO7: u64 = 0x7f7f_7f7f_7f7f_7f7f;
+    // high bit of each byte set iff that byte of w equals c (exact)
+    let eq = |w: u64, c: u8| {
+        let x = w ^ (c as u64 * 0x0101_0101_0101_0101);
+        !(((x & LO7) + LO7) | x | LO7)
+    };
+    let n = buf.len();
+    while i + 8 <= n {
+        let w = u64::from_le_bytes(buf[i..i + 8].try_into().unwrap());
+        let m = eq(w, b',') | eq(w, b'"') | eq(w, b'\n');
+        if m != 0 {
+            return i + (m.trailing_zeros() / 8) as usize;
+        }
+        i += 8;
+    }
+    while i < n && !matches!(buf[i], b',' | b'"' | b'\n') {
+        i += 1;
+    }
+    i
+}
+
 fn load_products<'a>(buf: &'a [u8], direct_on: bool) -> (IdIndex<'a>, Vec<Vec<u8>>) {
     let mut cats: HashMap<&'a [u8], u32> = new_map(64);
     let mut cat_names: Vec<Vec<u8>> = Vec::new();
@@ -2992,7 +3029,9 @@ fn load_products<'a>(buf: &'a [u8], direct_on: bool) -> (IdIndex<'a>, Vec<Vec<u8
     let mut cache = [(0u128, 0usize, u32::MAX); CN];
     let mut ncached = 0;
     let n = buf.len();
-    let mut handle = |id: &'a [u8], cat: &'a [u8], cat_at: usize| {
+    // `direct`: the id's IdIndex slot when the caller decoded it (Some only if
+    // direct_slot would give the same)
+    let mut handle = |id: &'a [u8], cat: &'a [u8], cat_at: usize, direct: Option<usize>| {
         if id.is_empty() {
             return;
         }
@@ -3015,7 +3054,7 @@ fn load_products<'a>(buf: &'a [u8], direct_on: bool) -> (IdIndex<'a>, Vec<Vec<u8
                     break;
                 }
                 if e.0 == k && e.1 == len {
-                    products.set(id, e.2); // the last row wins
+                    products.set_with(id, direct, e.2); // the last row wins
                     return;
                 }
                 s = (s + 1) & (CN - 1);
@@ -3030,23 +3069,28 @@ fn load_products<'a>(buf: &'a [u8], direct_on: bool) -> (IdIndex<'a>, Vec<Vec<u8
             cache[at] = (k, len, ci);
             ncached += 1;
         }
-        products.set(id, ci); // the last row wins
+        products.set_with(id, direct, ci); // the last row wins
     };
     let mut p = h + 1;
     while p < n {
         // Fast path: a line with exactly one comma and no quote is `id,category`,
         // exactly as split_fields reads it. Anything else takes split_fields.
-        let mut i = p;
-        while i < n && !matches!(buf[i], b',' | b'"' | b'\n') {
-            i += 1;
-        }
+        let i = find_csv_delim(buf, p);
         if i < n && buf[i] == b',' {
-            let mut j = i + 1;
-            while j < n && !matches!(buf[j], b',' | b'"' | b'\n') {
-                j += 1;
-            }
+            let j = find_csv_delim(buf, i + 1);
             if j >= n || buf[j] == b'\n' {
-                handle(&buf[p..i], &buf[i + 1..j], i + 1);
+                // canonical `p` + 1..=7 digits, decoded from one word as IdIndex::direct_slot would
+                let len = i - p;
+                let direct = if direct_on && (2..=8).contains(&len) && p + 8 <= n {
+                    let w = u64::from_le_bytes(buf[p..p + 8].try_into().unwrap());
+                    let k = len - 1;
+                    let d = ((w >> 8) ^ 0x3030_3030_3030_3030) << ((8 - k) * 8);
+                    let ok = w as u8 == b'p' && eight_digits(d) && (k == 1 || (w >> 8) as u8 != b'0');
+                    ok.then(|| decimal_eight(d) as usize).filter(|&v| v < 1 << 22)
+                } else {
+                    None
+                };
+                handle(&buf[p..i], &buf[i + 1..j], i + 1, direct);
                 p = j + 1;
                 continue;
             }
@@ -3055,7 +3099,7 @@ fn load_products<'a>(buf: &'a [u8], direct_on: bool) -> (IdIndex<'a>, Vec<Vec<u8
         let mut f = [&[][..]; 2];
         if split_fields(&buf[p..nl], &mut f) {
             // a quoted category's bytes are not at a known offset: no cache key
-            handle(f[0], f[1], usize::MAX - 16);
+            handle(f[0], f[1], usize::MAX - 16, None);
         }
         p = nl + 1;
     }
@@ -3622,6 +3666,100 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+
+    /// v16's load_products: split_fields per line, a HashMap per category.
+    fn load_products_v16<'a>(buf: &'a [u8], direct_on: bool) -> (IdIndex<'a>, Vec<Vec<u8>>) {
+        let mut cats: HashMap<&'a [u8], u32> = new_map(64);
+        let mut cat_names: Vec<Vec<u8>> = Vec::new();
+        let mut products = IdIndex::new(b"p", direct_on);
+        let Some(h) = memchr::memchr(b'\n', buf) else { return (products, cat_names) };
+        for_each_line(buf, h + 1, buf.len(), |line| {
+            let mut f = [&[][..]; 2];
+            if !split_fields(line, &mut f) || f[0].is_empty() {
+                return;
+            }
+            let next = cat_names.len() as u32;
+            let ci = *cats.entry(f[1]).or_insert_with(|| {
+                cat_names.push(f[1].to_vec());
+                next
+            });
+            products.set(f[0], ci);
+        });
+        (products, cat_names)
+    }
+
+    #[test]
+    fn load_products_matches_v16() {
+        let mut rng = 0x1234_5678_9abc_def0u64;
+        let mut next = move |m: u64| {
+            rng ^= rng << 13;
+            rng ^= rng >> 7;
+            rng ^= rng << 17;
+            rng % m
+        };
+        let cats: Vec<Vec<u8>> = (0..50)
+            .map(|i| format!("cat{i}").into_bytes())
+            .chain([&b"x"[..], b"", b"abcdefghijklmnop", b"abcdefghijklmno", b"abcdefghijklmnopq", b"a\"b", b"g\r", b"\"q\""].iter().map(|c| c.to_vec()))
+            .collect();
+        for round in 0..200 {
+            let mut buf = b"product_id,category\n".to_vec();
+            let lines = 1 + next(400);
+            for _ in 0..lines {
+                let id: Vec<u8> = match next(10) {
+                    0 => format!("p0{}", next(1000)).into_bytes(),
+                    1 => format!("P{}", next(1000)).into_bytes(),
+                    2 => format!("p{}", next(20_000_000)).into_bytes(),
+                    3 => format!("\"p{}\"", next(1000)).into_bytes(),
+                    4 => Vec::new(),
+                    5 => format!("q{}", next(100)).into_bytes(),
+                    6 => b"p".to_vec(),
+                    7 => format!("p{}x", next(100)).into_bytes(),
+                    _ => format!("p{}", next(3000)).into_bytes(),
+                };
+                let c = &cats[next(cats.len() as u64) as usize];
+                buf.extend_from_slice(&id);
+                match next(12) {
+                    0 => {}
+                    1 => {
+                        buf.extend_from_slice(b",");
+                        buf.extend_from_slice(c);
+                        buf.extend_from_slice(b",x");
+                    }
+                    2 => {
+                        buf.extend_from_slice(b",\"");
+                        buf.extend_from_slice(c);
+                        buf.extend_from_slice(b"\"");
+                    }
+                    _ => {
+                        buf.extend_from_slice(b",");
+                        buf.extend_from_slice(c);
+                    }
+                }
+                if next(30) != 0 {
+                    buf.push(b'\n');
+                }
+            }
+            if round % 3 == 0 {
+                buf.pop();
+            }
+            for direct_on in [true, false] {
+                let (a, an) = load_products(&buf, direct_on);
+                let (b, bn) = load_products_v16(&buf, direct_on);
+                assert_eq!(an, bn, "round {round}");
+                assert_eq!(a.map, b.map, "round {round}");
+                for v in 0..(1usize << 22) {
+                    let x = a.direct.get(v).copied().filter(|&x| x != u32::MAX);
+                    let y = b.direct.get(v).copied().filter(|&x| x != u32::MAX);
+                    if x != y {
+                        panic!("round {round} slot {v}: {x:?} vs {y:?}");
+                    }
+                    if v >= a.direct.len().max(b.direct.len()) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
     use super::*;
 
     #[test]
