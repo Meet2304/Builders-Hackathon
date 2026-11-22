@@ -650,3 +650,10 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - clean cascadelake build; amd64 container (also `NO_FAST=3`); x86 seed-42 at NCPU=8; 50 x86 fuzz seeds
 
   x86 Ir 912.6/line. The v17 gate is staged (about 10 min).
+- **08:57: Explorer 4 write round 2 `92a2834`** (`explore/v17-write`, pushed): **−1.26% total x86 Ir** (write 38.8 → 27.3 Ir/line) via a 64-bit bit-packer, one-pass delta widths and in-place index pages.
+  - Gates: fixtures, dev under `NO_FAST` 0–3, seed-42, long-ID 240/240, seed-535 10/10.
+  - Reader equivalence (pyarrow and polars) on dev plus 300 fuzz cases; debug asserts on.
+- **08:58: Neon levers `895e86f`** (`explore/v17-levers`, pushed; defaults = v16): `SESSIONS_POPULATE` 1–4, `SESSIONS_THREADS`, `SESSIONS_HUGE` (mimalloc large OS pages), `SESSIONS_PF_DEDUP`, plus the existing `CHUNK`/`PARTS`. Gates pass for each switch (Linux container for the Linux-only ones).
+- **Scorer-lab round 2, run `45030152141`:**
+  - 20M, 5 interleaved reps: v16, write, levers-default, and levers with huge, pf8, chunk 128K, chunk 1M, parts 64, parts 1024, pop1.
+  - 60M: v16 vs write.
