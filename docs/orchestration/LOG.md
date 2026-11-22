@@ -344,3 +344,6 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Analyst 2's spec read didn't happen: Antigravity's Claude models hit their third-party cap (reset in about 5 h; only the Gemini models work).
   - Eval's v8 chain is running (untimed, then full with paired 7-round gVisor A/B vs v7b, then gVisor 60M).
 - **Re-routes:** Explorer 3 (write path) → Kiro Sonnet 4.5; Explorer 4 (links) → Antigravity Gemini 3.8 Flash.
+- **03:19: v8 untimed phase PASS** (Eval, full profile): fixtures 36/36, differential 9/9, fuzz 1000 under every knob (`HASH_BITS=4` about 290 s, MATCH), long-ID suite 900/900, 0 framework errors.
+  - With Red Team PASS and x86 MATCH, **v8 is released as `main` `2a9f52c` (tag `v8`; src identical to `2bfb034`)**; fixtures 36/36 and dev MATCH on main. **User asked to submit** (one slot left this hour after v7b at 02:51).
+  - Eval's timed run (pid 38234) is queued behind Explorer 5's `run_gvisor_20m.sh` (3-arm v5/v7b/v8 ABBA), which is allowed to finish; Explorer 5 was told not to re-acquire until `results/v8.json` exists.
