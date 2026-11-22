@@ -187,3 +187,8 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - Method → port the writer settings as a v5 move after clicks.
   - Eval → a Linux A/B of the writer after the v5 eval (files grow 4×).
   - Analyst → reconcile the fused-decoder spec with Explorer 2's 1,243 result.
+- **Analyst** (`41e2fd7`, merged): Explorer 2's `2e22d43` was not a fair test of the decoder design. It was a scalar `memchr` plus a byte walk, about 710, feeding the old decoders.
+  - The real design, **spec 3a**: one 16-byte load per field, a class mask per column, decoding from the same register, branch-free end checks. The front end costs about 200 per line, against about 585 today.
+  - **Re-rank:** 1a quote mask (Explorer 2, about −0.30 s, due 02:30). 1b per-column decoder (about −0.40 to −0.55 s; go/no-go at 06:00 is events ≤ 600 at 20M).
+  - **Revised final:** 1a only ≈ 2.4 s; 1a and 1b ≈ 2.0 s; plus timestamps and the click port ≈ 1.55 s.
+- **Orchestrator:** to run 1a and 1b in parallel, **Sol was moved from sessions to the 1b per-column decoder** (`explore/sol-coldec`). Explorer 2 finishes 1a.
