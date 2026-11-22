@@ -238,3 +238,4 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
 - **Explorer 4:** click decoder: dev click phase 561 → 389 instructions per line, 0.49% fallback (old data). Told to route 33-byte IDs onto the fast path.
 - **Explorer 2:** quote mask is negative (−28). Re-tasked to a hex-32 SIMD validator and exact packer kernel for Method (`explore/gemini-hex32`).
 - **Analyst:** board fit: 1.70 s fixed + 0.000318 s per instruction per row, within 4 ms on all three points. It predates the root cause and is being redone.
+- **Scout:** v5 on the **new-generator 60M** data (seed 61, 60M/15M, NCPU=8) runs **8.58 s**, against 1.32 s on old data. Events parse is 6.36 s (73 G instructions), because the intern map goes superlinear with rehashes under the shard locks as about 8M long IDs pile in. Every earlier instruction model and 60M projection was measured on stale data. **The long-ID fast path is the #1 priority.**
