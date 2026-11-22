@@ -2097,7 +2097,7 @@ struct UserRow {
 /// Per-worker accumulator.
 struct Acc {
     users: Vec<UserRow>,
-    camp: Vec<[i64; 4]>, // (campaign or organic) x day: sessions, purchasing, revenue, assisted
+    camp: Vec<[i64; 4]>, // day x (campaign or organic): sessions, purchasing, revenue, assisted
 }
 
 struct Ctx<'a, 'l> {
@@ -2531,12 +2531,15 @@ fn walk_person<L: Layout, const HAS_CLICKS: bool>(
                 lo += 1;
             }
             let credited = if lo < hi { clicks[hi - 1].camp as usize } else { ctx.ncamp };
-            let credit = &mut acc.camp[credited * ctx.ndays + day_index];
+            let stride = ctx.ncamp + 1;
+            let offset = day_index * stride;
+            let day_camp = &mut acc.camp[offset..offset + stride];
+            let credit = &mut day_camp[credited];
             credit[0] += 1;
             credit[1] += purchased;
             credit[2] += revenue;
             for &campaign in &active.list {
-                acc.camp[campaign as usize * ctx.ndays + day_index][3] += 1;
+                day_camp[campaign as usize][3] += 1;
             }
         } else {
             daily.purchasing += purchased;
@@ -2562,7 +2565,7 @@ fn flush_day<const HAS_CLICKS: bool>(
     sales: &mut CategorySales,
 ) {
     if !HAS_CLICKS {
-        let organic = &mut acc.camp[ctx.ncamp * ctx.ndays + day_index];
+        let organic = &mut acc.camp[day_index * (ctx.ncamp + 1) + ctx.ncamp];
         organic[0] += totals.sessions;
         organic[1] += totals.purchasing;
         organic[2] += totals.revenue;
@@ -2695,7 +2698,7 @@ fn campaign_batch(camp: &[[i64; 4]], ctx: &Ctx) -> RecordBatch {
     let (mut s, mut p, mut r, mut a) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for c in 0..=ctx.ncamp {
         for d in 0..ctx.ndays {
-            let v = camp[c * ctx.ndays + d];
+            let v = camp[d * (ctx.ncamp + 1) + c];
             if v[0] == 0 && v[3] == 0 {
                 continue;
             }
