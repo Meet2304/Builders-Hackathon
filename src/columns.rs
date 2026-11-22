@@ -2,6 +2,8 @@
 //! The caller guards the whole line once, before opening any columns.
 
 use super::links::decode_link;
+#[cfg(all(target_arch = "x86_64", target_feature = "ssse3"))]
+use super::direct_clock;
 use super::{
     BAD_CLOCK, Ck, CkOut, IdIndex, Ids, Lookups, PK_HI, PK_IDX, PK_LO, PK_OFF, Relaxed, STATS,
     STATS_ON, TimestampDecoder, WEEK_MS, Win, clock_millis, decimal_eight, decode_click, pk_place,
@@ -479,6 +481,31 @@ unsafe fn click_time(c: &Column, dec: &TimestampDecoder) -> Option<(i64, *const 
     }
 }
 
+/// A UTC timestamp on a calendar day the decoder caches (the window +-8 days): the
+/// cached date validates its 10 bytes exactly and gives its midnight, as in the event
+/// decoder's `common_ingest`. Anything else takes `click_time`.
+#[cfg(all(target_arch = "x86_64", target_feature = "ssse3"))]
+#[inline(always)]
+unsafe fn cached_utc_click(p: *const u8, dec: &TimestampDecoder) -> Option<(i64, *const u8)> {
+    unsafe {
+        let quote = (*p == b'"') as usize;
+        let p = p.add(quote);
+        if *p.add(4) != b'-' || *p.add(10) != b'T' || *p.add(19) != b'Z' {
+            return None;
+        }
+        let next = terminate::<b'\n'>(p.add(20), quote)?;
+        let prefix = p.cast::<u64>().read_unaligned();
+        let suffix = p.add(8).cast::<u16>().read_unaligned();
+        let key = TimestampDecoder::day_index(suffix);
+        let (expect, midnight) = dec.ingest_days[key];
+        if prefix != expect || suffix != dec.ingest_day_suffix[key] || suffix == 0 {
+            return None;
+        }
+        let ts = direct_clock::<true>(dec.table, p.add(11).cast::<u64>().read_unaligned(), midnight);
+        (ts != i64::MAX).then_some((ts, next))
+    }
+}
+
 // A long quoted ID advances by 36 bytes. The campaign advances by at most
 // 11 bytes and the timestamp can read through 27 bytes from its field start.
 const CLICK_GUARD: usize = 112;
@@ -496,6 +523,12 @@ unsafe fn click_line<'a>(
         let (cid, p) = Column::open(p).id::<b',', b'k'>()?;
         let (person, p) = Column::open(p).id::<b',', b'u'>()?;
         let (camp, p) = campaign(&Column::open(p), &lk.campaigns)?;
+        #[cfg(all(target_arch = "x86_64", target_feature = "ssse3"))]
+        let (ts, next) = match cached_utc_click(p, dec) {
+            Some(decoded) => decoded,
+            None => click_time(&Column::open(p), dec)?,
+        };
+        #[cfg(not(all(target_arch = "x86_64", target_feature = "ssse3")))]
         let (ts, next) = click_time(&Column::open(p), dec)?;
         let row = camp
             .filter(|_| {
