@@ -541,5 +541,240 @@
       "failing_tags": {}
     },
     "timestamp_review_matches": 50
+  },
+  "native_warm": {
+    "seed-42": {
+      "baseline": {
+        "sample": {
+          "returncode": 0,
+          "wall_s": 0.5548,
+          "phases": [
+            {
+              "key": "lookups",
+              "instructions": 586424845,
+              "cycles": 687508013
+            },
+            {
+              "key": "events parsed",
+              "instructions": 17736791048,
+              "cycles": 6567375969
+            },
+            {
+              "key": "clicks parsed",
+              "instructions": 3332993763,
+              "cycles": 1240260123
+            },
+            {
+              "key": "events deduped",
+              "instructions": 788068897,
+              "cycles": 1067745489
+            },
+            {
+              "key": "sessions + attribution",
+              "instructions": 7196393324,
+              "cycles": 3241987118
+            },
+            {
+              "key": "written",
+              "instructions": 2822530175,
+              "cycles": 1018955749
+            },
+            {
+              "key": "(after last mark: exit/unmap)",
+              "instructions": 156678315,
+              "cycles": 63725597
+            }
+          ],
+          "stats_lines": [],
+          "instructions": 32619880367,
+          "cycles": 13887558058,
+          "phys_footprint_bytes": 0
+        },
+        "summary": {
+          "n": 1,
+          "event_lines": 21507843,
+          "phases": {
+            "lookups": {
+              "instructions": 586424845,
+              "cycles": 687508013,
+              "instr_per_row": 27.27,
+              "cycles_per_row": 31.97,
+              "ipc": 0.853,
+              "share": 0.018
+            },
+            "events parsed": {
+              "instructions": 17736791048,
+              "cycles": 6567375969,
+              "instr_per_row": 824.67,
+              "cycles_per_row": 305.35,
+              "ipc": 2.701,
+              "share": 0.5437
+            },
+            "clicks parsed": {
+              "instructions": 3332993763,
+              "cycles": 1240260123,
+              "instr_per_row": 154.97,
+              "cycles_per_row": 57.67,
+              "ipc": 2.687,
+              "share": 0.1022
+            },
+            "events deduped": {
+              "instructions": 788068897,
+              "cycles": 1067745489,
+              "instr_per_row": 36.64,
+              "cycles_per_row": 49.64,
+              "ipc": 0.738,
+              "share": 0.0242
+            },
+            "sessions + attribution": {
+              "instructions": 7196393324,
+              "cycles": 3241987118,
+              "instr_per_row": 334.59,
+              "cycles_per_row": 150.74,
+              "ipc": 2.22,
+              "share": 0.2206
+            },
+            "written": {
+              "instructions": 2822530175,
+              "cycles": 1018955749,
+              "instr_per_row": 131.23,
+              "cycles_per_row": 47.38,
+              "ipc": 2.77,
+              "share": 0.0865
+            },
+            "(after last mark: exit/unmap)": {
+              "instructions": 156678315,
+              "cycles": 63725597,
+              "instr_per_row": 7.28,
+              "cycles_per_row": 2.96,
+              "ipc": 2.459,
+              "share": 0.0048
+            }
+          },
+          "instructions": 32619880367,
+          "instr_per_row": 1516.65,
+          "cycles_per_row": 645.7,
+          "ipc": 2.349
+        },
+        "clean_target": true,
+        "binary_sha256": "b9c7728052a5260c6bc0c0ed57c51c2a7268bf967969eff81db52396b6410a7b"
+      },
+      "prototype": {
+        "sample": {
+          "returncode": 0,
+          "wall_s": 0.4732,
+          "phases": [
+            {
+              "key": "lookups",
+              "instructions": 576901931,
+              "cycles": 641586340
+            },
+            {
+              "key": "events parsed",
+              "instructions": 15772064223,
+              "cycles": 6123606701
+            },
+            {
+              "key": "clicks parsed",
+              "instructions": 3204674044,
+              "cycles": 1161424765
+            },
+            {
+              "key": "events deduped",
+              "instructions": 768833921,
+              "cycles": 1018019289
+            },
+            {
+              "key": "sessions + attribution",
+              "instructions": 7080472564,
+              "cycles": 2854389379
+            },
+            {
+              "key": "written",
+              "instructions": 2805941769,
+              "cycles": 1021339068
+            },
+            {
+              "key": "(after last mark: exit/unmap)",
+              "instructions": 154337115,
+              "cycles": 58855583
+            }
+          ],
+          "stats_lines": [],
+          "instructions": 30363225567,
+          "cycles": 12879221125,
+          "phys_footprint_bytes": 0,
+          "canonical_hash": "3a77b9fd70f2a47435c182de701737f9c73df847f230772c0b2251ca6606e47a"
+        },
+        "summary": {
+          "n": 1,
+          "event_lines": 21507843,
+          "phases": {
+            "lookups": {
+              "instructions": 576901931,
+              "cycles": 641586340,
+              "instr_per_row": 26.82,
+              "cycles_per_row": 29.83,
+              "ipc": 0.899,
+              "share": 0.019
+            },
+            "events parsed": {
+              "instructions": 15772064223,
+              "cycles": 6123606701,
+              "instr_per_row": 733.32,
+              "cycles_per_row": 284.72,
+              "ipc": 2.576,
+              "share": 0.5194
+            },
+            "clicks parsed": {
+              "instructions": 3204674044,
+              "cycles": 1161424765,
+              "instr_per_row": 149.0,
+              "cycles_per_row": 54.0,
+              "ipc": 2.759,
+              "share": 0.1055
+            },
+            "events deduped": {
+              "instructions": 768833921,
+              "cycles": 1018019289,
+              "instr_per_row": 35.75,
+              "cycles_per_row": 47.33,
+              "ipc": 0.755,
+              "share": 0.0253
+            },
+            "sessions + attribution": {
+              "instructions": 7080472564,
+              "cycles": 2854389379,
+              "instr_per_row": 329.2,
+              "cycles_per_row": 132.71,
+              "ipc": 2.481,
+              "share": 0.2332
+            },
+            "written": {
+              "instructions": 2805941769,
+              "cycles": 1021339068,
+              "instr_per_row": 130.46,
+              "cycles_per_row": 47.49,
+              "ipc": 2.747,
+              "share": 0.0924
+            },
+            "(after last mark: exit/unmap)": {
+              "instructions": 154337115,
+              "cycles": 58855583,
+              "instr_per_row": 7.18,
+              "cycles_per_row": 2.74,
+              "ipc": 2.622,
+              "share": 0.0051
+            }
+          },
+          "instructions": 30363225567,
+          "instr_per_row": 1411.73,
+          "cycles_per_row": 598.82,
+          "ipc": 2.358
+        },
+        "clean_target": true,
+        "binary_sha256": "918af20e24f5320e48bec00461636caf324916cb7969cfa9b5624a1b6a78f7a0"
+      }
+    }
   }
 }
