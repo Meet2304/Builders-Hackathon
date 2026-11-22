@@ -769,6 +769,29 @@ class Eval:
         stats = gates.perf_20m(self.r) or {}
         self.r["calibration"] = calibration_report(cal, stats.get("median"), ipr_20m(self.r))
 
+    def native_checkpoint(self):
+        """Write a provisional result before amd64 and Linux. Those stages are the slow ones, and a dead
+        run otherwise leaves no JSON. finish() overwrites this with the complete verdict."""
+        if not self.prof.get("docker"):
+            return
+        import copy
+        snap = copy.deepcopy(self.r)
+        snap["_suite_oracle_missing"] = [n for n, d in self.suite.items() if d["kind"] == "oracle"
+                                         and n not in snap["correctness"]["differential"]]
+        snap["gates"] = {"A": gates.gate_a(snap), "B": gates.gate_b(snap), "C": gates.gate_c(snap)}
+        snap.pop("_suite_oracle_missing", None)
+        snap["verdict"] = gates.verdict(snap)
+        snap["verdict"]["final"] = False
+        snap["partial"] = "native"
+        snap["verdict"]["reasons"].insert(0, "native checkpoint; amd64 and Linux gates still running")
+        self.comparison(snap)
+        snap["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        snap["duration_s"] = round(time.time() - self.t0, 1)
+        out = EVALS / "results"
+        write_json(out / f"{snap['version']}.json", snap)
+        (out / f"{snap['version']}.md").write_text(render_md(snap))
+        log(f"native checkpoint written ({snap['verdict']['verdict']}, provisional) after {snap['duration_s']:.0f}s")
+
     def finish(self):
         r = self.r
         # every oracle dataset in the suite must have been diffed for Gate A to pass
@@ -783,6 +806,7 @@ class Eval:
             r["verdict"]["reasons"].append(f"{len(r['errors'])} framework error(s): see errors[]")
             if r["verdict"]["verdict"] == "SUBMIT-READY":
                 r["verdict"].update(verdict="HOLD", final=False)
+        self.comparison()
         # a version that passes Gate A becomes the 60M consistency baseline if none exists yet
         cc = getattr(self, "_consistency_candidate", None)
         if cc and r["gates"]["A"]["status"] == "pass":
@@ -796,6 +820,7 @@ class Eval:
                                             "why": "first version to pass Gate A; baseline for 60M consistency"})
             r["correctness"]["differential"][name]["baseline_established"] = True
             self.note(f"{r['version']} established the 60M consistency baseline in data/consistency/{name}")
+        r.pop("partial", None)
         r["finished"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
         r["duration_s"] = round(time.time() - self.t0, 1)
         out = EVALS / "results"
@@ -880,19 +905,21 @@ class Eval:
                                   no_docker=self.a.no_docker, ab_runs=None, no_ledger=self.a.no_ledger, rebuild=False)
         Eval(args)._amend(stages)
 
-    def comparison(self):
-        """results/<version>-vs-<reference>.md plus a summary embedded in this result."""
+    def comparison(self, result: dict | None = None):
+        """results/<version>-vs-<reference>.md plus a summary embedded in this result.
+        Pass result to compare a snapshot (the native checkpoint) without touching the live record."""
+        r = self.r if result is None else result
         ref = self.reference()
         if not ref:
             return
         import compare as cmp
-        sections = cmp.compare(ref, self.r)
-        name = f"{self.r['version']}-vs-{ref['version']}"
-        (EVALS / "results" / f"{name}.md").write_text(cmp.render(ref, self.r, sections, md=True))
+        sections = cmp.compare(ref, r)
+        name = f"{r['version']}-vs-{ref['version']}"
+        (EVALS / "results" / f"{name}.md").write_text(cmp.render(ref, r, sections, md=True))
         keep = {"Headline", "Per-phase counters, 20M (untimed probes)"}
-        self.r["comparison"] = {"reference": ref["version"], "reference_sha": ref["sha"], "file": f"results/{name}.md",
-                                "sections": [(t, rows) for t, rows in sections
-                                             if t in keep or t.startswith("Same-session")]}
+        r["comparison"] = {"reference": ref["version"], "reference_sha": ref["sha"], "file": f"results/{name}.md",
+                           "sections": [(t, rows) for t, rows in sections
+                                        if t in keep or t.startswith("Same-session")]}
 
     @benchmark_lock()
     def main(self):
@@ -919,6 +946,9 @@ class Eval:
             self.step("thread scaling", self.thread_scaling)
         self.step("size scaling", self.size_scaling)
         self.step("baseline", self.baseline)
+        self.step("constraints", self.constraints)
+        self.step("calibration", self.calibration)
+        self.native_checkpoint()
         if self.prof["docker"]:
             self.step("containers", self.containers)
         if self.a.profile == "full":
@@ -926,7 +956,6 @@ class Eval:
         self.step("constraints", self.constraints)
         self.step("calibration", self.calibration)
         self.step("reference refresh", self.refresh_reference)
-        self.step("comparison", self.comparison)
         self.finish()
 
 
