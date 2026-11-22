@@ -499,3 +499,11 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Codex ran out 06:38** → Sol, Explorer 4 and Neon Architect moved to Codex-Andrew 6.1 Sol (user). Neon Detective folded into Neon Architect.
   - **v13 = `integ/v13` @ `ce45d97`** (clean merge of both). Orchestrator gates: fixtures 36/36, new dev MATCH under `NO_FAST` 0–3, seed-42 MATCH, seed-535 PARTS=4096 NCPU=8 ×10 MATCH vs v10.1 output; long-ID 40 running. Eval: screen + x86 correctness (the SSSE3 paths only run on x86) + Gate C. Red Team: v13 adversarial including x86 builds. Target verdict about 07:30.
   - Neon Architect: Gemini Neon High working with the full brief; targeting dedup (107 Ir/line, about 56% of which is memset — watch the rep-stos correction).
+- **v13 `ce45d97` progress:**
+  - **x86 correctness MATCH** (seed-42 at NCPU=8 in the x86-64-v2 container; 300 fuzz seeds at NCPU 1/2/4/8, strict 258/258, robust 42/42). Long-ID 900/900.
+  - **Sol's `7e8b797` passes the x86 gates in full.**
+  - Red Team: no mismatches so far (radix 511/512/513 boundaries, every ASCII lane of the dual-ID pack, timestamp cache mutations, click-sort and writer priority gates, pyarrow/polars readback).
+- **Sol `8b70641`** (fused ignored-tail decode): −2.31% on top of `7e8b797`, −6.1% cumulative events-side. `fb7a9f6` rejected (+0.25%).
+- **v13.1 = `integ/v13.1` @ `1262b3e`** = `ce45d97` + `8b70641`. Native gates: fixtures 36/36, dev `NO_FAST` 0–3, seed-42 MATCH; long-ID and seed-535 running. Plan: submit v13 first, then v13.1 via the fast screen.
+- **Explorer 4 `c348600`** (PLAIN counters): only −0.6% extra Ir, but output 3.3× larger. Not taken.
+- Neon Architect `5bc0d25` (control-byte dedup): raw −4.8%, but **rep-stos corrected −0.74%**. HOLD. Gemini Neon High's v14 plan is still pending.
