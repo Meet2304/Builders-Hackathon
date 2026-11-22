@@ -337,3 +337,10 @@ Newest entries at the bottom. Each entry records who did what, on which branch o
   - **Calibration: board ≈ 1.12 × local gVisor 20M process time.** v7b: 1.5275 / 1.360 = 1.123; v5: 2.1461 / 1.910 = 1.124, same session. **The gVisor harness is now the trusted predictor.**
   - **What the leaders' ~0.45 s needs:** about 0.40 s of local gVisor time. v7b is plain Docker 0.55 s, plus **0.81 s of gVisor overhead**, with cgroup pgfault **2.40M under gVisor vs 18.8k plain** (peak RSS 4.06 GiB). gVisor gives no THP to app memory, so every 4 KB page of the ~4 GiB footprint plus the mmapped input faults individually. **The #1 lever is memory footprint and touched bytes, not instructions.** Second is the write path (165 ms vs 35 ms).
 - **Orchestrator:** launched the **Footprint** thread (claude_andrew, `explore/footprint` from `2bfb034`): fault anatomy by structure and phase, then prototypes: streaming `pread` into reused buffers instead of mmap, buffer reuse across phases, no zero-fill, presizing. Told Eval to make `board_est = 1.123 × gVisor 20M` primary and to headline gVisor pgfault and RSS. Told Explorer Sol and Neon Detective to judge by faults.
+- **v8 `2bfb034` verification (03:05):**
+  - **Red Team PASS:** every adversarial stage MATCHes under all knobs.
+  - **Analyst 3 (Kiro) x86 MATCH:** NCPU=1, NCPU=8 fair-sched and `NO_FAST`. x86 instructions per event line **1,481 → 1,316** (events 753 → 588, −165, from the per-column decoder). SSE2 and SSSE3 paths are active, with no scalar fallback. Notes are at `analysis3` `258dd8d`.
+  - Method's gates passed earlier (900/900 long-ID suite, 4,600 fuzz).
+  - Analyst 2's spec read didn't happen: Antigravity's Claude models hit their third-party cap (reset in about 5 h; only the Gemini models work).
+  - Eval's v8 chain is running (untimed, then full with paired 7-round gVisor A/B vs v7b, then gVisor 60M).
+- **Re-routes:** Explorer 3 (write path) → Kiro Sonnet 4.5; Explorer 4 (links) → Antigravity Gemini 3.8 Flash.
